@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/doctor"
+	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
@@ -68,6 +70,29 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintf(stdout, "damstack %s, tools image %s\n", release.Version, release.ImageRef())
 		},
 	})
+	stack := &cobra.Command{
+		Use:   "stack",
+		Short: "Work on a stack of your own",
+	}
+	stack.AddCommand(&cobra.Command{
+		Use:   "lint [dir]",
+		Short: "Check the damstack.yaml of a stack, the current directory by default",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			dir := "."
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			m, err := manifest.Load(dir, release.Version)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "%s: %s, %d steps, %d commands, check: %s\n",
+				m.Name, manifest.APIVersion, len(m.Steps), len(m.Commands), strings.Join(m.Check, " "))
+			return nil
+		},
+	})
+	root.AddCommand(stack)
 	return root.ExecuteContext(ctx)
 }
 
