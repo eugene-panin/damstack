@@ -12,19 +12,19 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/eugene-panin/hashistack/internal/doctor"
-	"github.com/eugene-panin/hashistack/internal/project"
-	"github.com/eugene-panin/hashistack/internal/release"
+	"github.com/eugene-panin/damstack/internal/doctor"
+	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/release"
 )
 
-var errProblems = errors.New("hashistack cannot work until the problems above are fixed")
+var errProblems = errors.New("damstack cannot work until the problems above are fixed")
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		if !errors.Is(err, errProblems) {
-			fmt.Fprintln(os.Stderr, "hashistack:", err)
+			fmt.Fprintln(os.Stderr, "damstack:", err)
 		}
 		os.Exit(1)
 	}
@@ -32,8 +32,8 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	root := &cobra.Command{
-		Use:           "hashistack",
-		Short:         "Run your own server as a small private cloud, from one config file",
+		Use:           "damstack",
+		Short:         "Deploy and run infrastructure stacks from one config file, with nothing but Docker installed",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -54,7 +54,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	root.AddCommand(&cobra.Command{
 		Use:   "doctor",
-		Short: "Check that this machine has what hashistack needs, and say how to get what it lacks",
+		Short: "Check that this machine has what damstack needs, and say how to get what it lacks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDoctor(cmd.Context(), stdout)
@@ -65,7 +65,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		Short: "Print the version and the tools image it uses",
 		Args:  cobra.NoArgs,
 		Run: func(*cobra.Command, []string) {
-			fmt.Fprintf(stdout, "hashistack %s, tools image %s\n", release.Version, release.ImageRef())
+			fmt.Fprintf(stdout, "damstack %s, tools image %s\n", release.Version, release.ImageRef())
 		},
 	})
 	return root.ExecuteContext(ctx)
@@ -92,7 +92,7 @@ func markerPath() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "hashistack", "checked-"+release.Version)
+	return filepath.Join(dir, "damstack", "checked-"+release.Version)
 }
 
 func checkedBefore() bool {

@@ -1,4 +1,4 @@
-// Package project reads the stack.yaml of a hashistack project.
+// Package project reads the stack.yaml of a damstack project.
 package project
 
 import (

@@ -1,4 +1,4 @@
-// Package release pins what a build of hashistack works with.
+// Package release pins what a build of damstack works with.
 package release
 
 var Version = "dev"

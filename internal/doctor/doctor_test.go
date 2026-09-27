@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eugene-panin/hashistack/internal/project"
-	"github.com/eugene-panin/hashistack/internal/release"
+	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/release"
 )
 
 type exitError int
@@ -117,7 +117,7 @@ func TestHealthyMachineHasNothingToFix(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if Print(&out, results) || !strings.Contains(out.String(), "Everything hashistack needs is here.") {
+	if Print(&out, results) || !strings.Contains(out.String(), "Everything damstack needs is here.") {
 		t.Errorf("Print on a healthy machine:\n%s", out.String())
 	}
 }

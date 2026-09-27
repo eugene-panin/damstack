@@ -1,4 +1,4 @@
-module github.com/eugene-panin/hashistack
+module github.com/eugene-panin/damstack
 
 go 1.26.5
 

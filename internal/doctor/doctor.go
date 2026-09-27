@@ -1,4 +1,4 @@
-// Package doctor checks that a machine has what hashistack needs, and says how
+// Package doctor checks that a machine has what damstack needs, and says how
 // to get what it lacks.
 package doctor
 
@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eugene-panin/hashistack/internal/project"
-	"github.com/eugene-panin/hashistack/internal/release"
+	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/release"
 )
 
 type Status int
@@ -132,7 +132,7 @@ func checkDocker(ctx context.Context, env Env) []Result {
 	version := strings.TrimSpace(string(out))
 	results := []Result{{group, OK, "Docker " + version + " is running", ""}}
 	if major, _, _ := strings.Cut(version, "."); atoi(major) < 24 {
-		results = append(results, Result{group, Warn, "Docker " + version + " is old; hashistack is tested with 24 and later", "update Docker"})
+		results = append(results, Result{group, Warn, "Docker " + version + " is old; damstack is tested with 24 and later", "update Docker"})
 	}
 
 	info, err := env.Run(ctx, "docker", "info", "--format", "{{.NCPU}}|{{.MemTotal}}|{{.Architecture}}|{{.OperatingSystem}}")
@@ -288,7 +288,7 @@ func Print(w io.Writer, results []Result) bool {
 	}
 	fmt.Fprintln(w)
 	if len(fixes) == 0 {
-		fmt.Fprintln(w, "Everything hashistack needs is here.")
+		fmt.Fprintln(w, "Everything damstack needs is here.")
 		return false
 	}
 	fmt.Fprintln(w, "To do:")
