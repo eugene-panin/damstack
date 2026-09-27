@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -24,7 +25,7 @@ var errProblems = errors.New("damstack cannot work until the problems above are 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		if !errors.Is(err, errProblems) {
 			fmt.Fprintln(os.Stderr, "damstack:", err)
 		}
@@ -32,7 +33,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	root := &cobra.Command{
 		Use:           "damstack",
 		Short:         "Deploy and run infrastructure stacks from one config file, with nothing but Docker installed",
@@ -92,7 +93,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return nil
 		},
 	})
-	root.AddCommand(stack)
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout))
 	return root.ExecuteContext(ctx)
 }
 
@@ -113,11 +114,11 @@ func runDoctor(ctx context.Context, w io.Writer) error {
 }
 
 func markerPath() string {
-	dir, err := os.UserConfigDir()
+	dir, err := config.Dir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "damstack", "checked-"+release.Version)
+	return filepath.Join(dir, "checked-"+release.Version)
 }
 
 func checkedBefore() bool {
