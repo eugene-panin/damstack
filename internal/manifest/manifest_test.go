@@ -69,6 +69,9 @@ commands:
     run: [bin/extra]
 check:
   answers: test/answers.yaml
+  steps:
+    - name: resolve
+      ansible: {playbook: ansible/provision.yml, inventory: ansible/inventory}
 `
 
 func stackDir(t *testing.T, manifest string) string {
@@ -116,7 +119,7 @@ func TestValidManifestLoads(t *testing.T) {
 	}
 	if m.Name != "hashistack" || len(m.Steps) != 2 || m.Steps[0].Ansible.Playbook != "ansible/provision.yml" ||
 		m.Steps[1].Tofu.Policy == nil || !m.Steps[1].Confirm || m.Commands["output"].Tofu.Action != "output" ||
-		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" {
+		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" || len(m.Check.Steps) != 1 {
 		t.Errorf("got %+v", m)
 	}
 }
@@ -155,7 +158,8 @@ func TestProblems(t *testing.T) {
 		{"keep outside the project", "file: .damstack/work/vault-init.json", "file: ../vault-init.json", "a path inside the project", "file: ../vault-init.json"},
 		{"command shadowing a damstack command", "backup-pull:", "deploy:", `"deploy" is a command of damstack itself`, "deploy:"},
 		{"run program outside the stack", "run: [bin/extra]", "run: [../other/tool]", "leaves the stack directory", "run: [../other/tool]"},
-		{"no check answers", "check:\n  answers: test/answers.yaml\n", "", "check.answers: is required", ""},
+		{"no check answers", "  answers: test/answers.yaml\n", "", "check.answers: is required", ""},
+		{"check step with no tool", "      ansible: {playbook: ansible/provision.yml, inventory: ansible/inventory}\n", "", "exactly one of ansible, tofu and run", "- name: resolve"},
 		{"missing check answers", "answers: test/answers.yaml", "answers: test/other.yaml", "test/other.yaml does not exist", "answers:"},
 		{"secret named as a question", "name: api_token", "name: mail", `"mail" is already a question`, "- name: mail\n    ask"},
 		{"question named project", "name: provider", "name: project", "damstack asks itself", "name: project\n"},

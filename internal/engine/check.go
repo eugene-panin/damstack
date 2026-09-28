@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -17,7 +16,7 @@ import (
 
 // Check proves the stack on a project set up from its test answers, without
 // a server: the playbooks parse, the OpenTofu directories validate, the
-// policies pass their tests, then check.run runs.
+// policies pass their tests, then check.steps run.
 func (e *Engine) Check(ctx context.Context) error {
 	steps := slices.Clone(e.Manifest.Steps)
 	for _, name := range slices.Sorted(maps.Keys(e.Manifest.Commands)) {
@@ -63,14 +62,9 @@ func (e *Engine) Check(ctx context.Context) error {
 			}
 		}
 	}
-	if len(e.Manifest.Check.Run) > 0 {
-		run := e.Manifest.Check.Run
-		e.say("%s", strings.Join(run, " "))
-		program := run[0]
-		if strings.Contains(program, "/") {
-			program = path.Join(toolbox.StackDir, program)
-		}
-		if err := e.Runner.Run(ctx, toolbox.Cmd{Args: append([]string{program}, run[1:]...)}); err != nil {
+	for _, s := range e.Manifest.Check.Steps {
+		e.say("%s", s.Name)
+		if err := e.Run(ctx, s, nil); err != nil {
 			return err
 		}
 	}

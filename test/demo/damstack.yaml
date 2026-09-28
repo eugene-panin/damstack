@@ -55,3 +55,6 @@ commands:
     tofu: {dir: infra, action: output}
 check:
   answers: test/answers.yaml
+  steps:
+    - name: init-runs
+      run: [bin/init]

@@ -1,7 +1,7 @@
 # damstack
 
 One program to deploy and run infrastructure stacks. A stack, such as
-[hashistack](https://github.com/eugene-panin/hashistack-starter) (Consul,
+[hashistack](https://github.com/eugene-panin/damstack-hashistack) (Consul,
 Vault and Nomad on one server over WireGuard), is a repository with a
 `damstack.yaml` that says what to ask and which steps to run. damstack fetches
 the stack, keeps the deployment in one directory described by `stack.yaml`,

@@ -135,10 +135,11 @@ type Keep struct {
 }
 
 // Check is how damstack proves the stack without a server: a project set up
-// from Answers, then its policies, OpenTofu directories and playbooks checked.
+// from Answers, then its playbooks, OpenTofu directories and policies
+// checked, then Steps run on it.
 type Check struct {
-	Answers string   `yaml:"answers"`
-	Run     []string `yaml:"run"`
+	Answers string `yaml:"answers"`
+	Steps   []Step `yaml:"steps"`
 }
 
 // Problem is one thing wrong with a manifest, at a line of it when known.
@@ -334,8 +335,8 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	} else {
 		c.checkFile("check.answers", m.Check.Answers, dir, false)
 	}
-	if len(m.Check.Run) > 0 {
-		c.checkRun("check.run", m.Check.Run, dir)
+	for i, s := range m.Check.Steps {
+		c.checkStep(fmt.Sprintf("check.steps[%d]", i), s, dir)
 	}
 }
 
