@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -88,8 +87,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(stdout, "%s: %s, %d steps, %d commands, check: %s\n",
-				m.Name, manifest.APIVersion, len(m.Steps), len(m.Commands), strings.Join(m.Check, " "))
+			fmt.Fprintf(stdout, "%s: %s, %d questions, %d secrets, %d steps, %d commands\n",
+				m.Name, manifest.APIVersion, len(m.Questions), len(m.Secrets), len(m.Steps), len(m.Commands))
 			return nil
 		},
 	})

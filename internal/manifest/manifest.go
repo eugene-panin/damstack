@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
@@ -31,15 +33,17 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 var Builtin = []string{"add", "apply", "deploy", "doctor", "help", "remove", "stack", "stacks", "status", "upgrade", "version"}
 
 type Manifest struct {
-	APIVersion  string              `yaml:"apiVersion"`
-	Name        string              `yaml:"name"`
-	Description string              `yaml:"description"`
-	Requires    Requires            `yaml:"requires"`
-	Image       string              `yaml:"image"`
-	Questions   []Question          `yaml:"questions"`
-	Steps       []Step              `yaml:"steps"`
-	Commands    map[string][]string `yaml:"commands"`
-	Check       []string            `yaml:"check"`
+	APIVersion  string          `yaml:"apiVersion"`
+	Name        string          `yaml:"name"`
+	Description string          `yaml:"description"`
+	Requires    Requires        `yaml:"requires"`
+	Image       string          `yaml:"image"`
+	Questions   []Question      `yaml:"questions"`
+	Secrets     []Secret        `yaml:"secrets"`
+	Config      string          `yaml:"config"`
+	Steps       []Step          `yaml:"steps"`
+	Commands    map[string]Step `yaml:"commands"`
+	Check       Check           `yaml:"check"`
 }
 
 type Requires struct {
@@ -48,6 +52,8 @@ type Requires struct {
 	Host     []string `yaml:"host"`
 }
 
+// Question is asked on the first deploy; the answers render Config into the
+// stack.yaml of the project.
 type Question struct {
 	Name    string   `yaml:"name"`
 	Prompt  string   `yaml:"prompt"`
@@ -55,19 +61,71 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
-	// Secret answers are read without echo and never written to stack.yaml;
-	// the stack keeps them encrypted.
-	Secret bool `yaml:"secret"`
 	// When names an earlier bool question; this one is asked only if that
 	// answer is true.
 	When string `yaml:"when"`
 }
 
+// Secret is generated or asked for once, and kept in the encrypted vault.yml
+// of the project under its name.
+type Secret struct {
+	Name     string `yaml:"name"`
+	Generate string `yaml:"generate"`
+	Bytes    int    `yaml:"bytes"`
+	Ask      string `yaml:"ask"`
+	When     string `yaml:"when"`
+	// Cert is where a generated ca puts its certificate in the project; the
+	// key is the secret.
+	Cert string `yaml:"cert"`
+}
+
+// Generators are the ways a secret can be generated.
+var Generators = []string{"base64", "ca", "hex", "password", "uuid"}
+
+// Step runs one tool: exactly one of Ansible, Tofu and Run.
 type Step struct {
-	Name    string   `yaml:"name"`
+	Name    string            `yaml:"name"`
+	Ansible *Ansible          `yaml:"ansible"`
+	Tofu    *Tofu             `yaml:"tofu"`
+	Run     []string          `yaml:"run"`
+	Env     map[string]string `yaml:"env"`
+	Keep    *Keep             `yaml:"keep"`
+	Confirm bool              `yaml:"confirm"`
+	Once    bool              `yaml:"once"`
+}
+
+type Ansible struct {
+	Playbook     string `yaml:"playbook"`
+	Inventory    string `yaml:"inventory"`
+	Requirements string `yaml:"requirements"`
+}
+
+type Tofu struct {
+	Dir    string  `yaml:"dir"`
+	Action string  `yaml:"action"`
+	Policy *Policy `yaml:"policy"`
+}
+
+// Actions are what a tofu step does.
+var Actions = []string{"apply", "output", "plan"}
+
+type Policy struct {
+	Dir       string `yaml:"dir"`
+	NomadJobs bool   `yaml:"nomad_jobs"`
+}
+
+// Keep moves values a step left in a JSON file of the project into secrets,
+// then removes the file.
+type Keep struct {
+	File    string            `yaml:"file"`
+	Secrets map[string]string `yaml:"secrets"`
+}
+
+// Check is how damstack proves the stack without a server: a project set up
+// from Answers, then its policies, OpenTofu directories and playbooks checked.
+type Check struct {
+	Answers string   `yaml:"answers"`
 	Run     []string `yaml:"run"`
-	Confirm bool     `yaml:"confirm"`
-	Once    bool     `yaml:"once"`
 }
 
 // Problem is one thing wrong with a manifest, at a line of it when known.
@@ -208,6 +266,13 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 
 	c.checkQuestions(m.Questions)
 
+	c.checkSecrets(m, dir)
+	if m.Config != "" {
+		c.checkFile("config", m.Config, dir, false)
+	} else if len(m.Questions) > 0 {
+		c.add("config", "is required with questions: the template the answers render into stack.yaml")
+	}
+
 	if len(m.Steps) == 0 {
 		c.add("steps", "at least one step is required")
 	}
@@ -221,7 +286,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			c.add(path+".name", "%q is already a step", s.Name)
 		}
 		seen[s.Name] = true
-		c.checkRun(path+".run", s.Run, dir)
+		c.checkStep(path, s, dir)
 	}
 
 	for _, name := range sortedKeys(m.Commands) {
@@ -232,13 +297,127 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		if slices.Contains(Builtin, name) {
 			c.add(path, "%q is a command of damstack itself", name)
 		}
-		c.checkRun(path, m.Commands[name], dir)
+		c.checkStep(path, m.Commands[name], dir)
 	}
 
-	if len(m.Check) == 0 {
-		c.add("check", "is required: a command that proves the stack works without a server")
+	if m.Check.Answers == "" {
+		c.add("check.answers", "is required: answers damstack sets up a test project from, to prove the stack without a server")
 	} else {
-		c.checkRun("check", m.Check, dir)
+		c.checkFile("check.answers", m.Check.Answers, dir, false)
+	}
+	if len(m.Check.Run) > 0 {
+		c.checkRun("check.run", m.Check.Run, dir)
+	}
+}
+
+func (c *checker) checkStep(path string, s Step, dir string) {
+	kinds := 0
+	if s.Ansible != nil {
+		kinds++
+		if s.Ansible.Playbook == "" {
+			c.add(path+".ansible.playbook", "is required")
+		} else {
+			c.checkFile(path+".ansible.playbook", s.Ansible.Playbook, dir, false)
+		}
+		if s.Ansible.Inventory != "" {
+			c.checkFile(path+".ansible.inventory", s.Ansible.Inventory, dir, true)
+		}
+		if s.Ansible.Requirements != "" {
+			c.checkFile(path+".ansible.requirements", s.Ansible.Requirements, dir, false)
+		}
+	}
+	if s.Tofu != nil {
+		kinds++
+		if s.Tofu.Dir == "" {
+			c.add(path+".tofu.dir", "is required")
+		} else {
+			c.checkFile(path+".tofu.dir", s.Tofu.Dir, dir, true)
+		}
+		if !slices.Contains(Actions, s.Tofu.Action) {
+			c.add(path+".tofu.action", "%q is not an action; one of %s", s.Tofu.Action, strings.Join(Actions, ", "))
+		}
+		if s.Tofu.Policy != nil {
+			c.checkFile(path+".tofu.policy.dir", s.Tofu.Policy.Dir, dir, true)
+		}
+	}
+	if s.Run != nil {
+		kinds++
+		c.checkRun(path+".run", s.Run, dir)
+	}
+	if kinds != 1 {
+		c.add(path, "a step runs exactly one of ansible, tofu and run")
+	}
+	for _, key := range slices.Sorted(maps.Keys(s.Env)) {
+		if _, err := template.New(key).Option("missingkey=error").Funcs(TemplateFuncs).Parse(s.Env[key]); err != nil {
+			c.add(path+".env."+key, "%v", err)
+		}
+	}
+	if s.Keep != nil {
+		if s.Keep.File == "" || !filepath.IsLocal(s.Keep.File) {
+			c.add(path+".keep.file", "is required, a path inside the project")
+		}
+		if len(s.Keep.Secrets) == 0 {
+			c.add(path+".keep.secrets", "names at least one secret")
+		}
+		for name := range s.Keep.Secrets {
+			if !questionRe.MatchString(name) {
+				c.add(path+".keep.secrets", "%q is not a secret name", name)
+			}
+		}
+	}
+}
+
+func (c *checker) checkSecrets(m *Manifest, dir string) {
+	bools := map[string]bool{}
+	for _, q := range m.Questions {
+		bools[q.Name] = q.Type == "bool"
+	}
+	seen := map[string]bool{}
+	for i, s := range m.Secrets {
+		path := fmt.Sprintf("secrets[%d]", i)
+		if !questionRe.MatchString(s.Name) {
+			c.add(path+".name", "must be lowercase letters, digits and underscores, starting with a letter")
+		}
+		if seen[s.Name] {
+			c.add(path+".name", "%q is already a secret", s.Name)
+		}
+		seen[s.Name] = true
+		switch {
+		case (s.Generate == "") == (s.Ask == ""):
+			c.add(path, "a secret is either generated or asked for: exactly one of generate and ask")
+		case s.Generate != "" && !slices.Contains(Generators, s.Generate):
+			c.add(path+".generate", "%q is not a generator; one of %s", s.Generate, strings.Join(Generators, ", "))
+		}
+		if s.Bytes < 0 || s.Bytes > 1024 {
+			c.add(path+".bytes", "must be between 1 and 1024")
+		}
+		if s.Cert != "" && (s.Generate != "ca" || !filepath.IsLocal(s.Cert)) {
+			c.add(path+".cert", "is for a generated ca only, a path inside the project")
+		}
+		if s.When != "" && !bools[s.When] {
+			c.add(path+".when", "%q is not a bool question", s.When)
+		}
+	}
+}
+
+// checkFile checks that a path of the manifest is inside the stack and there,
+// a directory when dirWanted.
+func (c *checker) checkFile(path, name, dir string, dirWanted bool) {
+	if !filepath.IsLocal(name) {
+		c.add(path, "%s is not a path inside the stack", name)
+		return
+	}
+	if dir == "" {
+		return
+	}
+	info, err := os.Stat(filepath.Join(dir, name))
+	switch {
+	case err != nil:
+		c.add(path, "%s does not exist in the stack", name)
+	case dirWanted && !info.IsDir():
+		c.add(path, "%s is not a directory", name)
+	case !dirWanted && info.IsDir():
+		c.add(path, "%s is a directory, not a file", name)
 	}
 }
 
@@ -251,9 +430,6 @@ func (c *checker) checkQuestions(questions []Question) {
 			if t, ok := types[q.When]; !ok || t != "bool" {
 				c.add(path+".when", "%q is not a bool question asked before this one", q.When)
 			}
-		}
-		if q.Secret && (q.Default != nil || (q.Type != "" && q.Type != "string")) {
-			c.add(path+".secret", "a secret is a string without a default")
 		}
 		types[q.Name] = q.Type
 		if q.Type == "" {
@@ -392,11 +568,11 @@ func lineOf(root *yaml.Node, path string) int {
 			key = part[:open]
 			index, _ = strconv.Atoi(part[open+1 : len(part)-1])
 		}
-		next := child(node, key)
+		keyNode, next := child(node, key)
 		if next == nil {
 			return line
 		}
-		line, node = next.Line, next
+		line, node = keyNode.Line, next
 		if index >= 0 {
 			if node.Kind != yaml.SequenceNode || index >= len(node.Content) {
 				return line
@@ -408,19 +584,20 @@ func lineOf(root *yaml.Node, path string) int {
 	return line
 }
 
-func child(node *yaml.Node, key string) *yaml.Node {
+// child finds the key of a mapping and its value.
+func child(node *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
 	if node.Kind != yaml.MappingNode {
-		return nil
+		return nil, nil
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value == key {
-			return node.Content[i+1]
+			return node.Content[i], node.Content[i+1]
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func sortedKeys(m map[string][]string) []string {
+func sortedKeys(m map[string]Step) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

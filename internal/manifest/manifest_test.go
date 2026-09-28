@@ -31,165 +31,144 @@ questions:
   - name: mail_hostname
     prompt: The mail host name
     when: mail
-  - name: token
-    prompt: An API token
-    secret: true
+secrets:
+  - name: ca
+    generate: ca
+    cert: ca.pem
+  - name: state_passphrase
+    generate: hex
+    bytes: 32
+  - name: api_token
+    ask: An API token
+config: template/stack.yaml.tmpl
 steps:
-  - name: secrets
-    run: [bin/stack, secrets]
-    once: true
+  - name: provision
+    ansible:
+      playbook: ansible/provision.yml
+      inventory: ansible/inventory
+    keep:
+      file: .damstack/work/vault-init.json
+      secrets: {root_token: root_token}
   - name: apply
-    run: [make, infra-apply]
+    tofu:
+      dir: infra
+      action: apply
+      policy: {dir: policy, nomad_jobs: true}
+    env:
+      NOMAD_ADDR: "https://{{ firstHost .config.network.cidr }}:4646"
     confirm: true
 commands:
-  backup-pull: [bin/stack, backup, pull]
-check: [bin/check]
+  output:
+    tofu: {dir: infra, action: output}
+  backup-pull:
+    run: [bin/extra]
+check:
+  answers: test/answers.yaml
 `
 
-func stackDir(t *testing.T, manifest string, executables ...string) string {
+func stackDir(t *testing.T, manifest string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, File), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
+	files := map[string]string{
+		File:                       manifest,
+		"ansible/provision.yml":    "---\n",
+		"template/stack.yaml.tmpl": "name: {{ .project_name }}\n",
+		"test/answers.yaml":        "project_name: demo\n",
+		"bin/extra":                "#!/bin/sh\n",
+		"ansible/inventory/hosts":  "server\n",
+		"infra/main.tf":            "",
+		"policy/terraform.rego":    "package terraform\n",
 	}
-	for _, name := range executables {
+	for name, content := range files {
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasPrefix(name, "bin/") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return dir
 }
 
+// textLine is the line of the first occurrence of text in doc.
+func textLine(doc, text string) int {
+	i := strings.Index(doc, text)
+	if i < 0 {
+		return 0
+	}
+	return strings.Count(doc[:i], "\n") + 1
+}
+
 func TestValidManifestLoads(t *testing.T) {
-	m, err := Load(stackDir(t, valid, "bin/stack", "bin/check"), "0.1.0")
+	m, err := Load(stackDir(t, valid), "0.1.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Name != "hashistack" || len(m.Steps) != 2 || !m.Steps[1].Confirm || m.Commands["backup-pull"][2] != "pull" {
+	if m.Name != "hashistack" || len(m.Steps) != 2 || m.Steps[0].Ansible.Playbook != "ansible/provision.yml" ||
+		m.Steps[1].Tofu.Policy == nil || !m.Steps[1].Confirm || m.Commands["output"].Tofu.Action != "output" ||
+		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" {
 		t.Errorf("got %+v", m)
 	}
 }
 
 func TestProblems(t *testing.T) {
 	tests := []struct {
-		name  string
-		edit  func(string) string
-		files []string
-		want  string
-		line  int
+		name string
+		from string
+		to   string
+		want string
+		at   string // text of the line the problem is reported on
 	}{
-		{
-			name: "unknown field",
-			edit: func(s string) string { return strings.Replace(s, "steps:", "stpes: []\nsteps:", 1) },
-			want: "unknown field stpes", line: 27,
-		},
-		{
-			name: "newer contract",
-			edit: func(s string) string { return strings.Replace(s, "damstack/v1", "damstack/v2", 1) },
-			want: "newer than this damstack knows", line: 1,
-		},
-		{
-			name: "not a damstack manifest",
-			edit: func(s string) string { return strings.Replace(s, "damstack/v1", "v1", 1) },
-			want: "must be damstack/v1", line: 1,
-		},
-		{
-			name: "bad name",
-			edit: func(s string) string { return strings.Replace(s, "name: hashistack", "name: Hashi Stack", 1) },
-			want: "lowercase letters", line: 2,
-		},
-		{
-			name: "needs a newer damstack",
-			edit: func(s string) string { return strings.Replace(s, `damstack: ">=0.1.0"`, `damstack: ">=0.9.0"`, 1) },
-			want: "update damstack", line: 5,
-		},
-		{
-			name: "bad toolbox constraint",
-			edit: func(s string) string { return strings.Replace(s, `">=1.0.0, <2.0.0"`, `"latest"`, 1) },
-			want: "not a version constraint", line: 6,
-		},
-		{
-			name: "unknown host check",
-			edit: func(s string) string {
-				return strings.Replace(s, "[docker, ssh-key, wireguard]", "[docker, kubernetes]", 1)
-			},
-			want: `"kubernetes" is not a check`, line: 7,
-		},
-		{
-			name: "enum default outside the options",
-			edit: func(s string) string { return strings.Replace(s, "default: ssh", "default: hetzner", 1) },
-			want: "must be one of the options", line: 16,
-		},
-		{
-			name: "bool question with a string default",
-			edit: func(s string) string { return strings.Replace(s, "default: false", "default: nope", 1) },
-			want: "must be true or false", line: 20,
-		},
-		{
-			name: "duplicate step",
-			edit: func(s string) string { return strings.Replace(s, "name: apply", "name: secrets", 1) },
-			want: `"secrets" is already a step`, line: 31,
-		},
-		{
-			name:  "missing program",
-			edit:  func(s string) string { return s },
-			files: []string{"bin/check"},
-			want:  "bin/stack does not exist in the stack", line: 29,
-		},
-		{
-			name: "program outside the stack",
-			edit: func(s string) string { return strings.Replace(s, "check: [bin/check]", "check: [../other/check]", 1) },
-			want: "leaves the stack directory", line: 36,
-		},
-		{
-			name: "command shadowing a damstack command",
-			edit: func(s string) string { return strings.Replace(s, "backup-pull:", "deploy:", 1) },
-			want: `"deploy" is a command of damstack itself`, line: 35,
-		},
-		{
-			name: "when names a later or non-bool question",
-			edit: func(s string) string { return strings.Replace(s, "when: mail", "when: token", 1) },
-			want: `"token" is not a bool question asked before this one`, line: 23,
-		},
-		{
-			name: "secret with a default",
-			edit: func(s string) string { return strings.Replace(s, "secret: true", "secret: true\n    default: abc", 1) },
-			want: "a secret is a string without a default", line: 26,
-		},
-		{
-			name: "no check",
-			edit: func(s string) string { return strings.Replace(s, "check: [bin/check]\n", "", 1) },
-			want: "check: is required",
-		},
-		{
-			name: "no steps",
-			edit: func(s string) string {
-				start := strings.Index(s, "steps:")
-				end := strings.Index(s, "commands:")
-				return s[:start] + "steps: []\n" + s[end:]
-			},
-			want: "at least one step",
-		},
+		{"unknown field", "steps:", "stpes: []\nsteps:", "unknown field stpes", "stpes"},
+		{"newer contract", "damstack/v1", "damstack/v2", "newer than this damstack knows", "apiVersion"},
+		{"not a damstack manifest", "damstack/v1", "v1", "must be damstack/v1", "apiVersion"},
+		{"bad name", "name: hashistack", "name: Hashi Stack", "lowercase letters", "name: Hashi"},
+		{"needs a newer damstack", `damstack: ">=0.1.0"`, `damstack: ">=0.9.0"`, "update damstack", `damstack: ">=0.9.0"`},
+		{"bad toolbox constraint", `">=1.0.0, <2.0.0"`, `"latest"`, "not a version constraint", "toolbox"},
+		{"unknown host check", "[docker, ssh-key, wireguard]", "[docker, kubernetes]", `"kubernetes" is not a check`, "host:"},
+		{"enum default outside the options", "default: ssh", "default: hetzner", "must be one of the options", "default: hetzner"},
+		{"when on a non-bool question", "when: mail", "when: provider", `"provider" is not a bool question`, "when: provider"},
+		{"secret both generated and asked", "generate: hex\n", "generate: hex\n    ask: A passphrase\n", "exactly one of generate and ask", "- name: state_passphrase"},
+		{"secret neither generated nor asked", "    ask: An API token\n", "", "exactly one of generate and ask", "- name: api_token"},
+		{"unknown generator", "generate: hex", "generate: random", `"random" is not a generator`, "generate: random"},
+		{"cert on a non-ca secret", "bytes: 32", "bytes: 32\n    cert: x.pem", "for a generated ca only", "cert: x.pem"},
+		{"missing config template", "config: template/stack.yaml.tmpl", "config: template/other.tmpl", "template/other.tmpl does not exist", "config:"},
+		{"questions without config", "config: template/stack.yaml.tmpl\n", "", "config: is required with questions", ""},
+		{"duplicate step", "name: apply", "name: provision", `"provision" is already a step`, "- name: provision\n    tofu"},
+		{"step with two tools", "    confirm: true\n", "    confirm: true\n    run: [bin/extra]\n", "exactly one of ansible, tofu and run", "- name: apply"},
+		{"step with no tool", "    ansible:\n      playbook: ansible/provision.yml\n      inventory: ansible/inventory\n", "", "exactly one of ansible, tofu and run", "- name: provision"},
+		{"missing playbook", "playbook: ansible/provision.yml", "playbook: ansible/missing.yml", "ansible/missing.yml does not exist", "playbook: ansible/missing.yml"},
+		{"inventory that is a file", "inventory: ansible/inventory", "inventory: ansible/provision.yml", "is not a directory", "inventory:"},
+		{"unknown tofu action", "action: apply", "action: destroy", `"destroy" is not an action`, "action: destroy"},
+		{"missing policy dir", "policy: {dir: policy,", "policy: {dir: policies,", "policies does not exist", "policy:"},
+		{"env template that does not parse", "{{ firstHost .config.network.cidr }}", "{{ firstHost .config.network.cidr", "template: NOMAD_ADDR", "NOMAD_ADDR"},
+		{"keep outside the project", "file: .damstack/work/vault-init.json", "file: ../vault-init.json", "a path inside the project", "file: ../vault-init.json"},
+		{"command shadowing a damstack command", "backup-pull:", "deploy:", `"deploy" is a command of damstack itself`, "deploy:"},
+		{"run program outside the stack", "run: [bin/extra]", "run: [../other/tool]", "leaves the stack directory", "run: [../other/tool]"},
+		{"no check answers", "check:\n  answers: test/answers.yaml\n", "", "check.answers: is required", ""},
+		{"missing check answers", "answers: test/answers.yaml", "answers: test/other.yaml", "test/other.yaml does not exist", "answers:"},
+		{"no steps", "steps:\n", "steps: []\nold_steps:\n", "unknown field old_steps", "old_steps"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			files := tc.files
-			if files == nil {
-				files = []string{"bin/stack", "bin/check"}
+			if !strings.Contains(valid, tc.from) {
+				t.Fatalf("the valid manifest has no %q", tc.from)
 			}
-			_, err := Load(stackDir(t, tc.edit(valid), files...), "0.1.0")
+			doc := strings.Replace(valid, tc.from, tc.to, 1)
+			_, err := Load(stackDir(t, doc), "0.1.0")
 			var merr *Error
 			if !errors.As(err, &merr) {
 				t.Fatalf("want a manifest error, got %v", err)
 			}
 			for _, p := range merr.Problems {
 				if strings.Contains(p.String(), tc.want) {
-					if tc.line != 0 && p.Line != tc.line {
-						t.Errorf("%q at line %d, want line %d", tc.want, p.Line, tc.line)
+					if tc.at != "" && p.Line != textLine(doc, tc.at) {
+						t.Errorf("%q at line %d, want line %d (%q)", tc.want, p.Line, textLine(doc, tc.at), tc.at)
 					}
 					return
 				}
@@ -200,11 +179,11 @@ func TestProblems(t *testing.T) {
 }
 
 func TestNotExecutable(t *testing.T) {
-	dir := stackDir(t, valid, "bin/stack", "bin/check")
-	if err := os.Chmod(filepath.Join(dir, "bin/check"), 0o644); err != nil {
+	dir := stackDir(t, valid)
+	if err := os.Chmod(filepath.Join(dir, "bin/extra"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(dir, "0.1.0"); err == nil || !strings.Contains(err.Error(), "bin/check is not executable") {
+	if _, err := Load(dir, "0.1.0"); err == nil || !strings.Contains(err.Error(), "bin/extra is not executable") {
 		t.Errorf("got %v", err)
 	}
 }

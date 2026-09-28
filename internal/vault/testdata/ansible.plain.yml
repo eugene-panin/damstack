@@ -1,0 +1,5 @@
+---
+vault_token: "hvs.fixture"
+vault_list:
+  - a
+  - b
