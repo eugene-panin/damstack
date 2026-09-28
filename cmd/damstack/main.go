@@ -15,7 +15,6 @@ import (
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
 	"github.com/eugene-panin/damstack/internal/manifest"
-	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -50,6 +49,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return cmd.Help()
 		},
 	}
+	s := newStreams(stdin, stdout, stderr)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -92,20 +92,44 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return nil
 		},
 	})
-	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout))
+	stack.AddCommand(&cobra.Command{
+		Use:   "check [dir]",
+		Short: "Prove a stack without a server: set up a project from its test answers, check its playbooks, OpenTofu and policies",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := "."
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			return checkStack(cmd.Context(), s, dir)
+		},
+	})
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s))
+	root.InitDefaultCompletionCmd()
+	root.AddCommand(stackCommands(s, func(name string) bool {
+		c, _, err := root.Find([]string{name})
+		return err == nil && c != root
+	})...)
 	return root.ExecuteContext(ctx)
 }
 
 func runDoctor(ctx context.Context, w io.Writer) error {
-	wd, err := os.Getwd()
-	if err != nil {
+	var dp *doctor.Project
+	if p, err := currentProject(); err == nil {
+		password, err := p.PasswordPath()
+		if err != nil {
+			return err
+		}
+		dp = &doctor.Project{Dir: p.Dir, Password: password}
+		if m, _ := cachedStack(p); m != nil && m.Server != nil && m.Server.Tunnel != "" {
+			if config, err := p.Config(); err == nil {
+				dp.Tunnel, _ = manifest.Render("server.tunnel", m.Server.Tunnel, config, nil)
+			}
+		}
+	} else if !errors.Is(err, errNoProject) {
 		return err
 	}
-	p, err := project.Find(wd)
-	if err != nil {
-		return err
-	}
-	if doctor.Print(w, doctor.Run(ctx, doctor.Host(p))) {
+	if doctor.Print(w, doctor.Run(ctx, doctor.Host(dp))) {
 		return errProblems
 	}
 	markChecked()

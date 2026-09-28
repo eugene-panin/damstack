@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -47,10 +46,19 @@ type Env struct {
 	Stat     func(string) (fs.FileInfo, error)
 	Dial     func(ctx context.Context, network, address string) (net.Conn, error)
 	Head     func(ctx context.Context, url string) (int, error)
-	Project  *project.Project
+	Project  *Project
 }
 
-func Host(p *project.Project) Env {
+// Project is what doctor checks of the project it runs in: that its vault
+// password is there, and that the server answers at Tunnel, its address over
+// the private network, when the stack names one.
+type Project struct {
+	Dir      string
+	Password string
+	Tunnel   string
+}
+
+func Host(p *Project) Env {
 	home, _ := os.UserHomeDir()
 	dialer := &net.Dialer{Timeout: 3 * time.Second}
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -175,12 +183,15 @@ func checkImage(ctx context.Context, env Env) Result {
 		"nothing to do: it is downloaded on first use, about 1 GB"}
 }
 
+// KeyNames are the SSH keys in ~/.ssh damstack uses, the first there.
+var KeyNames = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
+
 func checkSSH(ctx context.Context, env Env) []Result {
 	const group = "SSH"
 	var results []Result
 	key := ""
-	for _, name := range []string{"id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub"} {
-		if path := filepath.Join(env.Home, ".ssh", name); exists(env, path) {
+	for _, name := range KeyNames {
+		if path := filepath.Join(env.Home, ".ssh", name+".pub"); exists(env, path) {
 			key = path
 			break
 		}
@@ -240,32 +251,23 @@ func checkProject(ctx context.Context, env Env) []Result {
 	group := "Project " + tilde(env.Home, p.Dir)
 	var results []Result
 
-	pass := filepath.Join(env.Home, ".config", p.Name(), "vault-pass")
-	if exists(env, pass) {
-		results = append(results, Result{group, OK, "vault password " + tilde(env.Home, pass), ""})
+	if exists(env, p.Password) {
+		results = append(results, Result{group, OK, "vault password " + tilde(env.Home, p.Password), ""})
 	} else {
-		results = append(results, Result{group, Fail, "no vault password at " + tilde(env.Home, pass),
+		results = append(results, Result{group, Fail, "no vault password at " + tilde(env.Home, p.Password),
 			"copy it there from where you keep it; nothing in this project can be decrypted without it"})
 	}
 
-	if exists(env, filepath.Join(p.Dir, "secrets", "cloudflare.env")) {
-		results = append(results, Result{group, OK, "Cloudflare tokens in secrets/cloudflare.env", ""})
-	} else {
-		results = append(results, Result{group, Warn, "no secrets/cloudflare.env",
-			"create it from secrets/cloudflare.env.example and fill in the tokens"})
+	if p.Tunnel == "" {
+		return results
 	}
-
-	address, err := p.ServerAddress()
+	conn, err := env.Dial(ctx, "tcp", net.JoinHostPort(p.Tunnel, "22"))
 	if err != nil {
-		return append(results, Result{group, Fail, err.Error(), ""})
-	}
-	conn, err := env.Dial(ctx, "tcp", net.JoinHostPort(address.String(), "22"))
-	if err != nil {
-		return append(results, Result{group, Warn, "the server does not answer at " + address.String(),
+		return append(results, Result{group, Warn, "the server does not answer at " + p.Tunnel,
 			"turn the WireGuard tunnel on; before the server is set up this is expected"})
 	}
 	conn.Close()
-	return append(results, Result{group, OK, "the server answers at " + address.String() + " through WireGuard", ""})
+	return append(results, Result{group, OK, "the server answers at " + p.Tunnel + " through WireGuard", ""})
 }
 
 // Print writes the results grouped, then what to fix, and reports whether

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -35,19 +34,18 @@ type machine struct {
 	env      map[string]string
 	head     func() (int, error)
 	dial     error
-	project  *project.Project
+	project  *Project
 }
 
 func healthy() *machine {
 	return &machine{
 		goos: "darwin",
 		paths: map[string]bool{
-			"/usr/local/bin/docker":             true,
-			"/home/u/.ssh/id_ed25519.pub":       true,
-			"/home/u/.ssh/id_ed25519":           true,
-			"/Applications/WireGuard.app":       true,
-			"/home/u/.config/demo/vault-pass":   true,
-			"/work/demo/secrets/cloudflare.env": true,
+			"/usr/local/bin/docker":                             true,
+			"/home/u/.ssh/id_ed25519.pub":                       true,
+			"/home/u/.ssh/id_ed25519":                           true,
+			"/Applications/WireGuard.app":                       true,
+			"/home/u/.config/damstack/projects/demo/vault-pass": true,
 		},
 		commands: map[string]reply{
 			"docker version --format {{.Server.Version}}":                                         {out: "29.8.0\n"},
@@ -252,18 +250,17 @@ func TestDockerNotRunningSkipsTheImageCheck(t *testing.T) {
 
 func TestProject(t *testing.T) {
 	m := healthy()
-	m.project = &project.Project{Dir: "/work/demo"}
-	m.project.Stack.Network.CIDR = "10.77.0.0/24"
+	m.project = &Project{Dir: "/home/u/damstack/demo", Password: "/home/u/.config/damstack/projects/demo/vault-pass", Tunnel: "10.77.0.1"}
 
 	results := Run(t.Context(), m.Env())
 	if r, ok := find(results, "the server answers at 10.77.0.1"); !ok || r.Status != OK {
 		t.Errorf("tunnel: %+v", r)
 	}
 
-	delete(m.paths, "/home/u/.config/demo/vault-pass")
+	delete(m.paths, "/home/u/.config/damstack/projects/demo/vault-pass")
 	m.dial = &net.OpError{Op: "dial", Err: errors.New("i/o timeout")}
 	results = Run(t.Context(), m.Env())
-	if r, _ := find(results, "no vault password at ~/.config/demo/vault-pass"); r.Status != Fail {
+	if r, _ := find(results, "no vault password at ~/.config/damstack/projects/demo/vault-pass"); r.Status != Fail {
 		t.Errorf("vault password: %+v", r)
 	}
 	if r, _ := find(results, "the server does not answer at 10.77.0.1"); r.Status != Warn || !strings.Contains(r.Fix, "WireGuard") {

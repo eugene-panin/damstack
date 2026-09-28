@@ -1,0 +1,6 @@
+name: {{ .project }}
+greeting: {{ yaml .greeting }}
+clients: {{ yaml .clients }}
+{{- if .extra }}
+extra: {{ yaml .extra_name }}
+{{- end }}

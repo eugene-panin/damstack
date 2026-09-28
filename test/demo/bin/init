@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+test "$DAMSTACK_PROJECT" = /work
+test -r "$DAMSTACK_VAULT_PASSWORD_FILE"
+printf '{"root_token": "root-%s", "keys": ["k1", "k2"]}\n' "$(id -u)" >/work/.damstack/work/init.json
+echo "init wrote the root token"

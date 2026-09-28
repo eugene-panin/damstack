@@ -1,0 +1,4 @@
+greeting: hello
+clients: [laptop, phone]
+extra: true
+extra_name: more

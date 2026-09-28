@@ -1,0 +1,20 @@
+---
+- name: Write what the project says, with its secrets
+  hosts: localhost
+  gather_facts: false
+  vars:
+    demo: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'DAMSTACK_PROJECT') ~ '/stack.yaml') | from_yaml }}"
+  tasks:
+    - name: Refuse a project without the secrets damstack kept
+      ansible.builtin.assert:
+        that:
+          - root_token is match('^root-')
+          - unseal_keys | length == 2
+          - lookup('ansible.builtin.env', 'DEMO_API_TOKEN') == api_token
+        quiet: true
+
+    - name: Write the greeting to the project
+      ansible.builtin.copy:
+        dest: "{{ lookup('ansible.builtin.env', 'DAMSTACK_PROJECT') }}/greeting.txt"
+        content: "{{ demo.greeting }}, {{ demo.clients | join(' and ') }}\n"
+        mode: '0644'

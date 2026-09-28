@@ -41,6 +41,11 @@ secrets:
   - name: api_token
     ask: An API token
 config: template/stack.yaml.tmpl
+server:
+  address: "{{ .config.server.address }}"
+  first_user: root
+  ops_user: "{{ .config.server.ops_user }}"
+  tunnel: "{{ firstHost .config.network.cidr }}"
 steps:
   - name: provision
     ansible:
@@ -111,7 +116,7 @@ func TestValidManifestLoads(t *testing.T) {
 	}
 	if m.Name != "hashistack" || len(m.Steps) != 2 || m.Steps[0].Ansible.Playbook != "ansible/provision.yml" ||
 		m.Steps[1].Tofu.Policy == nil || !m.Steps[1].Confirm || m.Commands["output"].Tofu.Action != "output" ||
-		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" {
+		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" {
 		t.Errorf("got %+v", m)
 	}
 }
@@ -146,12 +151,16 @@ func TestProblems(t *testing.T) {
 		{"inventory that is a file", "inventory: ansible/inventory", "inventory: ansible/provision.yml", "is not a directory", "inventory:"},
 		{"unknown tofu action", "action: apply", "action: destroy", `"destroy" is not an action`, "action: destroy"},
 		{"missing policy dir", "policy: {dir: policy,", "policy: {dir: policies,", "policies does not exist", "policy:"},
-		{"env template that does not parse", "{{ firstHost .config.network.cidr }}", "{{ firstHost .config.network.cidr", "template: NOMAD_ADDR", "NOMAD_ADDR"},
+		{"env template that does not parse", "https://{{ firstHost .config.network.cidr }}", "https://{{ firstHost .config.network.cidr", "expected :=", "NOMAD_ADDR"},
 		{"keep outside the project", "file: .damstack/work/vault-init.json", "file: ../vault-init.json", "a path inside the project", "file: ../vault-init.json"},
 		{"command shadowing a damstack command", "backup-pull:", "deploy:", `"deploy" is a command of damstack itself`, "deploy:"},
 		{"run program outside the stack", "run: [bin/extra]", "run: [../other/tool]", "leaves the stack directory", "run: [../other/tool]"},
 		{"no check answers", "check:\n  answers: test/answers.yaml\n", "", "check.answers: is required", ""},
 		{"missing check answers", "answers: test/answers.yaml", "answers: test/other.yaml", "test/other.yaml does not exist", "answers:"},
+		{"secret named as a question", "name: api_token", "name: mail", `"mail" is already a question`, "- name: mail\n    ask"},
+		{"question named project", "name: provider", "name: project", "damstack asks itself", "name: project\n"},
+		{"server without first user", "  first_user: root\n", "", "server.first_user: is required", "server:"},
+		{"server template that does not parse", "{{ .config.server.address }}", "{{ .config.server.address", "unclosed action", "  address:"},
 		{"no steps", "steps:\n", "steps: []\nold_steps:\n", "unknown field old_steps", "old_steps"},
 	}
 	for _, tc := range tests {
@@ -175,6 +184,16 @@ func TestProblems(t *testing.T) {
 			}
 			t.Errorf("no problem with %q in:\n%v", tc.want, err)
 		})
+	}
+}
+
+func TestConfigTemplateThatDoesNotParse(t *testing.T) {
+	dir := stackDir(t, valid)
+	if err := os.WriteFile(filepath.Join(dir, "template/stack.yaml.tmpl"), []byte("name: {{ .project_name\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(dir, "0.1.0"); err == nil || !strings.Contains(err.Error(), "unclosed action") {
+		t.Errorf("got %v", err)
 	}
 }
 

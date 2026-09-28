@@ -30,7 +30,7 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "apply", "deploy", "doctor", "help", "remove", "stack", "stacks", "status", "upgrade", "version"}
+var Builtin = []string{"add", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "upgrade", "version"}
 
 type Manifest struct {
 	APIVersion  string          `yaml:"apiVersion"`
@@ -41,6 +41,7 @@ type Manifest struct {
 	Questions   []Question      `yaml:"questions"`
 	Secrets     []Secret        `yaml:"secrets"`
 	Config      string          `yaml:"config"`
+	Server      *Server         `yaml:"server"`
 	Steps       []Step          `yaml:"steps"`
 	Commands    map[string]Step `yaml:"commands"`
 	Check       Check           `yaml:"check"`
@@ -77,6 +78,18 @@ type Secret struct {
 	// Cert is where a generated ca puts its certificate in the project; the
 	// key is the secret.
 	Cert string `yaml:"cert"`
+}
+
+// Server is how damstack reaches the server of a project, as templates over
+// its stack.yaml: before the first step it puts the SSH key on the server for
+// FirstUser, who has only a password, unless OpsUser or FirstUser log in
+// already. doctor dials port 22 of Tunnel, the address over the private
+// network.
+type Server struct {
+	Address   string `yaml:"address"`
+	FirstUser string `yaml:"first_user"`
+	OpsUser   string `yaml:"ops_user"`
+	Tunnel    string `yaml:"tunnel"`
 }
 
 // Generators are the ways a secret can be generated.
@@ -269,8 +282,24 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	c.checkSecrets(m, dir)
 	if m.Config != "" {
 		c.checkFile("config", m.Config, dir, false)
+		if text, err := os.ReadFile(filepath.Join(dir, m.Config)); dir != "" && filepath.IsLocal(m.Config) && err == nil {
+			c.checkTemplate("config", string(text))
+		}
 	} else if len(m.Questions) > 0 {
 		c.add("config", "is required with questions: the template the answers render into stack.yaml")
+	}
+
+	if m.Server != nil {
+		if m.Server.Address == "" {
+			c.add("server.address", "is required")
+		}
+		if m.Server.FirstUser == "" {
+			c.add("server.first_user", "is required")
+		}
+		for field, text := range map[string]string{"address": m.Server.Address, "first_user": m.Server.FirstUser,
+			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel} {
+			c.checkTemplate("server."+field, text)
+		}
 	}
 
 	if len(m.Steps) == 0 {
@@ -348,9 +377,7 @@ func (c *checker) checkStep(path string, s Step, dir string) {
 		c.add(path, "a step runs exactly one of ansible, tofu and run")
 	}
 	for _, key := range slices.Sorted(maps.Keys(s.Env)) {
-		if _, err := template.New(key).Option("missingkey=error").Funcs(TemplateFuncs).Parse(s.Env[key]); err != nil {
-			c.add(path+".env."+key, "%v", err)
-		}
+		c.checkTemplate(path+".env."+key, s.Env[key])
 	}
 	if s.Keep != nil {
 		if s.Keep.File == "" || !filepath.IsLocal(s.Keep.File) {
@@ -381,6 +408,9 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		if seen[s.Name] {
 			c.add(path+".name", "%q is already a secret", s.Name)
 		}
+		if _, ok := bools[s.Name]; ok {
+			c.add(path+".name", "%q is already a question", s.Name)
+		}
 		seen[s.Name] = true
 		switch {
 		case (s.Generate == "") == (s.Ask == ""):
@@ -397,6 +427,12 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		if s.When != "" && !bools[s.When] {
 			c.add(path+".when", "%q is not a bool question", s.When)
 		}
+	}
+}
+
+func (c *checker) checkTemplate(path, text string) {
+	if _, err := template.New(path).Option("missingkey=error").Funcs(TemplateFuncs).Parse(text); err != nil {
+		c.add(path, "%v", err)
 	}
 }
 
@@ -437,6 +473,9 @@ func (c *checker) checkQuestions(questions []Question) {
 		}
 		if !questionRe.MatchString(q.Name) {
 			c.add(path+".name", "must be lowercase letters, digits and underscores, starting with a letter")
+		}
+		if q.Name == "project" {
+			c.add(path+".name", "project is the name of the project, which damstack asks itself")
 		}
 		if seen[q.Name] {
 			c.add(path+".name", "%q is already a question", q.Name)

@@ -84,7 +84,7 @@ func Latest(ctx context.Context, url string) (Release, error) {
 // checkout already there is reused when it is at the release's commit; one at
 // another commit means the tag was moved, and is an error.
 func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error) {
-	dir := filepath.Join(cacheDir, "stacks", slug(url), r.Tag)
+	dir := Dir(cacheDir, url, r.Tag)
 	if repo, err := git.PlainOpen(dir); err == nil {
 		head, err := repo.Head()
 		if err != nil {
@@ -128,6 +128,11 @@ func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error)
 		return "", err
 	}
 	return dir, nil
+}
+
+// Dir is where Fetch checks a release out.
+func Dir(cacheDir, url, tag string) string {
+	return filepath.Join(cacheDir, "stacks", slug(url), tag)
 }
 
 // slug is where a repository lives in the cache: github.com/owner/repo.

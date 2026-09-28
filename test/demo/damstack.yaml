@@ -1,0 +1,57 @@
+apiVersion: damstack/v1
+name: demo
+description: A stack that proves damstack end to end without a server
+requires:
+  damstack: ">=0.1.0"
+  toolbox: ">=1.0.0, <2.0.0"
+questions:
+  - name: greeting
+    prompt: A greeting
+    default: hello
+    pattern: "^[a-z ]+$"
+  - name: clients
+    prompt: The devices
+    type: list
+    default: [laptop]
+  - name: extra
+    prompt: Add the extra part?
+    type: bool
+  - name: extra_name
+    prompt: Its name
+    when: extra
+secrets:
+  - name: ca_key
+    generate: ca
+    cert: ca.pem
+  - name: token
+    generate: hex
+    bytes: 16
+  - name: api_token
+    ask: An API token
+config: template/stack.yaml.tmpl
+steps:
+  - name: init
+    run: [bin/init]
+    once: true
+    keep:
+      file: .damstack/work/init.json
+      secrets: {root_token: root_token, unseal_keys: keys}
+  - name: configure
+    ansible:
+      playbook: ansible/site.yml
+      inventory: ansible/inventory
+    env:
+      DEMO_API_TOKEN: '{{ secret "api_token" }}'
+  - name: apply
+    tofu:
+      dir: infra
+      action: apply
+      policy: {dir: policy}
+    env:
+      TF_VAR_token: '{{ secret "token" }}'
+    confirm: true
+commands:
+  output:
+    tofu: {dir: infra, action: output}
+check:
+  answers: test/answers.yaml
