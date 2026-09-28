@@ -28,6 +28,12 @@ questions:
     prompt: Should the server handle mail?
     type: bool
     default: false
+  - name: mail_hostname
+    prompt: The mail host name
+    when: mail
+  - name: token
+    prompt: An API token
+    secret: true
 steps:
   - name: secrets
     run: [bin/stack, secrets]
@@ -79,7 +85,7 @@ func TestProblems(t *testing.T) {
 		{
 			name: "unknown field",
 			edit: func(s string) string { return strings.Replace(s, "steps:", "stpes: []\nsteps:", 1) },
-			want: "unknown field stpes", line: 21,
+			want: "unknown field stpes", line: 27,
 		},
 		{
 			name: "newer contract",
@@ -126,23 +132,33 @@ func TestProblems(t *testing.T) {
 		{
 			name: "duplicate step",
 			edit: func(s string) string { return strings.Replace(s, "name: apply", "name: secrets", 1) },
-			want: `"secrets" is already a step`, line: 25,
+			want: `"secrets" is already a step`, line: 31,
 		},
 		{
 			name:  "missing program",
 			edit:  func(s string) string { return s },
 			files: []string{"bin/check"},
-			want:  "bin/stack does not exist in the stack", line: 23,
+			want:  "bin/stack does not exist in the stack", line: 29,
 		},
 		{
 			name: "program outside the stack",
 			edit: func(s string) string { return strings.Replace(s, "check: [bin/check]", "check: [../other/check]", 1) },
-			want: "leaves the stack directory", line: 30,
+			want: "leaves the stack directory", line: 36,
 		},
 		{
 			name: "command shadowing a damstack command",
 			edit: func(s string) string { return strings.Replace(s, "backup-pull:", "deploy:", 1) },
-			want: `"deploy" is a command of damstack itself`, line: 29,
+			want: `"deploy" is a command of damstack itself`, line: 35,
+		},
+		{
+			name: "when names a later or non-bool question",
+			edit: func(s string) string { return strings.Replace(s, "when: mail", "when: token", 1) },
+			want: `"token" is not a bool question asked before this one`, line: 23,
+		},
+		{
+			name: "secret with a default",
+			edit: func(s string) string { return strings.Replace(s, "secret: true", "secret: true\n    default: abc", 1) },
+			want: "a secret is a string without a default", line: 26,
 		},
 		{
 			name: "no check",

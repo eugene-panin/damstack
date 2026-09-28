@@ -55,6 +55,12 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
+	// Secret answers are read without echo and never written to stack.yaml;
+	// the stack keeps them encrypted.
+	Secret bool `yaml:"secret"`
+	// When names an earlier bool question; this one is asked only if that
+	// answer is true.
+	When string `yaml:"when"`
 }
 
 type Step struct {
@@ -238,8 +244,21 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 
 func (c *checker) checkQuestions(questions []Question) {
 	seen := map[string]bool{}
+	types := map[string]string{}
 	for i, q := range questions {
 		path := fmt.Sprintf("questions[%d]", i)
+		if q.When != "" {
+			if t, ok := types[q.When]; !ok || t != "bool" {
+				c.add(path+".when", "%q is not a bool question asked before this one", q.When)
+			}
+		}
+		if q.Secret && (q.Default != nil || (q.Type != "" && q.Type != "string")) {
+			c.add(path+".secret", "a secret is a string without a default")
+		}
+		types[q.Name] = q.Type
+		if q.Type == "" {
+			types[q.Name] = "string"
+		}
 		if !questionRe.MatchString(q.Name) {
 			c.add(path+".name", "must be lowercase letters, digits and underscores, starting with a letter")
 		}
