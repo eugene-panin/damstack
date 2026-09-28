@@ -45,7 +45,7 @@ func addCommand(stdin io.Reader, stdout io.Writer) *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "add <repository>",
-		Short: "Add a stack from its git repository, such as github.com/owner/stack",
+		Short: "Add a stack from its git repository: owner/name for github.com/owner/damstack-name, or any address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return addStack(cmd.Context(), stdin, stdout, args[0], name, yes)

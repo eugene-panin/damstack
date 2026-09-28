@@ -22,7 +22,7 @@ func TestAddStackSaveAndLoad(t *testing.T) {
 	if _, err := cfg.AddStack(Stack{Name: "demo", URL: "https://github.com/other/demo"}); err == nil || !strings.Contains(err.Error(), "--name") {
 		t.Errorf("another stack under a taken name: %v", err)
 	}
-	if _, err := cfg.AddStack(Stack{Name: "hashistack", URL: "https://github.com/o/fake"}); err == nil {
+	if _, err := cfg.AddStack(Stack{Name: "hashi", URL: "https://github.com/o/fake"}); err == nil {
 		t.Error("a stack took the name of a builtin one")
 	}
 	if err := cfg.Save(); err != nil {
@@ -34,11 +34,11 @@ func TestAddStackSaveAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := again.AllStacks()
-	if len(all) != 2 || all[0].Name != "hashistack" || !all[0].Builtin || all[1].Name != "demo" || all[1].Builtin {
+	if len(all) != 2 || all[0].Name != "hashi" || !all[0].Builtin || all[1].Name != "demo" || all[1].Builtin {
 		t.Errorf("got %+v", all)
 	}
 	data, _ := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "damstack", "config.yaml"))
-	if strings.Contains(string(data), "hashistack") {
+	if strings.Contains(string(data), "hashi") {
 		t.Errorf("a builtin stack was written to the config:\n%s", data)
 	}
 }

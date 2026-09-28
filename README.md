@@ -1,7 +1,7 @@
 # damstack
 
 One program to deploy and run infrastructure stacks. A stack, such as
-[hashistack](https://github.com/eugene-panin/damstack-hashistack) (Consul,
+[hashi](https://github.com/eugene-panin/damstack-hashi) (Consul,
 Vault and Nomad on one server over WireGuard), is a repository with a
 `damstack.yaml` that says what to ask and which steps to run. damstack fetches
 the stack, keeps the deployment in one directory described by `stack.yaml`,
@@ -14,7 +14,7 @@ Work in progress.
 damstack               # on the first run, checks this machine, then shows the commands
 damstack doctor        # checks this machine, and says how to get what it lacks
 damstack stacks        # the stacks damstack can deploy
-damstack add github.com/owner/stack
+damstack add owner/name   # github.com/owner/damstack-name, or any git address
 damstack deploy        # asks the questions of a stack, sets up a project, deploys it
 damstack status        # in a project: its stack, and how each step went last
 damstack history       # in a project: everything damstack ran on it
@@ -47,6 +47,11 @@ Inside a project, the commands of its stack are damstack commands too, such as
 `damstack output`.
 
 ## Writing a stack
+
+A stack lives in a git repository named `damstack-<name>`, where `<name>` is
+the `name` in its `damstack.yaml`, such as `damstack-hashi` for `hashi`; then
+`damstack add owner/<name>` finds it on GitHub. Releases are tags such as
+`v0.1.0`.
 
 `damstack.yaml` declares the questions, the secrets, the template of
 `stack.yaml`, and the steps, each one of an Ansible playbook, an OpenTofu

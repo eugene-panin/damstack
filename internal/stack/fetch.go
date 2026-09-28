@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -28,19 +29,30 @@ type Release struct {
 // ErrNoRelease is returned for a repository without a tag such as v0.1.0.
 var ErrNoRelease = errors.New("the repository has no release tag such as v0.1.0")
 
+// RepoPrefix begins the name of the repository of a stack on GitHub, so that
+// owner/name is short for github.com/owner/damstack-name.
+const RepoPrefix = "damstack-"
+
+var shortRe = regexp.MustCompile(`^[A-Za-z0-9-]+/[a-z][a-z0-9-]*$`)
+
 // NormalizeURL turns what a person types into the address git uses:
-// github.com/owner/repo becomes https://github.com/owner/repo, a trailing .git
-// goes. file:// addresses are kept, for stacks on this machine.
+// github.com/owner/repo becomes https://github.com/owner/repo, owner/name
+// https://github.com/owner/damstack-name, a trailing .git goes. file://
+// addresses are kept, for stacks on this machine.
 func NormalizeURL(raw string) (string, error) {
 	raw = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(raw), "/"), ".git")
 	if strings.HasPrefix(raw, "file://") {
 		return raw, nil
 	}
+	if shortRe.MatchString(raw) {
+		owner, name, _ := strings.Cut(raw, "/")
+		return "https://github.com/" + owner + "/" + RepoPrefix + strings.TrimPrefix(name, RepoPrefix), nil
+	}
 	if !strings.Contains(raw, "://") {
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || strings.Count(strings.Trim(u.Path, "/"), "/") < 1 {
+	if err != nil || u.Scheme != "https" || !strings.Contains(u.Host, ".") || strings.Count(strings.Trim(u.Path, "/"), "/") < 1 {
 		return "", fmt.Errorf("%q is not a repository address such as github.com/owner/repo", raw)
 	}
 	return u.String(), nil

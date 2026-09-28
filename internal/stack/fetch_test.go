@@ -149,13 +149,15 @@ func TestNormalizeURL(t *testing.T) {
 		{"https://github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"https://gitlab.example.org/group/sub/repo/", "https://gitlab.example.org/group/sub/repo"},
 		{"file:///srv/stacks/demo", "file:///srv/stacks/demo"},
+		{"eugene-panin/hashi", "https://github.com/eugene-panin/damstack-hashi"},
+		{"eugene-panin/damstack-hashi", "https://github.com/eugene-panin/damstack-hashi"},
 	}
 	for _, tc := range tests {
 		if got, err := NormalizeURL(tc.in); err != nil || got != tc.want {
 			t.Errorf("NormalizeURL(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
 		}
 	}
-	for _, bad := range []string{"github.com", "http://github.com/owner/repo", "owner/repo"} {
+	for _, bad := range []string{"github.com", "http://github.com/owner/repo", "owner/Repo", "owner/repo/sub"} {
 		if got, err := NormalizeURL(bad); err == nil {
 			t.Errorf("NormalizeURL(%q) = %q, want an error", bad, got)
 		}

@@ -36,7 +36,7 @@ type Config struct {
 
 // Builtin are the stacks every damstack knows, maintained with it.
 var Builtin = []Stack{
-	{Name: "hashistack", URL: "https://github.com/eugene-panin/damstack-hashistack", Builtin: true},
+	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true},
 }
 
 // Dir is $XDG_CONFIG_HOME/damstack, or ~/.config/damstack, on every system.
