@@ -4,8 +4,8 @@ package release
 var Version = "dev"
 
 const (
-	Image    = "ghcr.io/eugene-panin/hashistack-starter"
-	ImageTag = "v0.3.0"
+	Image    = "ghcr.io/eugene-panin/damstack-toolbox"
+	ImageTag = "1.0.0"
 )
 
 func ImageRef() string { return Image + ":" + ImageTag }
