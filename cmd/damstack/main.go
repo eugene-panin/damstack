@@ -15,6 +15,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -124,6 +125,8 @@ func runDoctor(ctx context.Context, w io.Writer) error {
 		if m, _ := cachedStack(p); m != nil && m.Server != nil && m.Server.Tunnel != "" {
 			if config, err := p.Config(); err == nil {
 				dp.Tunnel, _ = manifest.Render("server.tunnel", m.Server.Tunnel, config, nil)
+				dp.Public, _ = manifest.Render("server.address", m.Server.Address, config, nil)
+				dp.KnownHosts = filepath.Join(p.Dir, project.KnownHosts)
 			}
 		}
 	} else if !errors.Is(err, errNoProject) {

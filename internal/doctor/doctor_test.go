@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net"
 	"strings"
 	"testing"
 
+	"github.com/eugene-panin/damstack/internal/login"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -35,6 +37,7 @@ type machine struct {
 	head     func() (int, error)
 	dial     error
 	project  *Project
+	other    error
 }
 
 func healthy() *machine {
@@ -93,7 +96,10 @@ func (m *machine) Env() Env {
 			server.Close()
 			return client, nil
 		},
-		Head:    func(context.Context, string) (int, error) { return m.head() },
+		Head: func(context.Context, string) (int, error) { return m.head() },
+		SameServer: func(context.Context, string, string, string) error {
+			return m.other
+		},
 		Project: m.project,
 	}
 }
@@ -256,6 +262,13 @@ func TestProject(t *testing.T) {
 	if r, ok := find(results, "the server answers at 10.77.0.1"); !ok || r.Status != OK {
 		t.Errorf("tunnel: %+v", r)
 	}
+
+	m.project.Public, m.project.KnownHosts = "34.1.2.3", "/home/u/damstack/demo/.damstack/known_hosts"
+	m.other = fmt.Errorf("10.77.0.1:22: %w", login.ErrOtherServer)
+	if r, _ := find(Run(t.Context(), m.Env()), "answers another server than 34.1.2.3"); r.Status != Fail {
+		t.Errorf("another server through the tunnel: %+v", r)
+	}
+	m.other = nil
 
 	delete(m.paths, "/home/u/.config/damstack/projects/demo/vault-pass")
 	m.dial = &net.OpError{Op: "dial", Err: errors.New("i/o timeout")}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -361,6 +362,11 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			}
 		}
 		fmt.Fprintf(s.out, "\n== %s\n", step.Name)
+		if step.Tunnel {
+			if err := waitTunnel(ctx, s, e); err != nil {
+				return err
+			}
+		}
 		start := time.Now()
 		err := e.Run(ctx, step, nil)
 		if rerr := record(p, "deploy", step.Name, start, err); rerr != nil && err == nil {
@@ -412,4 +418,49 @@ func record(p *project.Project, command, step string, start time.Time, err error
 		e.Result, e.Error = project.Failed, err.Error()
 	}
 	return p.Record(e)
+}
+
+// waitTunnel returns once the server answers over the private network; in a
+// terminal it asks to turn the tunnel on, and waits.
+func waitTunnel(ctx context.Context, s *streams, e *engine.Engine) error {
+	srv := e.Manifest.Server
+	config, err := e.Project.Config()
+	if err != nil {
+		return err
+	}
+	address, err := manifest.Render("server.tunnel", srv.Tunnel, config, nil)
+	if err != nil {
+		return fmt.Errorf("server.tunnel of the stack: %w", err)
+	}
+	help, err := manifest.Render("server.tunnel_help", srv.TunnelHelp, config, nil)
+	if err != nil {
+		return fmt.Errorf("server.tunnel_help of the stack: %w", err)
+	}
+	public, err := manifest.Render("server.address", srv.Address, config, nil)
+	if err != nil {
+		return fmt.Errorf("server.address of the stack: %w", err)
+	}
+	knownHosts := filepath.Join(e.Project.Dir, project.KnownHosts)
+	for {
+		err := login.SameServer(ctx, knownHosts, public, net.JoinHostPort(address, "22"))
+		if err == nil {
+			return nil
+		}
+		msg := fmt.Sprintf("This step reaches the server through the private network, and %s does not answer.", address)
+		if errors.Is(err, login.ErrOtherServer) {
+			return fmt.Errorf("this step reaches the server through the private network, and at %s answers another "+
+				"server than %s, most likely through the tunnel of another project. Nothing was changed. Turn that "+
+				"tunnel off, and this project's on. %s", address, public, help)
+		}
+		if help != "" {
+			msg += " " + help
+		}
+		if !s.tty() {
+			return errors.New(msg)
+		}
+		fmt.Fprintln(s.out, msg)
+		if _, err := s.prompt.Line("Press Enter once it is on: "); err != nil {
+			return err
+		}
+	}
 }

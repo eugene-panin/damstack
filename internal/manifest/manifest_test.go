@@ -59,6 +59,7 @@ steps:
       dir: infra
       action: apply
       policy: {dir: policy, nomad_jobs: true}
+    tunnel: true
     env:
       NOMAD_ADDR: "https://{{ firstHost .config.network.cidr }}:4646"
     confirm: true
@@ -119,7 +120,7 @@ func TestValidManifestLoads(t *testing.T) {
 	}
 	if m.Name != "hashistack" || len(m.Steps) != 2 || m.Steps[0].Ansible.Playbook != "ansible/provision.yml" ||
 		m.Steps[1].Tofu.Policy == nil || !m.Steps[1].Confirm || m.Commands["output"].Tofu.Action != "output" ||
-		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" || len(m.Check.Steps) != 1 {
+		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" || len(m.Check.Steps) != 1 || !m.Steps[1].Tunnel {
 		t.Errorf("got %+v", m)
 	}
 }
@@ -165,6 +166,7 @@ func TestProblems(t *testing.T) {
 		{"question named project", "name: provider", "name: project", "damstack asks itself", "name: project\n"},
 		{"server without first user", "  first_user: root\n", "", "server.first_user: is required", "server:"},
 		{"server template that does not parse", "{{ .config.server.address }}", "{{ .config.server.address", "unclosed action", "  address:"},
+		{"tunnel step without a tunnel", "  tunnel: \"{{ firstHost .config.network.cidr }}\"\n", "", "needs server.tunnel", "    tunnel: true"},
 		{"no steps", "steps:\n", "steps: []\nold_steps:\n", "unknown field old_steps", "old_steps"},
 	}
 	for _, tc := range tests {

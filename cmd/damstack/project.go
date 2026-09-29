@@ -148,6 +148,11 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 				if err != nil {
 					return err
 				}
+				if step.Tunnel && m.Server != nil {
+					if err := waitTunnel(cmd.Context(), s, e); err != nil {
+						return err
+					}
+				}
 				start := time.Now()
 				err = e.Run(cmd.Context(), step, args)
 				if rerr := record(p, name, "", start, err); rerr != nil && err == nil {

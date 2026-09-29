@@ -90,6 +90,9 @@ type Server struct {
 	FirstUser string `yaml:"first_user"`
 	OpsUser   string `yaml:"ops_user"`
 	Tunnel    string `yaml:"tunnel"`
+	// TunnelHelp says how to turn the tunnel on, when a step that needs it
+	// finds it off.
+	TunnelHelp string `yaml:"tunnel_help"`
 }
 
 // Generators are the ways a secret can be generated.
@@ -105,6 +108,9 @@ type Step struct {
 	Keep    *Keep             `yaml:"keep"`
 	Confirm bool              `yaml:"confirm"`
 	Once    bool              `yaml:"once"`
+	// Tunnel is whether the step reaches the server over the private
+	// network; damstack checks that server.tunnel answers first.
+	Tunnel bool `yaml:"tunnel"`
 }
 
 type Ansible struct {
@@ -210,7 +216,7 @@ func Parse(path string, data []byte, dir, damstackVersion string) (*Manifest, er
 		return nil, &Error{File: path, Problems: []Problem{{Path: "yaml", Msg: err.Error()}}}
 	}
 
-	c := checker{root: &root}
+	c := checker{root: &root, server: m.Server}
 	c.check(&m, dir, damstackVersion)
 	if len(c.problems) > 0 {
 		return nil, &Error{File: path, Problems: c.problems}
@@ -237,6 +243,7 @@ func decodeProblem(msg string) Problem {
 
 type checker struct {
 	root     *yaml.Node
+	server   *Server
 	problems []Problem
 }
 
@@ -298,7 +305,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			c.add("server.first_user", "is required")
 		}
 		for field, text := range map[string]string{"address": m.Server.Address, "first_user": m.Server.FirstUser,
-			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel} {
+			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel, "tunnel_help": m.Server.TunnelHelp} {
 			c.checkTemplate("server."+field, text)
 		}
 	}
@@ -341,6 +348,9 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 }
 
 func (c *checker) checkStep(path string, s Step, dir string) {
+	if s.Tunnel && (c.server == nil || c.server.Tunnel == "") {
+		c.add(path+".tunnel", "needs server.tunnel, the address of the server over the private network")
+	}
 	kinds := 0
 	if s.Ansible != nil {
 		kinds++

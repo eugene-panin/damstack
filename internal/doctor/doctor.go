@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eugene-panin/damstack/internal/login"
 	"github.com/eugene-panin/damstack/internal/release"
 )
 
@@ -46,16 +47,21 @@ type Env struct {
 	Stat     func(string) (fs.FileInfo, error)
 	Dial     func(ctx context.Context, network, address string) (net.Conn, error)
 	Head     func(ctx context.Context, url string) (int, error)
-	Project  *Project
+	// SameServer checks that the SSH server at tunnel is the one known_hosts
+	// knows for public.
+	SameServer func(ctx context.Context, knownHosts, public, tunnel string) error
+	Project    *Project
 }
 
 // Project is what doctor checks of the project it runs in: that its vault
 // password is there, and that the server answers at Tunnel, its address over
 // the private network, when the stack names one.
 type Project struct {
-	Dir      string
-	Password string
-	Tunnel   string
+	Dir        string
+	Password   string
+	Tunnel     string
+	Public     string
+	KnownHosts string
 }
 
 func Host(p *Project) Env {
@@ -84,7 +90,8 @@ func Host(p *Project) Env {
 			resp.Body.Close()
 			return resp.StatusCode, nil
 		},
-		Project: p,
+		SameServer: login.SameServer,
+		Project:    p,
 	}
 }
 
@@ -267,6 +274,12 @@ func checkProject(ctx context.Context, env Env) []Result {
 			"turn the WireGuard tunnel on; before the server is set up this is expected"})
 	}
 	conn.Close()
+	if p.Public != "" && p.KnownHosts != "" {
+		if err := env.SameServer(ctx, p.KnownHosts, p.Public, net.JoinHostPort(p.Tunnel, "22")); errors.Is(err, login.ErrOtherServer) {
+			return append(results, Result{group, Fail, "at " + p.Tunnel + " answers another server than " + p.Public,
+				"the tunnel of another project is on: turn it off, and this project's on"})
+		}
+	}
 	return append(results, Result{group, OK, "the server answers at " + p.Tunnel + " through WireGuard", ""})
 }
 
