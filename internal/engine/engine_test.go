@@ -217,3 +217,37 @@ func TestTofuPlanFails(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestAppTofuKeepsItsOwnStateAndWritesOutputs(t *testing.T) {
+	e, r := setup(t)
+	if err := e.Project.SetApp("mail", []byte("hostname: mail.example.org\n")); err != nil {
+		t.Fatal(err)
+	}
+	e.App = "mail"
+	plan := planReply(2)
+	r.reply = func(c toolbox.Cmd) error {
+		if slices.Contains(c.Args, "output") {
+			c.Stdout.Write([]byte(`{"mail.example.org":[{"type":"A"}]}`))
+			return nil
+		}
+		return plan(c)
+	}
+	step := manifest.Step{
+		Tofu: &manifest.Tofu{Dir: "infra", Action: "apply", Outputs: map[string]string{"dns_records": "dns/mail.json"}},
+		Env:  map[string]string{"TF_VAR_hostname": "{{ .app.hostname }}"},
+	}
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	lines := r.lines()
+	if lines[0] != "tofu -chdir=/stack/infra init -input=false -backend-config=path=/work/state/mail-infra.tfstate -lockfile=readonly" ||
+		lines[len(lines)-1] != "tofu -chdir=/stack/infra output -json dns_records" {
+		t.Errorf("got\n%s", strings.Join(lines, "\n"))
+	}
+	if env := r.cmds[0].Env; env["TF_DATA_DIR"] != "/work/.damstack/work/tofu/mail-infra" || env["TF_VAR_hostname"] != "mail.example.org" {
+		t.Errorf("env %v", env)
+	}
+	if got, err := os.ReadFile(filepath.Join(e.Project.Dir, "dns/mail.json")); err != nil || !strings.Contains(string(got), "mail.example.org") {
+		t.Errorf("dns/mail.json %q, %v", got, err)
+	}
+}

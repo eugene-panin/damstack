@@ -43,9 +43,19 @@ type StackRef struct {
 }
 
 type Meta struct {
-	Name    string    `yaml:"name"`
-	Stack   StackRef  `yaml:"stack"`
-	Created time.Time `yaml:"created"`
+	Name    string     `yaml:"name"`
+	Stack   StackRef   `yaml:"stack"`
+	Apps    []StackRef `yaml:"apps,omitempty"`
+	Created time.Time  `yaml:"created"`
+}
+
+func (m Meta) App(name string) (StackRef, bool) {
+	for _, a := range m.Apps {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return StackRef{}, false
 }
 
 type Project struct {
@@ -307,4 +317,87 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// SetApp puts block, the YAML settings of an app, under apps.<name> of
+// stack.yaml. Only the apps section is written again; the rest of the file,
+// its comments and blank lines, stays as it is.
+func (p *Project) SetApp(name string, block []byte) error {
+	path := filepath.Join(p.Dir, ConfigFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("%s is not a mapping", path)
+	}
+	var app yaml.Node
+	if err := yaml.Unmarshal(block, &app); err != nil {
+		return fmt.Errorf("the settings of %s: %w", name, err)
+	}
+	if app.Kind != yaml.DocumentNode || len(app.Content) == 0 || app.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("the settings of %s are not a mapping", name)
+	}
+	value := app.Content[0]
+	value.HeadComment = joinComments(app.HeadComment, value.HeadComment)
+
+	lines := strings.SplitAfter(string(data), "\n")
+	root := doc.Content[0]
+	key, apps := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "apps"}, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	start, end := len(lines), len(lines)
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "apps" {
+			continue
+		}
+		key, start = root.Content[i], root.Content[i].Line-1
+		if v := root.Content[i+1]; v.Kind == yaml.MappingNode {
+			apps = v
+		}
+		if i+2 < len(root.Content) {
+			end = root.Content[i+2].Line - 1
+			for end > start+1 && (strings.TrimSpace(lines[end-1]) == "" || strings.HasPrefix(lines[end-1], "#")) {
+				end--
+			}
+		}
+		break
+	}
+	apps.Style &^= yaml.FlowStyle
+	replaced := false
+	for i := 0; i+1 < len(apps.Content); i += 2 {
+		if apps.Content[i].Value == name {
+			apps.Content[i+1], replaced = value, true
+		}
+	}
+	if !replaced {
+		apps.Content = append(apps.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name}, value)
+	}
+
+	section := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+		{Kind: yaml.ScalarNode, Tag: "!!str", Value: "apps", LineComment: key.LineComment}, apps,
+	}}
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(section); err != nil {
+		return err
+	}
+	head := strings.Join(lines[:start], "")
+	if start == len(lines) && head != "" && !strings.HasSuffix(head, "\n\n") {
+		head = strings.TrimRight(head, "\n") + "\n\n"
+	}
+	return writeFile(path, []byte(head+out.String()+strings.Join(lines[end:], "")), 0o644)
+}
+
+func joinComments(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "\n" + b
 }

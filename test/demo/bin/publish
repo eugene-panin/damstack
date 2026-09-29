@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+if ls /work/dns/*.json >/dev/null 2>&1; then cat /work/dns/*.json >/work/published.txt; else : >/work/published.txt; fi
+echo "published the records of the apps"

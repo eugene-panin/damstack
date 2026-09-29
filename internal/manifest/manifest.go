@@ -30,27 +30,69 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "upgrade", "version"}
+var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "upgrade", "version"}
 
 type Manifest struct {
-	APIVersion  string          `yaml:"apiVersion"`
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Requires    Requires        `yaml:"requires"`
-	Image       string          `yaml:"image"`
-	Questions   []Question      `yaml:"questions"`
-	Secrets     []Secret        `yaml:"secrets"`
-	Config      string          `yaml:"config"`
-	Server      *Server         `yaml:"server"`
-	Steps       []Step          `yaml:"steps"`
-	Commands    map[string]Step `yaml:"commands"`
-	Check       Check           `yaml:"check"`
+	APIVersion  string `yaml:"apiVersion"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	// Kind is platform, the default, or app: an app runs on the platform of
+	// a project, and is added to it with damstack app add.
+	Kind string `yaml:"kind"`
+	// Provides are what a platform gives the apps on it, such as nomad.
+	Provides []string `yaml:"provides"`
+	// AppEnv is the environment of every step of the apps on a platform, as
+	// templates over its stack.yaml and secrets: how they reach what it
+	// provides, such as NOMAD_ADDR and NOMAD_TOKEN.
+	AppEnv    map[string]string `yaml:"app_env"`
+	Requires  Requires          `yaml:"requires"`
+	Image     string            `yaml:"image"`
+	Questions []Question        `yaml:"questions"`
+	Secrets   []Secret          `yaml:"secrets"`
+	Config    string            `yaml:"config"`
+	Server    *Server           `yaml:"server"`
+	Steps     []Step            `yaml:"steps"`
+	Commands  map[string]Step   `yaml:"commands"`
+	// Targets are the ways an app runs, by what a platform provides: the
+	// first, by name, the platform of the project provides is used.
+	Targets map[string]Target `yaml:"targets"`
+	Check   Check             `yaml:"check"`
 }
+
+type Target struct {
+	Steps    []Step          `yaml:"steps"`
+	Commands map[string]Step `yaml:"commands"`
+}
+
+const (
+	KindPlatform = "platform"
+	KindApp      = "app"
+)
+
+func (m *Manifest) IsApp() bool { return m.Kind == KindApp }
+
+// Target is the target of an app on a platform that provides provides, and
+// its name.
+func (m *Manifest) Target(provides []string) (string, *Target, bool) {
+	for _, name := range slices.Sorted(maps.Keys(m.Targets)) {
+		if slices.Contains(provides, name) {
+			t := m.Targets[name]
+			return name, &t, true
+		}
+	}
+	return "", nil, false
+}
+
+// SecretPrefix begins the name of every secret of an app, so that the
+// secrets of apps and of the platform in one vault.yml never meet.
+func (m *Manifest) SecretPrefix() string { return strings.ReplaceAll(m.Name, "-", "_") + "_" }
 
 type Requires struct {
 	Damstack string   `yaml:"damstack"`
 	Toolbox  string   `yaml:"toolbox"`
 	Host     []string `yaml:"host"`
+	// Provides are what an app needs of the platform, all of them.
+	Provides []string `yaml:"provides"`
 }
 
 // Question is asked on the first deploy; the answers render Config into the
@@ -111,6 +153,9 @@ type Step struct {
 	// Tunnel is whether the step reaches the server over the private
 	// network; damstack checks that server.tunnel answers first.
 	Tunnel bool `yaml:"tunnel"`
+	// AfterApps runs a step of a platform after the steps of its apps, such
+	// as the one that publishes the DNS records of all of them.
+	AfterApps bool `yaml:"after_apps"`
 }
 
 type Ansible struct {
@@ -123,6 +168,9 @@ type Tofu struct {
 	Dir    string  `yaml:"dir"`
 	Action string  `yaml:"action"`
 	Policy *Policy `yaml:"policy"`
+	// Outputs writes outputs, as JSON, to files of the project after an
+	// apply: output name to path.
+	Outputs map[string]string `yaml:"outputs"`
 }
 
 // Actions are what a tofu step does.
@@ -145,7 +193,9 @@ type Keep struct {
 // checked, then Steps run on it.
 type Check struct {
 	Answers string `yaml:"answers"`
-	Steps   []Step `yaml:"steps"`
+	// Platform is the stack.yaml of a platform an app is checked on.
+	Platform string `yaml:"platform"`
+	Steps    []Step `yaml:"steps"`
 }
 
 // Problem is one thing wrong with a manifest, at a line of it when known.
@@ -180,6 +230,7 @@ var (
 	nameRe     = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 	questionRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}$`)
 	apiRe      = regexp.MustCompile(`^damstack/v([0-9]+)$`)
+	capRe      = regexp.MustCompile(`^[a-z][a-z0-9-]{1,40}$`)
 )
 
 // Load reads the manifest of the stack in dir and checks it, including that
@@ -216,7 +267,7 @@ func Parse(path string, data []byte, dir, damstackVersion string) (*Manifest, er
 		return nil, &Error{File: path, Problems: []Problem{{Path: "yaml", Msg: err.Error()}}}
 	}
 
-	c := checker{root: &root, server: m.Server}
+	c := checker{root: &root, server: m.Server, app: m.Kind == KindApp}
 	c.check(&m, dir, damstackVersion)
 	if len(c.problems) > 0 {
 		return nil, &Error{File: path, Problems: c.problems}
@@ -244,6 +295,7 @@ func decodeProblem(msg string) Problem {
 type checker struct {
 	root     *yaml.Node
 	server   *Server
+	app      bool
 	problems []Problem
 }
 
@@ -310,31 +362,67 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		}
 	}
 
-	if len(m.Steps) == 0 {
-		c.add("steps", "at least one step is required")
+	for i, p := range m.Provides {
+		if !capRe.MatchString(p) {
+			c.add(fmt.Sprintf("provides[%d]", i), "must be lowercase letters, digits and hyphens")
+		}
 	}
-	seen := map[string]bool{}
-	for i, s := range m.Steps {
-		path := fmt.Sprintf("steps[%d]", i)
-		if !nameRe.MatchString(s.Name) {
-			c.add(path+".name", "must be 2 to 31 lowercase letters, digits and hyphens, starting with a letter")
+	switch m.Kind {
+	case "", KindPlatform:
+		if len(m.Steps) == 0 {
+			c.add("steps", "at least one step is required")
 		}
-		if seen[s.Name] {
-			c.add(path+".name", "%q is already a step", s.Name)
+		c.checkSteps("steps", m.Steps, dir, false)
+		c.checkCommands("commands", m.Commands, dir)
+		if len(m.Targets) > 0 {
+			c.add("targets", "are for an app; a platform has steps")
 		}
-		seen[s.Name] = true
-		c.checkStep(path, s, dir)
-	}
-
-	for _, name := range sortedKeys(m.Commands) {
-		path := "commands." + name
-		if !nameRe.MatchString(name) {
-			c.add(path, "the name must be 2 to 31 lowercase letters, digits and hyphens, starting with a letter")
+		if len(m.Requires.Provides) > 0 {
+			c.add("requires.provides", "is for an app, what it needs of the platform")
 		}
-		if slices.Contains(Builtin, name) {
-			c.add(path, "%q is a command of damstack itself", name)
+		for _, key := range slices.Sorted(maps.Keys(m.AppEnv)) {
+			c.checkTemplate("app_env."+key, m.AppEnv[key])
 		}
-		c.checkStep(path, m.Commands[name], dir)
+	case KindApp:
+		if len(m.Steps) > 0 || len(m.Commands) > 0 {
+			c.add("steps", "an app has its steps and commands under targets, one per kind of platform")
+		}
+		if len(m.Provides) > 0 || len(m.AppEnv) > 0 {
+			c.add("provides", "provides and app_env are for a platform")
+		}
+		if m.Server != nil {
+			c.add("server", "is the platform's; an app reaches the server through it")
+		}
+		if len(m.Requires.Provides) == 0 {
+			c.add("requires.provides", "is required: what the app needs of the platform, such as nomad")
+		}
+		if len(m.Targets) == 0 {
+			c.add("targets", "at least one is required: how the app runs on a platform that provides its name")
+		}
+		for _, name := range slices.Sorted(maps.Keys(m.Targets)) {
+			path := "targets." + name
+			if !capRe.MatchString(name) {
+				c.add(path, "the name must be lowercase letters, digits and hyphens, what a platform provides")
+			}
+			t := m.Targets[name]
+			if len(t.Steps) == 0 {
+				c.add(path+".steps", "at least one step is required")
+			}
+			c.checkSteps(path+".steps", t.Steps, dir, true)
+			c.checkCommands(path+".commands", t.Commands, dir)
+		}
+		for i, s := range m.Secrets {
+			if !strings.HasPrefix(s.Name, m.SecretPrefix()) {
+				c.add(fmt.Sprintf("secrets[%d].name", i), "the secrets of an app begin with its name: %s", m.SecretPrefix())
+			}
+		}
+		if m.Check.Platform == "" {
+			c.add("check.platform", "is required: the stack.yaml of a platform the app is checked on")
+		} else {
+			c.checkFile("check.platform", m.Check.Platform, dir, false)
+		}
+	default:
+		c.add("kind", "%q is not a kind; platform or app", m.Kind)
 	}
 
 	if m.Check.Answers == "" {
@@ -347,8 +435,39 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	}
 }
 
+func (c *checker) checkSteps(path string, steps []Step, dir string, app bool) {
+	seen := map[string]bool{}
+	for i, s := range steps {
+		p := fmt.Sprintf("%s[%d]", path, i)
+		if !nameRe.MatchString(s.Name) {
+			c.add(p+".name", "must be 2 to 31 lowercase letters, digits and hyphens, starting with a letter")
+		}
+		if seen[s.Name] {
+			c.add(p+".name", "%q is already a step", s.Name)
+		}
+		seen[s.Name] = true
+		if app && s.AfterApps {
+			c.add(p+".after_apps", "is for a step of a platform")
+		}
+		c.checkStep(p, s, dir)
+	}
+}
+
+func (c *checker) checkCommands(path string, commands map[string]Step, dir string) {
+	for _, name := range sortedKeys(commands) {
+		p := path + "." + name
+		if !nameRe.MatchString(name) {
+			c.add(p, "the name must be 2 to 31 lowercase letters, digits and hyphens, starting with a letter")
+		}
+		if slices.Contains(Builtin, name) {
+			c.add(p, "%q is a command of damstack itself", name)
+		}
+		c.checkStep(p, commands[name], dir)
+	}
+}
+
 func (c *checker) checkStep(path string, s Step, dir string) {
-	if s.Tunnel && (c.server == nil || c.server.Tunnel == "") {
+	if s.Tunnel && !c.app && (c.server == nil || c.server.Tunnel == "") {
 		c.add(path+".tunnel", "needs server.tunnel, the address of the server over the private network")
 	}
 	kinds := 0
@@ -378,6 +497,11 @@ func (c *checker) checkStep(path string, s Step, dir string) {
 		}
 		if s.Tofu.Policy != nil {
 			c.checkFile(path+".tofu.policy.dir", s.Tofu.Policy.Dir, dir, true)
+		}
+		for _, name := range slices.Sorted(maps.Keys(s.Tofu.Outputs)) {
+			if file := s.Tofu.Outputs[name]; file == "" || !filepath.IsLocal(file) {
+				c.add(path+".tofu.outputs."+name, "is a path inside the project")
+			}
 		}
 	}
 	if s.Run != nil {

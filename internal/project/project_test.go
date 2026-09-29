@@ -98,3 +98,71 @@ func TestHistory(t *testing.T) {
 		t.Errorf("done %v, %v", done, err)
 	}
 }
+
+func TestSetApp(t *testing.T) {
+	config := `# The one file to edit.
+name: demo
+
+# Private network.
+network:
+  cidr: 10.77.0.0/24
+  clients: [laptop, phone] # in order
+
+# Apps on the platform.
+apps: {}
+
+# Backups.
+backup: {schedule: "03:00"}
+`
+	p, err := Create(t.TempDir(), Meta{Name: "demo"}, map[string][]byte{ConfigFile: []byte(config)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetApp("mail", []byte("# Mail, by Stalwart.\nhostname: mail.example.org\ndomains: [example.org]\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetApp("git", []byte("hostname: git.example.org\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetApp("mail", []byte("hostname: mx.example.org\ndomains: [example.org]\n")); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(p.Dir, ConfigFile))
+	want := `# The one file to edit.
+name: demo
+
+# Private network.
+network:
+  cidr: 10.77.0.0/24
+  clients: [laptop, phone] # in order
+
+# Apps on the platform.
+apps:
+  mail:
+    hostname: mx.example.org
+    domains: [example.org]
+  git:
+    hostname: git.example.org
+
+# Backups.
+backup: {schedule: "03:00"}
+`
+	if string(got) != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+
+	if err := p.SetApp("x", []byte("- a list\n")); err == nil {
+		t.Error("a list was taken as the settings of an app")
+	}
+
+	bare, err := Create(t.TempDir(), Meta{Name: "bare"}, map[string][]byte{ConfigFile: []byte("name: bare\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bare.SetApp("mail", []byte("hostname: m\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(bare.Dir, ConfigFile)); string(got) != "name: bare\n\napps:\n  mail:\n    hostname: m\n" {
+		t.Errorf("without apps: %q", got)
+	}
+}

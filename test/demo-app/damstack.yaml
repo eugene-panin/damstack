@@ -1,0 +1,33 @@
+apiVersion: damstack/v1
+name: hello
+kind: app
+description: An app that proves apps on the demo platform
+requires:
+  damstack: ">=0.1.0"
+  provides: [demo]
+questions:
+  - name: hostname
+    prompt: The host name of the app
+    default: hello.example.org
+secrets:
+  - name: hello_token
+    generate: hex
+    bytes: 8
+config: template/app.yaml.tmpl
+targets:
+  demo:
+    steps:
+      - name: apply
+        tofu:
+          dir: infra
+          action: apply
+          outputs: {dns_records: dns/hello.json}
+        env:
+          TF_VAR_hostname: "{{ .app.hostname }}"
+          TF_VAR_token: '{{ secret "hello_token" }}'
+    commands:
+      output:
+        tofu: {dir: infra, action: output}
+check:
+  answers: test/answers.yaml
+  platform: test/platform.yaml

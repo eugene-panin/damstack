@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/ask"
@@ -43,52 +44,9 @@ func Create(o Options) (*project.Project, string, error) {
 		return nil, "", err
 	}
 
-	questions, asked := map[string]any{}, map[string]any{}
-	for k, v := range o.Given {
-		if isAsked(m, k) {
-			asked[k] = v
-		} else {
-			questions[k] = v
-		}
-	}
-	answers, err := ask.Questions(o.Prompter, m.Questions, questions)
+	answers, secrets, files, err := collect(m, o.Name, o.Given, o.Prompter, o.Placeholders)
 	if err != nil {
 		return nil, "", err
-	}
-
-	secrets := map[string]any{}
-	files := map[string][]byte{}
-	for _, s := range m.Secrets {
-		if s.When != "" && answers[s.When] != true {
-			continue
-		}
-		if s.Generate != "" {
-			g, err := secret.Generate(s.Generate, s.Bytes, o.Name)
-			if err != nil {
-				return nil, "", fmt.Errorf("secret %s: %w", s.Name, err)
-			}
-			secrets[s.Name] = g.Value
-			if s.Cert != "" {
-				files[s.Cert] = g.Cert
-			}
-			continue
-		}
-		switch v, ok := asked[s.Name]; {
-		case ok:
-			text, isText := v.(string)
-			if !isText || text == "" {
-				return nil, "", fmt.Errorf("secret %s: must be text", s.Name)
-			}
-			secrets[s.Name] = text
-		case o.Placeholders:
-			secrets[s.Name] = "placeholder-" + s.Name
-		case o.Prompter != nil:
-			if secrets[s.Name], err = o.Prompter.Secret(s.Ask); err != nil {
-				return nil, "", err
-			}
-		default:
-			return nil, "", fmt.Errorf("secret %s: not given", s.Name)
-		}
 	}
 
 	config, err := m.RenderConfig(o.Stack, o.Name, answers)
@@ -120,6 +78,122 @@ func Create(o Options) (*project.Project, string, error) {
 		return nil, "", err
 	}
 	return p, password, nil
+}
+
+// collect asks the questions and gets the secrets of a stack: generated, or
+// given, or asked. files are the certificates of generated CAs.
+func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Prompter, placeholders bool) (map[string]any, map[string]any, map[string][]byte, error) {
+	questions, asked := map[string]any{}, map[string]any{}
+	for k, v := range given {
+		if isAsked(m, k) {
+			asked[k] = v
+		} else {
+			questions[k] = v
+		}
+	}
+	answers, err := ask.Questions(p, m.Questions, questions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	secrets := map[string]any{}
+	files := map[string][]byte{}
+	for _, s := range m.Secrets {
+		if s.When != "" && answers[s.When] != true {
+			continue
+		}
+		if s.Generate != "" {
+			g, err := secret.Generate(s.Generate, s.Bytes, name)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("secret %s: %w", s.Name, err)
+			}
+			secrets[s.Name] = g.Value
+			if s.Cert != "" {
+				files[s.Cert] = g.Cert
+			}
+			continue
+		}
+		switch v, ok := asked[s.Name]; {
+		case ok:
+			text, isText := v.(string)
+			if !isText || text == "" {
+				return nil, nil, nil, fmt.Errorf("secret %s: must be text", s.Name)
+			}
+			secrets[s.Name] = text
+		case placeholders:
+			secrets[s.Name] = "placeholder-" + s.Name
+		case p != nil:
+			if secrets[s.Name], err = p.Secret(s.Ask); err != nil {
+				return nil, nil, nil, err
+			}
+		default:
+			return nil, nil, nil, fmt.Errorf("secret %s: not given", s.Name)
+		}
+	}
+	return answers, secrets, files, nil
+}
+
+type AppOptions struct {
+	Manifest *manifest.Manifest
+	// Stack is the app's directory on this machine.
+	Stack        string
+	Ref          project.StackRef
+	Project      *project.Project
+	Password     string
+	Given        map[string]any
+	Prompter     *ask.Prompter
+	Placeholders bool
+}
+
+// AddApp adds an app to a project: its settings under apps of stack.yaml,
+// its secrets in vault.yml, and its release in the project's record.
+func AddApp(o AppOptions) error {
+	m, p := o.Manifest, o.Project
+	if _, ok := p.Meta.App(m.Name); ok {
+		return fmt.Errorf("%s is already an app of %s; damstack deploy deploys it", m.Name, p.Meta.Name)
+	}
+	existing, err := p.Secrets(o.Password)
+	if err != nil {
+		return err
+	}
+	answers, secrets, files, err := collect(m, p.Meta.Name, o.Given, o.Prompter, o.Placeholders)
+	if err != nil {
+		return err
+	}
+	for name := range secrets {
+		if _, ok := existing[name]; ok {
+			return fmt.Errorf("the project has a secret %s already; the app %s cannot take its name", name, m.Name)
+		}
+	}
+	block := []byte("{}\n")
+	if m.Config != "" {
+		if block, err = m.RenderConfig(o.Stack, p.Meta.Name, answers); err != nil {
+			return err
+		}
+	}
+	for name, content := range files {
+		path := filepath.Join(p.Dir, filepath.FromSlash(name))
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("%s is in the project already; the app %s cannot write it", name, m.Name)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			return err
+		}
+	}
+	for name, v := range secrets {
+		existing[name] = v
+	}
+	if err := p.SaveSecrets(o.Password, existing); err != nil {
+		return err
+	}
+	if err := p.SetApp(m.Name, block); err != nil {
+		return err
+	}
+	p.Meta.Apps = append(p.Meta.Apps, o.Ref)
+	return p.SaveMeta()
 }
 
 func isAsked(m *manifest.Manifest, name string) bool {

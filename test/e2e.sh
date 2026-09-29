@@ -53,8 +53,30 @@ printf 'n\n' | deploy && fail "a no went through"
 grep -q 'you said no' "$work/out" || { cat "$work/out"; fail "no explanation"; }
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "applied after a no"
 
+step "an app: added, deployed after the platform and before what comes after the apps"
+app=$repo/test/demo-app
+"$damstack" stack check "$app" >"$work/out" 2>&1 || { cat "$work/out"; fail "stack check of the app"; }
+sed -i.bak 's/^greeting: hi/greeting: hello/' stack.yaml
+printf 'hostname: hello.example.org\n' >"$work/app-answers.yaml"
+printf 'y\n' | "$damstack" app add --from "$app" --answers "$work/app-answers.yaml" >"$work/out" 2>&1 || { cat "$work/out"; fail "app add"; }
+order=$(grep -E '^== (apply|hello/apply|publish)$' "$work/out" | tr '\n' ' ')
+[[ $order == "== apply == hello/apply == publish " ]] || { cat "$work/out"; fail "steps ran in the order: $order"; }
+grep -q 'hostname: hello.example.org' stack.yaml || fail "the settings of the app are not in stack.yaml"
+grep -qx 'clients: \[laptop, phone\]' stack.yaml || fail "stack.yaml lost what was there"
+grep -q hello.example.org published.txt || fail "the platform did not publish the records of the app"
+[[ $("$damstack" hello output message) == '"hello from hello.example.org"' ]] || fail "the command of the app"
+[[ $("$damstack" app list | awk 'NR==2{print $1, $2}') == "hello dev" ]] || fail "app list"
+printf 'n\n' | "$damstack" app add --from "$app" >"$work/out" 2>&1 && fail "the app was added twice"
+grep -q 'already an app' "$work/out" || { cat "$work/out"; fail "no explanation for a second add"; }
+deploy </dev/null || { cat "$work/out"; fail "deploy with the app"; }
+grep -q 'hello/apply' "$work/out" && grep -q 'Nothing to change' "$work/out" || { cat "$work/out"; fail "a second deploy changed the app"; }
+
 step "status and history"
-"$damstack" status | grep -Eq '^apply +.* failed' || fail "status does not show the failed apply"
-[[ $("$damstack" history | grep -c ' deploy ') -ge 9 ]] || fail "history is short"
+"$damstack" status >"$work/out"
+grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/out" && grep -Eq '^publish +.* ok' "$work/out" ||
+  { cat "$work/out"; fail "status does not show the steps of the platform and the app"; }
+"$damstack" history >"$work/out"
+[[ $(grep -c ' deploy ' "$work/out") -ge 12 ]] || fail "history is short"
+grep -q ' failed ' "$work/out" || { cat "$work/out"; fail "history lost the failed apply"; }
 
 printf '\nall end to end scenarios passed\n'

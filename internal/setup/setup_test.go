@@ -101,3 +101,51 @@ func TestCreateFailsWithoutLeavingAPassword(t *testing.T) {
 		t.Errorf("a directory with files: %v", err)
 	}
 }
+
+func TestAddApp(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p, password, err := Create(Options{
+		Manifest: stackManifest, Stack: stack(t), Name: "demo", Dir: filepath.Join(t.TempDir(), "demo"),
+		Given: map[string]any{"address": "1.2.3.4", "api_token": "tok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appDir, "app.yaml.tmpl"), []byte("hostname: {{ yaml .hostname }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &manifest.Manifest{
+		Name: "mail", Kind: manifest.KindApp, Config: "app.yaml.tmpl",
+		Questions: []manifest.Question{{Name: "hostname", Prompt: "Mail host"}},
+		Secrets:   []manifest.Secret{{Name: "mail_admin_password", Generate: "password"}},
+	}
+	o := AppOptions{Manifest: app, Stack: appDir, Ref: project.StackRef{Name: "mail", Tag: "v0.1.0"}, Project: p, Password: password,
+		Given: map[string]any{"hostname": "mail.example.org"}}
+	if err := AddApp(o); err != nil {
+		t.Fatal(err)
+	}
+	config, err := p.Config()
+	if err != nil || config["apps"].(map[string]any)["mail"].(map[string]any)["hostname"] != "mail.example.org" || config["address"] != "1.2.3.4" {
+		t.Errorf("stack.yaml %v, %v", config, err)
+	}
+	secrets, err := p.Secrets(password)
+	if err != nil || secrets["mail_admin_password"] == "" || secrets["api_token"] != "tok" {
+		t.Errorf("secrets %v, %v", secrets, err)
+	}
+	reopened, err := project.Open(p.Dir)
+	if err != nil || len(reopened.Meta.Apps) != 1 || reopened.Meta.Apps[0].Tag != "v0.1.0" {
+		t.Errorf("project.yaml %+v, %v", reopened, err)
+	}
+	if err := AddApp(o); err == nil || !strings.Contains(err.Error(), "already an app") {
+		t.Errorf("a second add: %v", err)
+	}
+
+	clash := *app
+	clash.Name = "other"
+	clash.Secrets = []manifest.Secret{{Name: "gossip", Generate: "base64"}}
+	o.Manifest, o.Ref.Name = &clash, "other"
+	if err := AddApp(o); err == nil || !strings.Contains(err.Error(), "has a secret gossip already") {
+		t.Errorf("a secret of the platform taken: %v", err)
+	}
+}

@@ -235,3 +235,84 @@ func TestSatisfies(t *testing.T) {
 		t.Error("~1.0 was accepted")
 	}
 }
+
+const validApp = `apiVersion: damstack/v1
+name: mail
+kind: app
+description: Mail on the platform
+requires:
+  provides: [nomad, vault-kv]
+questions:
+  - name: hostname
+    prompt: The mail host name
+secrets:
+  - name: mail_admin_password
+    generate: password
+config: template/stack.yaml.tmpl
+targets:
+  nomad:
+    steps:
+      - name: apply
+        tofu:
+          dir: infra
+          action: apply
+          outputs: {dns_records: dns/mail.json}
+        confirm: true
+    commands:
+      output:
+        tofu: {dir: infra, action: output}
+check:
+  answers: test/answers.yaml
+  platform: test/answers.yaml
+`
+
+func TestValidAppLoads(t *testing.T) {
+	m, err := Load(stackDir(t, validApp), "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, target, ok := m.Target([]string{"consul", "nomad", "vault-kv"})
+	if !m.IsApp() || !ok || name != "nomad" || target.Steps[0].Tofu.Outputs["dns_records"] != "dns/mail.json" || m.SecretPrefix() != "mail_" {
+		t.Errorf("got %+v, target %s %+v", m, name, target)
+	}
+	if _, _, ok := m.Target([]string{"kubernetes"}); ok {
+		t.Error("a target for a platform that does not provide it")
+	}
+}
+
+func TestAppProblems(t *testing.T) {
+	tests := []struct{ name, from, to, want string }{
+		{"unknown kind", "kind: app", "kind: service", `"service" is not a kind`},
+		{"app with steps", "targets:", "steps:\n  - name: x\n    run: [bin/extra]\ntargets:", "under targets"},
+		{"app without targets", "targets:\n  nomad:", "other:\n  nomad:", "unknown field other"},
+		{"app without requires", "  provides: [nomad, vault-kv]\n", "", "requires.provides: is required"},
+		{"secret without the app's name", "name: mail_admin_password", "name: admin_password", "begin with its name: mail_"},
+		{"app step after apps", "        confirm: true", "        after_apps: true", "is for a step of a platform"},
+		{"output outside the project", "dns/mail.json", "../mail.json", "a path inside the project"},
+		{"no platform to check on", "  platform: test/answers.yaml\n", "", "check.platform: is required"},
+		{"target without steps", "    steps:\n      - name: apply\n        tofu:\n          dir: infra\n          action: apply\n          outputs: {dns_records: dns/mail.json}\n        confirm: true\n", "", "targets.nomad.steps: at least one"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(validApp, tc.from) {
+				t.Fatalf("the valid app has no %q", tc.from)
+			}
+			_, err := Load(stackDir(t, strings.Replace(validApp, tc.from, tc.to, 1)), "0.1.0")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlatformProblems(t *testing.T) {
+	for _, tc := range []struct{ from, to, want string }{
+		{"steps:\n  - name: provision", "targets:\n  nomad: {steps: []}\nsteps:\n  - name: provision", "are for an app"},
+		{"  host: [docker, ssh-key, wireguard]", "  host: [docker, ssh-key, wireguard]\n  provides: [nomad]", "is for an app"},
+	} {
+		_, err := Load(stackDir(t, strings.Replace(valid, tc.from, tc.to, 1)), "0.1.0")
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: got %v", tc.want, err)
+		}
+	}
+}

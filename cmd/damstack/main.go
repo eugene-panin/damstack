@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -88,6 +91,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			if err != nil {
 				return err
 			}
+			if m.IsApp() {
+				fmt.Fprintf(stdout, "%s: app, %s, needs %s, %d questions, %d secrets, targets %s\n",
+					m.Name, manifest.APIVersion, strings.Join(m.Requires.Provides, ", "), len(m.Questions), len(m.Secrets),
+					strings.Join(slices.Sorted(maps.Keys(m.Targets)), ", "))
+				return nil
+			}
 			fmt.Fprintf(stdout, "%s: %s, %d questions, %d secrets, %d steps, %d commands\n",
 				m.Name, manifest.APIVersion, len(m.Questions), len(m.Secrets), len(m.Steps), len(m.Commands))
 			return nil
@@ -105,7 +114,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return checkStack(cmd.Context(), s, dir)
 		},
 	})
-	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s))
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s))
 	root.InitDefaultCompletionCmd()
 	root.AddCommand(stackCommands(s, func(name string) bool {
 		c, _, err := root.Find([]string{name})

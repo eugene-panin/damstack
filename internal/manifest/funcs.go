@@ -86,6 +86,12 @@ func (m *Manifest) RenderConfig(dir, project string, answers map[string]any) ([]
 // and secret "name" gives a secret, empty when the project has none of that
 // name yet.
 func Render(name, text string, config, secrets map[string]any) (string, error) {
+	return RenderData(name, text, map[string]any{"config": config}, secrets)
+}
+
+// RenderData runs a template on data, such as .config and, for an app, .app,
+// its own settings under apps of stack.yaml.
+func RenderData(name, text string, data, secrets map[string]any) (string, error) {
 	funcs := template.FuncMap{"secret": func(key string) (string, error) {
 		switch v := secrets[key].(type) {
 		case nil:
@@ -101,7 +107,7 @@ func Render(name, text string, config, secrets map[string]any) (string, error) {
 		return "", err
 	}
 	var out bytes.Buffer
-	if err := t.Execute(&out, map[string]any{"config": config}); err != nil {
+	if err := t.Execute(&out, data); err != nil {
 		return "", err
 	}
 	return out.String(), nil

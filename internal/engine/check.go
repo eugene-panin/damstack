@@ -22,6 +22,13 @@ func (e *Engine) Check(ctx context.Context) error {
 	for _, name := range slices.Sorted(maps.Keys(e.Manifest.Commands)) {
 		steps = append(steps, e.Manifest.Commands[name])
 	}
+	for _, target := range slices.Sorted(maps.Keys(e.Manifest.Targets)) {
+		t := e.Manifest.Targets[target]
+		steps = append(steps, t.Steps...)
+		for _, name := range slices.Sorted(maps.Keys(t.Commands)) {
+			steps = append(steps, t.Commands[name])
+		}
+	}
 	config, err := e.Project.Config()
 	if err != nil {
 		return err
@@ -33,11 +40,9 @@ func (e *Engine) Check(ctx context.Context) error {
 
 	seen := map[string]bool{}
 	for _, s := range steps {
-		env := map[string]string{}
-		for key, text := range s.Env {
-			if env[key], err = manifest.Render(key, text, config, secrets); err != nil {
-				return fmt.Errorf("env %s: %w", key, err)
-			}
+		env, err := e.env(s, config, secrets)
+		if err != nil {
+			return err
 		}
 		switch {
 		case s.Ansible != nil && !seen["ansible "+s.Ansible.Playbook]:
@@ -72,7 +77,7 @@ func (e *Engine) Check(ctx context.Context) error {
 }
 
 func (e *Engine) validate(ctx context.Context, dir string, env map[string]string) error {
-	data := path.Join(work, "tofu", path.Base(dir))
+	data := path.Join(work, "tofu", e.unit(dir))
 	if err := os.MkdirAll(e.hostPath(data), 0o755); err != nil {
 		return err
 	}

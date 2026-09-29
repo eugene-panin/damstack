@@ -70,10 +70,7 @@ func statusCommand(s *streams) *cobra.Command {
 				last[e.Step] = e
 			}
 			if m, _ := cachedStack(p); m != nil {
-				order = nil
-				for _, step := range m.Steps {
-					order = append(order, step.Name)
-				}
+				order = stepOrder(p, m)
 			}
 			w := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "STEP\tLAST RUN\tRESULT\tSTACK")
@@ -122,8 +119,33 @@ func historyCommand(s *streams) *cobra.Command {
 	}
 }
 
-// stackCommands are the commands of the stack of the project in wd, when the
-// stack is on this machine.
+// stepOrder names the steps of a deploy in the order they run, those of an
+// app as app/step.
+func stepOrder(p *project.Project, m *manifest.Manifest) []string {
+	var before, after []string
+	for _, step := range m.Steps {
+		if step.AfterApps {
+			after = append(after, step.Name)
+		} else {
+			before = append(before, step.Name)
+		}
+	}
+	for _, ref := range p.Meta.Apps {
+		am, _ := cachedRef(ref)
+		if am == nil {
+			continue
+		}
+		if _, t, ok := am.Target(m.Provides); ok {
+			for _, step := range t.Steps {
+				before = append(before, ref.Name+"/"+step.Name)
+			}
+		}
+	}
+	return append(before, after...)
+}
+
+// stackCommands are the commands of the stack of the project in wd, and of
+// its apps under their names, when they are on this machine.
 func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 	p, err := currentProject()
 	if err != nil {
@@ -135,34 +157,65 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 	}
 	var cmds []*cobra.Command
 	for _, name := range slices.Sorted(maps.Keys(m.Commands)) {
-		if taken(name) {
+		if !taken(name) {
+			cmds = append(cmds, stackCommand(s, p, m, dir, "", name, m.Commands[name], m))
+		}
+	}
+	for _, ref := range p.Meta.Apps {
+		am, adir := cachedRef(ref)
+		if am == nil || taken(ref.Name) || m.Commands[ref.Name].Name != "" {
 			continue
 		}
-		step := m.Commands[name]
-		cmds = append(cmds, &cobra.Command{
-			Use:                name + " [args]",
-			Short:              "A command of the stack " + m.Name,
-			DisableFlagParsing: true,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				e, _, err := newEngine(cmd.Context(), s, p, m, dir)
-				if err != nil {
-					return err
-				}
-				if step.Tunnel && m.Server != nil {
-					if err := waitTunnel(cmd.Context(), s, e); err != nil {
-						return err
-					}
-				}
-				start := time.Now()
-				err = e.Run(cmd.Context(), step, args)
-				if rerr := record(p, name, "", start, err); rerr != nil && err == nil {
-					err = rerr
-				}
-				return err
-			},
-		})
+		_, t, ok := am.Target(m.Provides)
+		if !ok || len(t.Commands) == 0 {
+			continue
+		}
+		group := &cobra.Command{Use: ref.Name, Short: "Commands of the app " + ref.Name}
+		for _, name := range slices.Sorted(maps.Keys(t.Commands)) {
+			group.AddCommand(stackCommand(s, p, am, adir, ref.Name, name, t.Commands[name], m))
+		}
+		cmds = append(cmds, group)
 	}
 	return cmds
+}
+
+func stackCommand(s *streams, p *project.Project, m *manifest.Manifest, dir, app, name string, step manifest.Step, platform *manifest.Manifest) *cobra.Command {
+	short := "A command of the stack " + m.Name
+	if app != "" {
+		short = "A command of the app " + app
+	}
+	return &cobra.Command{
+		Use:                name + " [args]",
+		Short:              short,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, _, err := newEngine(cmd.Context(), s, p, m, dir)
+			if err != nil {
+				return err
+			}
+			if app != "" {
+				e.App = app
+				if e.BaseEnv, err = appEnv(p, platform, e.Password); err != nil {
+					return err
+				}
+			}
+			if step.Tunnel && platform.Server != nil {
+				if err := waitTunnel(cmd.Context(), s, p, platform.Server); err != nil {
+					return err
+				}
+			}
+			command := name
+			if app != "" {
+				command = app + " " + name
+			}
+			start := time.Now()
+			err = e.Run(cmd.Context(), step, args)
+			if rerr := record(p, command, "", start, err); rerr != nil && err == nil {
+				err = rerr
+			}
+			return err
+		},
+	}
 }
 
 // checkStack proves a stack without a server, on a project set up in the
@@ -210,14 +263,31 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 	if err := os.WriteFile(passwordPath, []byte(password+"\n"), 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "== a project from %s\n", m.Check.Answers)
-	p, _, err := setup.Create(setup.Options{
-		Manifest: m, Stack: dir, Name: "check", Dir: filepath.Join(tmp, "project"),
-		Ref:   project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag},
-		Given: given, Placeholders: true, Password: password,
-	})
-	if err != nil {
-		return err
+	ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}
+	var p *project.Project
+	if m.IsApp() {
+		fmt.Fprintf(s.out, "== a project on %s, with the app from %s\n", m.Check.Platform, m.Check.Answers)
+		platform, err := os.ReadFile(filepath.Join(dir, m.Check.Platform))
+		if err != nil {
+			return err
+		}
+		p, err = project.Create(filepath.Join(tmp, "project"), project.Meta{Name: "check"}, map[string][]byte{project.ConfigFile: platform})
+		if err != nil {
+			return err
+		}
+		err = setup.AddApp(setup.AppOptions{Manifest: m, Stack: dir, Ref: ref, Project: p, Password: password, Given: given, Placeholders: true})
+		if err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(s.out, "== a project from %s\n", m.Check.Answers)
+		p, _, err = setup.Create(setup.Options{
+			Manifest: m, Stack: dir, Name: "check", Dir: filepath.Join(tmp, "project"),
+			Ref: ref, Given: given, Placeholders: true, Password: password,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	image := m.Image
 	if image == "" {
@@ -228,6 +298,9 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		UID: os.Getuid(), GID: os.Getgid(), Stdin: nil, Stdout: s.out, Stderr: s.err,
 	}
 	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, Out: s.out}
+	if m.IsApp() {
+		e.App = m.Name
+	}
 	if err := e.Check(ctx); err != nil {
 		return err
 	}

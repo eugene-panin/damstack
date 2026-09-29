@@ -238,24 +238,29 @@ const devTag = "dev"
 // projectStack is the stack of a project at the release it was deployed
 // with, or in the directory it was set up from, or the stack in from.
 func projectStack(ctx context.Context, p *project.Project, from string) (*manifest.Manifest, string, error) {
-	dir := from
-	if dir == "" {
-		ref := p.Meta.Stack
-		if ref.Tag == devTag {
-			dir = strings.TrimPrefix(ref.URL, "file://")
-		} else {
-			cache, err := config.CacheDir()
-			if err != nil {
-				return nil, "", err
-			}
-			if dir, err = stack.Fetch(ctx, cache, ref.URL, stack.Release{Tag: ref.Tag, Commit: ref.Commit}); err != nil {
-				return nil, "", err
-			}
+	if from != "" {
+		dir, err := filepath.Abs(from)
+		if err != nil {
+			return nil, "", err
 		}
+		m, err := manifest.Load(dir, release.Version)
+		return m, dir, err
 	}
-	dir, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, "", err
+	return refStack(ctx, p.Meta.Stack)
+}
+
+// refStack is a stack at a release, fetched when it is not on this machine,
+// or in the directory a dev release names.
+func refStack(ctx context.Context, ref project.StackRef) (*manifest.Manifest, string, error) {
+	dir := strings.TrimPrefix(ref.URL, "file://")
+	if ref.Tag != devTag {
+		cache, err := config.CacheDir()
+		if err != nil {
+			return nil, "", err
+		}
+		if dir, err = stack.Fetch(ctx, cache, ref.URL, stack.Release{Tag: ref.Tag, Commit: ref.Commit}); err != nil {
+			return nil, "", err
+		}
 	}
 	m, err := manifest.Load(dir, release.Version)
 	return m, dir, err
@@ -263,7 +268,10 @@ func projectStack(ctx context.Context, p *project.Project, from string) (*manife
 
 // cachedStack is the stack of a project if it is on this machine already.
 func cachedStack(p *project.Project) (*manifest.Manifest, string) {
-	ref := p.Meta.Stack
+	return cachedRef(p.Meta.Stack)
+}
+
+func cachedRef(ref project.StackRef) (*manifest.Manifest, string) {
 	dir := strings.TrimPrefix(ref.URL, "file://")
 	if ref.Tag != devTag {
 		cache, err := config.CacheDir()
@@ -340,6 +348,8 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	}, key, nil
 }
 
+// runSteps deploys a project: the steps of its platform, then those of each
+// app, then the platform's steps that come after the apps.
 func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
 	e, key, err := newEngine(ctx, s, p, m, dir)
 	if err != nil {
@@ -350,36 +360,76 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
+	var before, after []manifest.Step
 	for _, step := range m.Steps {
+		if step.AfterApps {
+			after = append(after, step)
+		} else {
+			before = append(before, step)
+		}
+	}
+	if err := runList(ctx, s, p, e, m.Server, "", before); err != nil {
+		return err
+	}
+	for _, ref := range p.Meta.Apps {
+		am, adir, err := refStack(ctx, ref)
+		if err != nil {
+			return fmt.Errorf("the app %s: %w", ref.Name, err)
+		}
+		_, target, ok := am.Target(m.Provides)
+		if !ok {
+			return fmt.Errorf("the app %s has no way to run on %s, which provides %s", ref.Name, m.Name, strings.Join(m.Provides, ", "))
+		}
+		ae, _, err := newEngine(ctx, s, p, am, adir)
+		if err != nil {
+			return err
+		}
+		ae.App = ref.Name
+		if ae.BaseEnv, err = appEnv(p, m, ae.Password); err != nil {
+			return err
+		}
+		if err := runList(ctx, s, p, ae, m.Server, ref.Name+"/", target.Steps); err != nil {
+			return err
+		}
+	}
+	if err := runList(ctx, s, p, e, m.Server, "", after); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.out, "\nDeployed %s.\n", p.Meta.Name)
+	return nil
+}
+
+func runList(ctx context.Context, s *streams, p *project.Project, e *engine.Engine, srv *manifest.Server, prefix string, steps []manifest.Step) error {
+	for _, step := range steps {
+		name := prefix + step.Name
 		if step.Once {
-			done, err := p.Done(step.Name)
+			done, err := p.Done(name)
 			if err != nil {
 				return err
 			}
 			if done {
-				fmt.Fprintf(s.out, "\n== %s: done before, runs once\n", step.Name)
+				fmt.Fprintf(s.out, "\n== %s: done before, runs once\n", name)
 				continue
 			}
 		}
-		fmt.Fprintf(s.out, "\n== %s\n", step.Name)
-		if step.Tunnel {
-			if err := waitTunnel(ctx, s, e); err != nil {
+		fmt.Fprintf(s.out, "\n== %s\n", name)
+		if step.Tunnel && srv != nil {
+			if err := waitTunnel(ctx, s, p, srv); err != nil {
 				return err
 			}
 		}
 		start := time.Now()
 		err := e.Run(ctx, step, nil)
-		if rerr := record(p, "deploy", step.Name, start, err); rerr != nil && err == nil {
+		if rerr := record(p, "deploy", name, start, err); rerr != nil && err == nil {
 			err = rerr
 		}
 		if errors.Is(err, engine.ErrDeclined) {
-			return fmt.Errorf("%s: %w; run damstack deploy again when you want it", step.Name, err)
+			return fmt.Errorf("%s: %w; run damstack deploy again when you want it", name, err)
 		}
 		if err != nil {
-			return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack deploy again in %s", step.Name, err, p.Dir)
+			return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack deploy again in %s", name, err, p.Dir)
 		}
 	}
-	fmt.Fprintf(s.out, "\nDeployed %s.\n", p.Meta.Name)
 	return nil
 }
 
@@ -422,9 +472,8 @@ func record(p *project.Project, command, step string, start time.Time, err error
 
 // waitTunnel returns once the server answers over the private network; in a
 // terminal it asks to turn the tunnel on, and waits.
-func waitTunnel(ctx context.Context, s *streams, e *engine.Engine) error {
-	srv := e.Manifest.Server
-	config, err := e.Project.Config()
+func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manifest.Server) error {
+	config, err := p.Config()
 	if err != nil {
 		return err
 	}
@@ -440,7 +489,7 @@ func waitTunnel(ctx context.Context, s *streams, e *engine.Engine) error {
 	if err != nil {
 		return fmt.Errorf("server.address of the stack: %w", err)
 	}
-	knownHosts := filepath.Join(e.Project.Dir, project.KnownHosts)
+	knownHosts := filepath.Join(p.Dir, project.KnownHosts)
 	for {
 		err := login.SameServer(ctx, knownHosts, public, net.JoinHostPort(address, "22"))
 		if err == nil {
@@ -463,4 +512,23 @@ func waitTunnel(ctx context.Context, s *streams, e *engine.Engine) error {
 			return err
 		}
 	}
+}
+
+// appEnv is the app_env of a platform, rendered for its project.
+func appEnv(p *project.Project, m *manifest.Manifest, password string) (map[string]string, error) {
+	config, err := p.Config()
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := p.Secrets(password)
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{}
+	for key, text := range m.AppEnv {
+		if env[key], err = manifest.Render("app_env."+key, text, config, secrets); err != nil {
+			return nil, fmt.Errorf("app_env.%s of %s: %w", key, m.Name, err)
+		}
+	}
+	return env, nil
 }

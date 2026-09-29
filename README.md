@@ -18,6 +18,7 @@ damstack add owner/name   # github.com/owner/damstack-name, or any git address
 damstack deploy        # asks the questions of a stack, sets up a project, deploys it
 damstack status        # in a project: its stack, and how each step went last
 damstack history       # in a project: everything damstack ran on it
+damstack app add mail  # in a project: add an app to its platform
 damstack stack lint    # checks the damstack.yaml of a stack
 damstack stack check   # proves a stack without a server
 ```
@@ -46,6 +47,22 @@ it changes anything. `damstack deploy` in a project deploys it again.
 Inside a project, the commands of its stack are damstack commands too, such as
 `damstack output`.
 
+## Apps
+
+A stack is a platform, such as hashi, or an app that runs on one, such as
+mail. `damstack app add <app>` in a project asks the app's questions, puts its
+settings under `apps.<app>` of the same `stack.yaml`, and its secrets in the
+same `vault.yml`. `damstack deploy` then runs the steps of the platform, those
+of every app, and last the platform's steps marked `after_apps`, such as the
+one that publishes the DNS records the apps left in `dns/`. Each app keeps its
+own OpenTofu state, and its commands are `damstack <app> <command>`.
+
+A platform says what it `provides`, such as `nomad` and `vault-kv`, and in
+`app_env` how its apps reach that. An app `requires` some of it, and has one
+way to run, a target, per kind of platform: the first target the platform
+provides is used, so an app runs on every platform of that kind, and another
+kind only needs another target.
+
 ## Writing a stack
 
 A stack lives in a git repository named `damstack-<name>`, where `<name>` is
@@ -59,7 +76,8 @@ directory with its policies, or a program of the stack. `damstack stack lint`
 checks it, `damstack stack check` sets up a project from the stack's test
 answers and checks the playbooks, OpenTofu and the policies, and
 `damstack deploy --from <dir>` deploys the stack as it is in a directory.
-`test/demo` is a small stack that uses every kind of step.
+`test/demo` is a small platform that uses every kind of step, and
+`test/demo-app` an app on it.
 
 ## Development
 

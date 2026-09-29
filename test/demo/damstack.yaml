@@ -1,6 +1,9 @@
 apiVersion: damstack/v1
 name: demo
 description: A stack that proves damstack end to end without a server
+provides: [demo]
+app_env:
+  TF_VAR_greeting: "{{ .config.greeting }}"
 requires:
   damstack: ">=0.1.0"
   toolbox: ">=1.0.0, <2.0.0"
@@ -50,6 +53,9 @@ steps:
     env:
       TF_VAR_token: '{{ secret "token" }}'
     confirm: true
+  - name: publish
+    run: [bin/publish]
+    after_apps: true
 commands:
   output:
     tofu: {dir: infra, action: output}

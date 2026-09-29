@@ -3,12 +3,14 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -37,6 +39,13 @@ type Engine struct {
 	Key bool
 	// Color is whether the output goes to a terminal.
 	Color bool
+	// App is the name of the app the manifest is of, empty for the platform:
+	// its templates see .app, its settings in stack.yaml, and its OpenTofu
+	// state and work files are its own.
+	App string
+	// BaseEnv is under the environment of every step, such as the app_env
+	// of the platform for an app.
+	BaseEnv map[string]string
 	// Confirm asks before a step marked confirm changes anything.
 	Confirm func(question string) (bool, error)
 	Out     io.Writer
@@ -60,11 +69,9 @@ func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error 
 	if err != nil {
 		return err
 	}
-	env := map[string]string{}
-	for key, text := range s.Env {
-		if env[key], err = manifest.Render(key, text, config, secrets); err != nil {
-			return fmt.Errorf("env %s: %w", key, err)
-		}
+	env, err := e.env(s, config, secrets)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(e.Project.Dir, project.WorkDir), 0o755); err != nil {
 		return err
@@ -89,6 +96,34 @@ func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error 
 		return e.keep(s.Keep)
 	}
 	return nil
+}
+
+func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[string]string, error) {
+	data := map[string]any{"config": config}
+	if e.App != "" {
+		apps, _ := config["apps"].(map[string]any)
+		data["app"] = apps[e.App]
+	}
+	env := maps.Clone(e.BaseEnv)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, text := range s.Env {
+		var err error
+		if env[key], err = manifest.RenderData(key, text, data, secrets); err != nil {
+			return nil, fmt.Errorf("env %s: %w", key, err)
+		}
+	}
+	return env, nil
+}
+
+// unit is the name of an OpenTofu directory in the project: its state file
+// and work directory, prefixed with the app it is of.
+func (e *Engine) unit(dir string) string {
+	if e.App != "" {
+		return e.App + "-" + path.Base(dir)
+	}
+	return path.Base(dir)
 }
 
 func (e *Engine) ansible(ctx context.Context, a *manifest.Ansible, env map[string]string, args []string) error {
@@ -139,7 +174,7 @@ func (e *Engine) ansibleConfig(playbook string) string {
 
 func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]string, args []string) error {
 	t := s.Tofu
-	name := path.Base(t.Dir)
+	name := e.unit(t.Dir)
 	data := path.Join(work, "tofu", name)
 	env["TF_DATA_DIR"] = data
 	env["TF_IN_AUTOMATION"] = "1"
@@ -171,6 +206,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	case err == nil:
 		if t.Action == "apply" {
 			fmt.Fprintln(e.Out, "Nothing to change.")
+			return e.outputs(ctx, t, env, chdir)
 		}
 		return nil
 	case !errors.As(err, &exit) || exit.Code != 2:
@@ -198,6 +234,24 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	}
 	if err := os.Remove(e.hostPath(plan)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
+	}
+	return e.outputs(ctx, t, env, chdir)
+}
+
+// outputs writes the outputs a step names, as JSON, to their files.
+func (e *Engine) outputs(ctx context.Context, t *manifest.Tofu, env map[string]string, chdir string) error {
+	for _, name := range slices.Sorted(maps.Keys(t.Outputs)) {
+		file := filepath.Join(e.Project.Dir, filepath.FromSlash(t.Outputs[name]))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			return err
+		}
+		var out bytes.Buffer
+		if err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Stdout: &out, Args: []string{"tofu", chdir, "output", "-json", name}}); err != nil {
+			return err
+		}
+		if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+			return err
+		}
 	}
 	return nil
 }
