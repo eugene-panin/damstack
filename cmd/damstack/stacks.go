@@ -115,7 +115,11 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Added %s. damstack deploy %s deploys it.\n", name, name)
+	if m.IsApp() {
+		fmt.Fprintf(stdout, "Added %s. damstack app add %s adds it to the project you are in.\n", name, name)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Added %s. damstack deploy %s sets up a project on it.\n", name, name)
 	return nil
 }
 
