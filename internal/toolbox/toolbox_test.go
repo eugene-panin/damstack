@@ -29,3 +29,12 @@ func TestArgsKeepSecretsOutOfTheCommandLine(t *testing.T) {
 		t.Errorf("a quiet command got a terminal: %s", quiet)
 	}
 }
+
+func TestAgent(t *testing.T) {
+	r := &Runner{Image: "img:1", Stack: "/s", Project: "/p", Password: "/c/vault-pass", Agent: "/run/host-services/ssh-auth.sock", UID: 501, GID: 20}
+	line := strings.Join(r.Args(Cmd{Args: []string{"true"}}), " ")
+	if !strings.Contains(line, "--group-add 0 -v /run/host-services/ssh-auth.sock:/run/damstack/ssh-agent.sock") ||
+		strings.Contains(line, "-e DAMSTACK_SSH_KEY_DATA") || r.Env()["SSH_AUTH_SOCK"] != AgentSocket || r.Env()["DAMSTACK_SSH_KEY"] != "" {
+		t.Errorf("args %s, env %v", line, r.Env())
+	}
+}

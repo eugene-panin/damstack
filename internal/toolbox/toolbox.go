@@ -22,6 +22,7 @@ const (
 	ProjectDir   = "/work"
 	PasswordFile = "/run/damstack/vault/vault-pass"
 	KeyFile      = "/home/damstack/.ssh/damstack-key"
+	AgentSocket  = "/run/damstack/ssh-agent.sock"
 )
 
 // keyScript writes the SSH key from the environment into the container, which
@@ -46,7 +47,11 @@ type Runner struct {
 	Password  string
 	Key       string
 	PublicKey string
-	UID, GID  int
+	// Agent is the socket of an ssh-agent on the Docker host, used instead of
+	// Key for a key with a passphrase. Docker Desktop gives it to containers
+	// as root's group, so the user of the container joins that group.
+	Agent    string
+	UID, GID int
 	// TTY gives commands a terminal, for colors and prompts.
 	TTY    bool
 	Stdin  io.Reader
@@ -82,6 +87,9 @@ func (r *Runner) Env() map[string]string {
 	if r.Key != "" {
 		env["DAMSTACK_SSH_KEY"] = KeyFile
 	}
+	if r.Agent != "" {
+		env["SSH_AUTH_SOCK"] = AgentSocket
+	}
 	return env
 }
 
@@ -99,6 +107,9 @@ func (r *Runner) Args(c Cmd) []string {
 		"-v", r.Project+":"+ProjectDir,
 		"-v", filepath.Dir(r.Password)+":"+path.Dir(PasswordFile)+":ro",
 	)
+	if r.Agent != "" {
+		args = append(args, "--group-add", "0", "-v", r.Agent+":"+AgentSocket)
+	}
 	for _, name := range r.names(c) {
 		args = append(args, "-e", name)
 	}

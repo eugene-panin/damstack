@@ -235,21 +235,21 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 const devTag = "dev"
 
 // projectStack is the stack of a project at the release it was deployed
-// with, or the stack in from.
+// with, or in the directory it was set up from, or the stack in from.
 func projectStack(ctx context.Context, p *project.Project, from string) (*manifest.Manifest, string, error) {
 	dir := from
 	if dir == "" {
 		ref := p.Meta.Stack
 		if ref.Tag == devTag {
-			return nil, "", fmt.Errorf("%s was set up from the stack in %s; deploy it with --from and that directory",
-				p.Meta.Name, strings.TrimPrefix(ref.URL, "file://"))
-		}
-		cache, err := config.CacheDir()
-		if err != nil {
-			return nil, "", err
-		}
-		if dir, err = stack.Fetch(ctx, cache, ref.URL, stack.Release{Tag: ref.Tag, Commit: ref.Commit}); err != nil {
-			return nil, "", err
+			dir = strings.TrimPrefix(ref.URL, "file://")
+		} else {
+			cache, err := config.CacheDir()
+			if err != nil {
+				return nil, "", err
+			}
+			if dir, err = stack.Fetch(ctx, cache, ref.URL, stack.Release{Tag: ref.Tag, Commit: ref.Commit}); err != nil {
+				return nil, "", err
+			}
 		}
 	}
 	dir, err := filepath.Abs(dir)
@@ -295,7 +295,7 @@ func sshKey() (string, error) {
 	return "", errors.New("no SSH key in ~/.ssh; damstack doctor says how to make one")
 }
 
-func newEngine(s *streams, p *project.Project, m *manifest.Manifest, dir string) (*engine.Engine, string, error) {
+func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) (*engine.Engine, string, error) {
 	password, err := p.Password()
 	if err != nil {
 		return nil, "", err
@@ -326,18 +326,21 @@ func newEngine(s *streams, p *project.Project, m *manifest.Manifest, dir string)
 		stdin = s.in
 	}
 	runner := &toolbox.Runner{
-		Image: image, Stack: dir, Project: p.Dir, Password: passwordPath, Key: key,
+		Image: image, Stack: dir, Project: p.Dir, Password: passwordPath,
 		PublicKey: strings.TrimSpace(string(public)), UID: os.Getuid(), GID: os.Getgid(),
 		TTY: stdin != nil, Stdin: stdin, Stdout: s.out, Stderr: s.err,
 	}
+	if err := sshAccess(ctx, runner, key); err != nil {
+		return nil, "", err
+	}
 	return &engine.Engine{
-		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, Key: true, Color: stdin != nil, Out: s.out,
+		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, Key: runner.Key != "", Color: stdin != nil, Out: s.out,
 		Confirm: func(q string) (bool, error) { return s.prompt.Confirm(q, false) },
 	}, key, nil
 }
 
 func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
-	e, key, err := newEngine(s, p, m, dir)
+	e, key, err := newEngine(ctx, s, p, m, dir)
 	if err != nil {
 		return err
 	}

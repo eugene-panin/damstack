@@ -144,7 +144,7 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 			Short:              "A command of the stack " + m.Name,
 			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				e, _, err := newEngine(s, p, m, dir)
+				e, _, err := newEngine(cmd.Context(), s, p, m, dir)
 				if err != nil {
 					return err
 				}

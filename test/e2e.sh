@@ -16,14 +16,14 @@ project=$work/demo1
 
 step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
-deploy() { "$damstack" deploy --from "$stack" "$@" >"$work/out" 2>&1; }
+deploy() { "$damstack" deploy "$@" >"$work/out" 2>&1; }
 
 step "stack check proves the demo stack"
 "$damstack" stack check "$stack" >"$work/out" 2>&1 || { cat "$work/out"; fail "stack check"; }
 
 step "a new project: questions, secrets, and every step"
 cd "$work"
-printf '\nlaptop, phone\nn\ntok\ny\ny\n' | deploy --name demo1 --dir "$project" || { cat "$work/out"; fail "first deploy"; }
+printf '\nlaptop, phone\nn\ntok\ny\ny\n' | deploy --from "$stack" --name demo1 --dir "$project" || { cat "$work/out"; fail "first deploy"; }
 cd "$project"
 [[ $(cat greeting.txt) == "hello, laptop and phone" ]] || fail "the playbook did not write the greeting"
 head -1 vault.yml | grep -q '^\$ANSIBLE_VAULT;1.1;AES256' || fail "vault.yml is not encrypted"
