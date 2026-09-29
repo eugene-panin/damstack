@@ -101,7 +101,7 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any) (map[s
 	}
 	answers := map[string]any{}
 	for _, q := range qs {
-		if q.When != "" && answers[q.When] != true {
+		if !manifest.Holds(q.When, answers) {
 			answers[q.Name] = zero(q)
 			continue
 		}

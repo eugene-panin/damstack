@@ -142,6 +142,9 @@ func TestProblems(t *testing.T) {
 		{"unknown host check", "[docker, ssh-key, wireguard]", "[docker, kubernetes]", `"kubernetes" is not a check`, "host:"},
 		{"enum default outside the options", "default: ssh", "default: hetzner", "must be one of the options", "default: hetzner"},
 		{"when on a non-bool question", "when: mail", "when: provider", `"provider" is not a bool question`, "when: provider"},
+		{"when on an option that is not there", "when: mail", "when: provider=hetzner", `"hetzner" is not an option of provider`, "when: provider=hetzner"},
+		{"when on a later question", "when: mail", "when: mail_hostname", `"mail_hostname" is not a question asked before this`, "when: mail_hostname"},
+		{"secret when on no question", "    bytes: 32", "    bytes: 32\n    when: nothing", `"nothing" is not a question`, "when: nothing"},
 		{"secret both generated and asked", "generate: hex\n", "generate: hex\n    ask: A passphrase\n", "exactly one of generate and ask", "- name: state_passphrase"},
 		{"secret neither generated nor asked", "    ask: An API token\n", "", "exactly one of generate and ask", "- name: api_token"},
 		{"unknown generator", "generate: hex", "generate: random", `"random" is not a generator`, "generate: random"},
@@ -313,6 +316,28 @@ func TestPlatformProblems(t *testing.T) {
 		_, err := Load(stackDir(t, strings.Replace(valid, tc.from, tc.to, 1)), "0.1.0")
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: got %v", tc.want, err)
+		}
+	}
+}
+
+func TestWhenOnAnOption(t *testing.T) {
+	doc := strings.Replace(valid, "when: mail", "when: provider=ovh", 1)
+	if _, err := Load(stackDir(t, doc), "0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		when    string
+		answers map[string]any
+		want    bool
+	}{
+		{"", nil, true},
+		{"mail", map[string]any{"mail": true}, true},
+		{"mail", map[string]any{"mail": false}, false},
+		{"provider=ovh", map[string]any{"provider": "ovh"}, true},
+		{"provider=ovh", map[string]any{"provider": "ssh"}, false},
+	} {
+		if got := Holds(tc.when, tc.answers); got != tc.want {
+			t.Errorf("Holds(%q, %v) = %v", tc.when, tc.answers, got)
 		}
 	}
 }

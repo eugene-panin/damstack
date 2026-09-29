@@ -99,7 +99,7 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 	secrets := map[string]any{}
 	files := map[string][]byte{}
 	for _, s := range m.Secrets {
-		if s.When != "" && answers[s.When] != true {
+		if !manifest.Holds(s.When, answers) {
 			continue
 		}
 		if s.Generate != "" {

@@ -104,8 +104,9 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
-	// When names an earlier bool question; this one is asked only if that
-	// answer is true.
+	// When is a condition on an earlier answer: the name of a bool question
+	// that was answered yes, or name=value of an enum or string one. This
+	// one is asked only if it holds.
 	When string `yaml:"when"`
 }
 
@@ -559,10 +560,42 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		if s.Cert != "" && (s.Generate != "ca" || !filepath.IsLocal(s.Cert)) {
 			c.add(path+".cert", "is for a generated ca only, a path inside the project")
 		}
-		if s.When != "" && !bools[s.When] {
-			c.add(path+".when", "%q is not a bool question", s.When)
+		if s.When != "" {
+			c.checkWhen(path+".when", s.When, m.Questions)
 		}
 	}
+}
+
+// checkWhen checks a condition on the answers to earlier questions.
+func (c *checker) checkWhen(path, when string, earlier []Question) {
+	name, value, eq := strings.Cut(when, "=")
+	i := slices.IndexFunc(earlier, func(q Question) bool { return q.Name == name })
+	if i < 0 {
+		c.add(path, "%q is not a question asked before this", name)
+		return
+	}
+	q := earlier[i]
+	switch {
+	case !eq && q.Type != "bool":
+		c.add(path, "%q is not a bool question; write %s=<answer> for another", name, name)
+	case eq && q.Type == "enum" && !slices.Contains(q.Options, value):
+		c.add(path, "%q is not an option of %s", value, name)
+	case eq && q.Type != "enum" && q.Type != "" && q.Type != "string":
+		c.add(path, "%s=... is for an enum or string question", name)
+	}
+}
+
+// Holds reports whether when holds for the answers: a bool answer is yes, or
+// name=value an answer is value. An empty when always holds.
+func Holds(when string, answers map[string]any) bool {
+	if when == "" {
+		return true
+	}
+	name, value, eq := strings.Cut(when, "=")
+	if !eq {
+		return answers[name] == true
+	}
+	return answers[name] == value
 }
 
 func (c *checker) checkTemplate(path, text string) {
@@ -594,17 +627,10 @@ func (c *checker) checkFile(path, name, dir string, dirWanted bool) {
 
 func (c *checker) checkQuestions(questions []Question) {
 	seen := map[string]bool{}
-	types := map[string]string{}
 	for i, q := range questions {
 		path := fmt.Sprintf("questions[%d]", i)
 		if q.When != "" {
-			if t, ok := types[q.When]; !ok || t != "bool" {
-				c.add(path+".when", "%q is not a bool question asked before this one", q.When)
-			}
-		}
-		types[q.Name] = q.Type
-		if q.Type == "" {
-			types[q.Name] = "string"
+			c.checkWhen(path+".when", q.When, questions[:i])
 		}
 		if !questionRe.MatchString(q.Name) {
 			c.add(path+".name", "must be lowercase letters, digits and underscores, starting with a letter")
