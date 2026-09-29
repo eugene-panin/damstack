@@ -188,14 +188,18 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 		if err != nil {
 			return nil, "", project.StackRef{}, err
 		}
+		if m.IsApp() {
+			return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add --from %s in it", m.Name, dir)
+		}
 		return m, dir, project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}, nil
 	}
 	name := o.stack
 	if name == "" {
-		stacks := cfg.AllStacks()
-		names := make([]string, len(stacks))
-		for i, st := range stacks {
-			names[i] = st.Name
+		var names []string
+		for _, st := range cfg.AllStacks() {
+			if st.Kind != manifest.KindApp {
+				names = append(names, st.Name)
+			}
 		}
 		if len(names) == 1 {
 			name = names[0]
@@ -227,6 +231,9 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 	m, err := manifest.Load(dir, release.Version)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
+	}
+	if m.IsApp() {
+		return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add %s in it", st.Name, st.Name)
 	}
 	fmt.Fprintf(s.out, "%s %s: %s\n\n", st.Name, r.Tag, m.Description)
 	return m, dir, project.StackRef{Name: st.Name, URL: st.URL, Tag: r.Tag, Commit: r.Commit}, nil

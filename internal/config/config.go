@@ -16,8 +16,10 @@ import (
 
 // Stack is a stack damstack can deploy, by the address of its repository.
 type Stack struct {
-	Name    string `yaml:"name"`
-	URL     string `yaml:"url"`
+	Name string `yaml:"name"`
+	URL  string `yaml:"url"`
+	// Kind is app for an app, empty for a platform.
+	Kind    string `yaml:"kind,omitempty"`
 	Builtin bool   `yaml:"-"`
 }
 
@@ -37,7 +39,7 @@ type Config struct {
 // Builtin are the stacks every damstack knows, maintained with it.
 var Builtin = []Stack{
 	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true},
-	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Builtin: true},
+	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Builtin: true},
 }
 
 // Dir is $XDG_CONFIG_HOME/damstack, or ~/.config/damstack, on every system.

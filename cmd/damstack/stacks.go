@@ -27,13 +27,16 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 				return err
 			}
 			w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tFROM\tREPOSITORY")
+			fmt.Fprintln(w, "NAME\tKIND\tFROM\tREPOSITORY")
 			for _, s := range cfg.AllStacks() {
-				from := "added"
+				from, kind := "added", "platform"
 				if s.Builtin {
 					from = "built in"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, from, s.URL)
+				if s.Kind == manifest.KindApp {
+					kind = "app"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, kind, from, s.URL)
 			}
 			return w.Flush()
 		},
@@ -97,7 +100,11 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 	if err != nil {
 		return err
 	}
-	added, err := cfg.AddStack(config.Stack{Name: name, URL: url})
+	kind := ""
+	if m.IsApp() {
+		kind = manifest.KindApp
+	}
+	added, err := cfg.AddStack(config.Stack{Name: name, URL: url, Kind: kind})
 	if err != nil {
 		return err
 	}
