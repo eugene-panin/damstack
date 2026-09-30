@@ -269,31 +269,66 @@ $ damstack backup status
 Now: hashi backs up on the server every night; pulling to the laptop and
 restoring exist only in the old bin/stack of ovh-stack-iac.
 
-## Open
+## Open questions, and the plan for each
 
-- removing an app or a project: what happens to the server, the data and the
-  DNS records;
-- more than one server in a project, and a cluster; the project format must
-  not stand in the way;
-- each project its own private network instead of 10.77.0.0/24 for all, so
-  two tunnels can be on together;
-- admin pages without a domain, on the certificate of the project's own CA;
-- DNS publishing through providers other than Cloudflare;
-- server providers (OVH, Hetzner) that create and reinstall the server.
+**Removing an app or a project.** `damstack app remove mail` shows what goes
+(the job, its data volumes, DNS records, ports), offers a backup of the app's
+data, asks for the app's name typed back, then destroys its state (a new
+OpenTofu action, `destroy`, which lifts the data policy explicitly), removes
+`apps.mail` and its secrets, and the DNS step removes its records.
+`damstack destroy` removes everything the apps and the platform made in Nomad,
+Vault and DNS; the server itself is the provider's to delete, and the project
+and its vault password stay, damstack says where. A stack lists the data a
+removal loses, for the screen that asks.
+
+**Each project its own private network.** A new project takes a free /24 of
+10.64.0.0/10: not used by another project of damstack, nor by a network of the
+laptop. The default of a question can be a template, here `{{ freeSubnet }}`,
+and an advanced question takes its default without being asked. Existing
+projects keep theirs; `immutable` refuses a change on a live server. Test: two
+projects with both tunnels on, both deploy.
+
+**Admin pages without a domain.** A third answer to the question of the
+domain: none. Traefik then serves a certificate of the project's own CA for
+names such as `nomad.my-cloud.internal`, which Consul DNS answers through the
+tunnel. The person trusts `ca.pem` once; damstack adds it to the keychain or
+the trust store when allowed, or says how. The `traefik` module takes a CA
+instead of ACME; hashi gets the branch.
+
+**DNS publishing beyond Cloudflare.** DNS modules move out of
+terraform-nomad-hashistack into repositories of their own with the same
+inputs, `records` and `zones`, and output, `zone_ids`: Cloudflare first, then
+Hetzner, OVH, Route53 when someone needs them. The DNS step picks one by
+`dns.provider`; `manual` stays.
+
+**Server providers.** A provider in damstack creates a server, reinstalls
+it, and gives its address and root password; `ssh`, a server one already has,
+is the default. OVH comes from the ovhctl of ovh-stack-iac, then Hetzner. The
+provider is the first question of deploy; its API token is kept in
+`vault.yml`. Test: from no server to a running platform on Hetzner.
+
+**More than one server.** Not now, but `server:` becomes `servers:`, a list
+with roles, holding one server for now, so the format does not change after
+1.0. The roles of hashi already form a cluster (the `cluster` scenario of the
+collection); the work is in damstack, several logins and a tunnel to all, and
+in the template. Test when it comes: three GCP servers.
 
 ## Order of work
 
 1. First run and home screen; deploy with sections, checks of answers, the
    pause for WireGuard, steps with titles, the ending with `damstack token`;
-   deploy choosing from the library or any address.
+   deploy choosing from the library or any address; each project its own
+   private network.
 2. Release: goreleaser, a tap, `brew install eugene-panin/tap/damstack`; the
    library as an index outside the binary.
 3. Checks of `app add` and preflight: existing MX, port 25 out, reverse name,
-   the mail server's name.
-4. The copy of `stack.yaml`, `damstack diff`, immutable settings, checked keys.
+   the mail server's name; removing an app or a project.
+4. The copy of `stack.yaml`, `damstack diff`, immutable settings, checked keys;
+   `servers:` and providers, with `ssh` the default, before 1.0.
 5. Backups to the laptop, `backup status`, `restore`, and its test.
 6. `damstack upgrade`, versioned contracts.
-7. The open questions, as they come up.
+7. Admin pages without a domain; then Hetzner, DNS modules of their own, and
+   a cluster, as they are needed.
 
 ## Exists
 
