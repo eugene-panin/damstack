@@ -143,7 +143,7 @@ func TestTofuApply(t *testing.T) {
 	}
 	data := " --no-color --policy /stack/policy --data /work/stack.yaml --data /stack/policy/data"
 	want := []string{
-		"tofu -chdir=/stack/infra init -input=false -backend-config=path=/work/state/infra.tfstate -lockfile=readonly",
+		"tofu -chdir=/stack/infra init -input=false -lockfile=readonly -backend-config=path=/work/state/infra.tfstate",
 		"tofu -chdir=/stack/infra plan -input=false -detailed-exitcode -out=/work/.damstack/work/tofu/infra/plan",
 		"tofu -chdir=/stack/infra show -json /work/.damstack/work/tofu/infra/plan",
 		"conftest test" + data + " --namespace terraform /work/.damstack/work/tofu/infra/plan.json",
@@ -240,7 +240,7 @@ func TestAppTofuKeepsItsOwnStateAndWritesOutputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := r.lines()
-	if lines[0] != "tofu -chdir=/stack/infra init -input=false -backend-config=path=/work/state/mail-infra.tfstate -lockfile=readonly" ||
+	if lines[0] != "tofu -chdir=/stack/infra init -input=false -lockfile=readonly -backend-config=path=/work/state/mail-infra.tfstate" ||
 		lines[len(lines)-1] != "tofu -chdir=/stack/infra output -json dns_records" {
 		t.Errorf("got\n%s", strings.Join(lines, "\n"))
 	}
@@ -249,5 +249,34 @@ func TestAppTofuKeepsItsOwnStateAndWritesOutputs(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(e.Project.Dir, "dns/mail.json")); err != nil || !strings.Contains(string(got), "mail.example.org") {
 		t.Errorf("dns/mail.json %q, %v", got, err)
+	}
+}
+
+func TestInitIsTriedTwice(t *testing.T) {
+	e, r := setup(t)
+	inits := 0
+	r.reply = func(c toolbox.Cmd) error {
+		if slices.Contains(c.Args, "init") {
+			inits++
+			if inits == 1 {
+				return &toolbox.ExitError{Name: "tofu", Code: 1}
+			}
+		}
+		return nil
+	}
+	if err := e.Run(t.Context(), manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "output"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if inits != 2 || !r.cmds[0].Silent || r.cmds[1].Silent {
+		t.Errorf("%d inits, silent %v then %v", inits, r.cmds[0].Silent, r.cmds[1].Silent)
+	}
+	r.reply = func(c toolbox.Cmd) error {
+		if slices.Contains(c.Args, "init") {
+			return &toolbox.ExitError{Name: "tofu", Code: 1}
+		}
+		return nil
+	}
+	if err := e.Run(t.Context(), manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "output"}}, nil); err == nil {
+		t.Error("an init that fails twice went on")
 	}
 }

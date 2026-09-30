@@ -87,9 +87,7 @@ func (e *Engine) validate(ctx context.Context, dir string, env map[string]string
 	env["TF_VAR_project"] = toolbox.ProjectDir
 	env["TF_CLI_ARGS"] = "-no-color"
 	chdir := "-chdir=" + path.Join(toolbox.StackDir, dir)
-	err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Args: []string{"tofu", chdir, "init", "-input=false",
-		"-backend=false", "-lockfile=readonly"}})
-	if err != nil {
+	if err := e.init(ctx, env, chdir, "-backend=false"); err != nil {
 		return err
 	}
 	return e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "validate"}})

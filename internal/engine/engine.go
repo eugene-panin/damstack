@@ -189,9 +189,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 			return err
 		}
 	}
-	err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Args: []string{"tofu", chdir, "init", "-input=false",
-		"-backend-config=path=" + path.Join(toolbox.ProjectDir, "state", name+".tfstate"), "-lockfile=readonly"}})
-	if err != nil {
+	if err := e.init(ctx, env, chdir, "-backend-config=path="+path.Join(toolbox.ProjectDir, "state", name+".tfstate")); err != nil {
 		return err
 	}
 	if t.Action == "output" {
@@ -199,7 +197,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	}
 
 	plan := path.Join(data, "plan")
-	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
+	err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
 		"-detailed-exitcode", "-out=" + plan}, args...)})
 	var exit *toolbox.ExitError
 	switch {
@@ -254,6 +252,17 @@ func (e *Engine) outputs(ctx context.Context, t *manifest.Tofu, env map[string]s
 		}
 	}
 	return nil
+}
+
+// init runs tofu init, twice when the first fails: it fetches modules and
+// providers from registries, which fail now and then.
+func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, args ...string) error {
+	cmd := append([]string{"tofu", chdir, "init", "-input=false", "-lockfile=readonly"}, args...)
+	if e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Silent: true, Args: cmd}) == nil {
+		return nil
+	}
+	fmt.Fprintln(e.Out, "OpenTofu could not fetch its modules or providers; trying once more.")
+	return e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Args: cmd})
 }
 
 // policy checks a plan against the stack's policies, with stack.yaml as their

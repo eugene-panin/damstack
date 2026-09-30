@@ -64,8 +64,10 @@ type Cmd struct {
 	Env  map[string]string
 	// Stdout takes the output instead of the runner's, without a terminal.
 	Stdout io.Writer
-	// Quiet keeps the output unless the command fails.
-	Quiet bool
+	// Quiet keeps the output unless the command fails; Silent keeps it even
+	// then.
+	Quiet  bool
+	Silent bool
 }
 
 // ExitError is a command that ran and failed.
@@ -163,7 +165,7 @@ func (r *Runner) Run(ctx context.Context, c Cmd) error {
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		if c.Quiet {
+		if c.Quiet && !c.Silent {
 			r.Stderr.Write(captured.Bytes())
 		}
 		if exit.ExitCode() == 125 {
