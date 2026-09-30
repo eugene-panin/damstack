@@ -14,6 +14,8 @@ secrets:
     generate: hex
     bytes: 8
 config: template/app.yaml.tmpl
+done:
+  - "hello at {{ .app.hostname }}"
 targets:
   demo:
     steps:

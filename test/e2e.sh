@@ -30,6 +30,8 @@ head -1 vault.yml | grep -q '^\$ANSIBLE_VAULT;1.1;AES256' || fail "vault.yml is 
 grep -q 'root_token\|tok' vault.yml && fail "a secret is in vault.yml in the clear"
 [[ -e .damstack/work/init.json ]] && fail "the kept file was left"
 grep -q 'BEGIN CERTIFICATE' ca.pem || fail "no CA certificate"
+grep -q '^Done. demo1 is running.' "$work/out" && grep -qx '  greeting: hello' "$work/out" || { cat "$work/out"; fail "no ending"; }
+[[ $("$damstack" token api --print) == tok ]] || fail "damstack token"
 [[ $(stat -f %Lp "$XDG_CONFIG_HOME/damstack/projects/demo1/vault-pass" 2>/dev/null || stat -c %a "$XDG_CONFIG_HOME/damstack/projects/demo1/vault-pass") == 600 ]] ||
   fail "the vault password is readable by others"
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "the output command"
@@ -73,6 +75,7 @@ order=$(grep -Eo '^[0-9]+/[0-9]+  (apply|hello/apply|publish)$' "$work/out" | tr
 grep -q 'hostname: hello.example.org' stack.yaml || fail "the settings of the app are not in stack.yaml"
 grep -qx 'clients: \[laptop, phone\]' stack.yaml || fail "stack.yaml lost what was there"
 grep -q hello.example.org published.txt || fail "the platform did not publish the records of the app"
+grep -qx '  hello at hello.example.org' "$work/out" || { cat "$work/out"; fail "no ending of the app"; }
 [[ $("$damstack" hello output message) == '"hello from hello.example.org"' ]] || fail "the command of the app"
 [[ $("$damstack" app list | awk 'NR==2{print $1, $2}') == "hello dev" ]] || fail "app list"
 printf 'n\n' | "$damstack" app add --from "$app" >"$work/out" 2>&1 && fail "the app was added twice"

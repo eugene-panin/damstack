@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -513,8 +514,35 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
-	fmt.Fprintf(s.out, "\nDeployed %s.\n", p.Meta.Name)
+	fmt.Fprintf(s.out, "\nDone. %s is running.\n", p.Meta.Name)
+	done(s.out, p, m, "")
+	for _, ref := range p.Meta.Apps {
+		if am, _ := cachedRef(ref); am != nil && len(am.Done) > 0 {
+			fmt.Fprintf(s.out, "%s:\n", ref.Name)
+			done(s.out, p, am, ref.Name)
+		}
+	}
 	return nil
+}
+
+// done says what a stack serves, from its done lines.
+func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
+	config, err := p.Config()
+	if err != nil {
+		return
+	}
+	data := map[string]any{"config": config}
+	if app != "" {
+		apps, _ := config["apps"].(map[string]any)
+		data["app"] = apps[app]
+	}
+	for i, text := range m.Done {
+		line, err := manifest.RenderData(fmt.Sprintf("done[%d]", i), text, data, nil)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "  %s\n", line)
+	}
 }
 
 func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server) error {
@@ -672,6 +700,7 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 		return fmt.Errorf("server.address of the stack: %w", err)
 	}
 	knownHosts := filepath.Join(p.Dir, project.KnownHosts)
+	shown := false
 	for {
 		err := login.SameServer(ctx, knownHosts, public, net.JoinHostPort(address, "22"))
 		if err == nil {
@@ -683,17 +712,50 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 				"server than %s, most likely through the tunnel of another project. Nothing was changed. Turn that "+
 				"tunnel off, and this project's on. %s", address, public, help)
 		}
-		if help != "" {
-			msg += " " + help
-		}
 		if !s.tty() {
+			if help != "" {
+				msg += " " + help
+			}
 			return errors.New(msg)
 		}
-		fmt.Fprintln(s.out, msg)
-		if _, err := s.prompt.Line("Press Enter once it is on: "); err != nil {
+		if !shown {
+			devices(s.out, p, srv, help)
+			shown = true
+		} else {
+			fmt.Fprintf(s.out, "  %s does not answer yet.\n", address)
+		}
+		if _, err := s.prompt.Line("Press Enter once the tunnel is on: "); err != nil {
 			return err
 		}
 	}
+}
+
+// devices says how the devices join the private network: the configuration
+// to import on this computer, and a QR code for each other one.
+func devices(w io.Writer, p *project.Project, srv *manifest.Server, help string) {
+	fmt.Fprintln(w, "\n── Your devices join the private network")
+	var configs []string
+	if srv.TunnelConfigs != "" {
+		configs, _ = filepath.Glob(filepath.Join(p.Dir, srv.TunnelConfigs))
+	}
+	if len(configs) == 0 {
+		fmt.Fprintln(w, help)
+		return
+	}
+	fmt.Fprintf(w, "This computer: import %s into the WireGuard app, and turn it on.\n", configs[0])
+	for _, config := range configs[1:] {
+		data, err := os.ReadFile(config)
+		if err != nil {
+			continue
+		}
+		code, err := qrcode.New(string(data), qrcode.Low)
+		if err != nil {
+			continue
+		}
+		name := strings.TrimSuffix(filepath.Base(config), filepath.Ext(config))
+		fmt.Fprintf(w, "\n%s: scan this in the WireGuard app, or import %s\n%s", name, config, code.ToSmallString(false))
+	}
+	fmt.Fprintln(w)
 }
 
 // appEnv is the app_env of a platform, rendered for its project.

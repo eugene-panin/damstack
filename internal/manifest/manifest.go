@@ -30,7 +30,7 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "upgrade", "version"}
+var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
@@ -43,6 +43,11 @@ type Manifest struct {
 	// Summary is shown before a project is set up: a label and a template
 	// over the answers each.
 	Summary []SummaryLine `yaml:"summary"`
+	// Done is said when a deploy ends, as templates over .config, and .app
+	// for an app: the addresses it serves and how to log in.
+	Done []string `yaml:"done"`
+	// Tokens are the secrets damstack token gives, by a short name.
+	Tokens map[string]string `yaml:"tokens"`
 	// Kind is platform, the default, or app: an app runs on the platform of
 	// a project, and is added to it with damstack app add.
 	Kind string `yaml:"kind"`
@@ -156,8 +161,11 @@ type Server struct {
 	OpsUser   string `yaml:"ops_user"`
 	Tunnel    string `yaml:"tunnel"`
 	// TunnelHelp says how to turn the tunnel on, when a step that needs it
-	// finds it off.
-	TunnelHelp string `yaml:"tunnel_help"`
+	// finds it off; TunnelConfigs is a pattern of the configurations of the
+	// devices in the project, shown then, the first to import, the others as
+	// QR codes.
+	TunnelHelp    string `yaml:"tunnel_help"`
+	TunnelConfigs string `yaml:"tunnel_configs"`
 }
 
 // CheckSpec names a check of an answer, with an argument for some:
@@ -388,6 +396,14 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	}
 
 	c.checkQuestions(m.Questions)
+	for i, line := range m.Done {
+		c.checkTemplate(fmt.Sprintf("done[%d]", i), line)
+	}
+	if m.Server != nil && m.Server.TunnelConfigs != "" {
+		if _, err := filepath.Match(m.Server.TunnelConfigs, ""); err != nil || !filepath.IsLocal(m.Server.TunnelConfigs) {
+			c.add("server.tunnel_configs", "is a pattern of paths inside the project, such as clients/*.conf")
+		}
+	}
 	for i, line := range m.Summary {
 		if line.Label == "" {
 			c.add(fmt.Sprintf("summary[%d].label", i), "is required")

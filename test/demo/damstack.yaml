@@ -2,6 +2,10 @@ apiVersion: damstack/v1
 name: demo
 description: A stack that proves damstack end to end without a server
 provides: [demo]
+done:
+  - "greeting: {{ .config.greeting }}"
+tokens:
+  api: api_token
 app_env:
   TF_VAR_greeting: "{{ .config.greeting }}"
 requires:
