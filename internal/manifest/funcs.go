@@ -32,6 +32,23 @@ var TemplateFuncs = template.FuncMap{
 		return strings.Join(texts, sep)
 	},
 	"yaml": toYAML,
+	// freeSubnet is a /24 of 10.64.0.0/10 no other project and no network of
+	// this machine uses; damstack binds it when a default asks for it.
+	"freeSubnet": func() string { return "10.64.0.0/24" },
+}
+
+// RenderDefault runs the default of a question that is a template, on the
+// answers before it, with funcs over TemplateFuncs.
+func RenderDefault(name, text string, answers map[string]any, funcs template.FuncMap) (string, error) {
+	t, err := template.New(name).Option("missingkey=error").Funcs(TemplateFuncs).Funcs(funcs).Parse(text)
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	if err := t.Execute(&out, answers); err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 // toYAML writes a value on one line, quoted where YAML needs it, so that an

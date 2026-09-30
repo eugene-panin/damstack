@@ -104,6 +104,9 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
+	// Advanced is a question not asked: its default is taken, and stack.yaml
+	// changes it later.
+	Advanced bool `yaml:"advanced"`
 	// When is a condition on an earlier answer: the name of a bool question
 	// that was answered yes, or name=value of an enum or string one. This
 	// one is asked only if it holds.
@@ -644,6 +647,12 @@ func (c *checker) checkQuestions(questions []Question) {
 		seen[q.Name] = true
 		if strings.TrimSpace(q.Prompt) == "" {
 			c.add(path+".prompt", "is required")
+		}
+		if q.Advanced && q.Default == nil && q.Type != "bool" {
+			c.add(path+".advanced", "an advanced question is not asked, so it needs a default")
+		}
+		if text, ok := q.Default.(string); ok && strings.Contains(text, "{{") {
+			c.checkTemplate(path+".default", text)
 		}
 		switch q.Type {
 		case "", "string":

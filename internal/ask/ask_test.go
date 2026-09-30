@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
 )
@@ -22,7 +23,7 @@ var questions = []manifest.Question{
 func TestAsksUntilValid(t *testing.T) {
 	in := strings.Join([]string{"not an ip", "10.0.0.1", "", "hetzner", "ovh", "laptop, phone,", "maybe", "y", "", "a.com,b.com"}, "\n") + "\n"
 	var out bytes.Buffer
-	got, err := Questions(NewPrompter(strings.NewReader(in), &out), questions, nil)
+	got, err := Questions(NewPrompter(strings.NewReader(in), &out), questions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestAsksUntilValid(t *testing.T) {
 }
 
 func TestSkippedQuestionIsEmpty(t *testing.T) {
-	got, err := Questions(NewPrompter(strings.NewReader("1.2.3.4\n\n\n\nn\n"), &bytes.Buffer{}), questions, nil)
+	got, err := Questions(NewPrompter(strings.NewReader("1.2.3.4\n\n\n\nn\n"), &bytes.Buffer{}), questions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,14 +53,14 @@ func TestSkippedQuestionIsEmpty(t *testing.T) {
 }
 
 func TestInputEnds(t *testing.T) {
-	if _, err := Questions(NewPrompter(strings.NewReader("1.2.3.4\n"), &bytes.Buffer{}), questions, nil); !errors.Is(err, ErrNoInput) {
+	if _, err := Questions(NewPrompter(strings.NewReader("1.2.3.4\n"), &bytes.Buffer{}), questions, nil, nil); !errors.Is(err, ErrNoInput) {
 		t.Errorf("got %v", err)
 	}
 }
 
 func TestGivenAnswers(t *testing.T) {
 	given := map[string]any{"address": "10.0.0.2", "clients": "a, b", "mail": true, "mail_domains": []any{"x.org"}}
-	got, err := Questions(nil, questions, given)
+	got, err := Questions(nil, questions, given, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func TestGivenAnswers(t *testing.T) {
 		{map[string]any{"address": "1.1.1.1", "mail": true}, "mail_domains: no answer given"},
 		{map[string]any{}, "address: no answer given"},
 	} {
-		if _, err := Questions(nil, questions, tc.given); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Questions(nil, questions, tc.given, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%v: got %v, want %q", tc.given, err, tc.want)
 		}
 	}
@@ -91,5 +92,29 @@ func TestSecretAndConfirm(t *testing.T) {
 	}
 	if ok, err := p.Confirm("Go on?", true); err != nil || !ok {
 		t.Errorf("confirm %v, %v", ok, err)
+	}
+}
+
+func TestTemplateDefaultAndAdvanced(t *testing.T) {
+	qs := []manifest.Question{
+		{Name: "domains", Prompt: "Domains", Type: "list"},
+		{Name: "hostname", Prompt: "Host", Default: "mail.{{ index .domains 0 }}"},
+		{Name: "cidr", Prompt: "Network", Default: "{{ freeSubnet }}", Advanced: true},
+	}
+	funcs := template.FuncMap{"freeSubnet": func() string { return "10.64.3.0/24" }}
+	var out bytes.Buffer
+	got, err := Questions(NewPrompter(strings.NewReader("example.org, example.net\n\n"), &out), qs, nil, funcs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["hostname"] != "mail.example.org" || got["cidr"] != "10.64.3.0/24" {
+		t.Errorf("got %v", got)
+	}
+	if !strings.Contains(out.String(), "Host [mail.example.org]: ") || strings.Contains(out.String(), "Network") {
+		t.Errorf("asked:\n%s", out.String())
+	}
+	given, err := Questions(nil, qs, map[string]any{"domains": []any{"a.org"}, "cidr": "10.99.0.0/24"}, funcs)
+	if err != nil || given["cidr"] != "10.99.0.0/24" || given["hostname"] != "mail.a.org" {
+		t.Errorf("given %v, %v", given, err)
 	}
 }

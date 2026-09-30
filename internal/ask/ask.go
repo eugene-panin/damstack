@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"text/template"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
 )
@@ -91,9 +92,10 @@ func (p *Prompter) Secret(prompt string) (string, error) {
 }
 
 // Questions asks every question that applies, in order. An answer in given,
-// such as from a file, is checked instead of asked; with a nil prompter every
-// question that applies must be in given.
-func Questions(p *Prompter, qs []manifest.Question, given map[string]any) (map[string]any, error) {
+// such as from a file, is checked instead of asked; with a nil prompter, and
+// for an advanced question, the default is taken. A default that is a
+// template sees the answers before it and funcs.
+func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs template.FuncMap) (map[string]any, error) {
 	for name := range given {
 		if !slices.ContainsFunc(qs, func(q manifest.Question) bool { return q.Name == name }) {
 			return nil, fmt.Errorf("%s is not a question of the stack", name)
@@ -105,6 +107,13 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any) (map[s
 			answers[q.Name] = zero(q)
 			continue
 		}
+		if text, ok := q.Default.(string); ok && strings.Contains(text, "{{") {
+			d, err := manifest.RenderDefault(q.Name, text, answers, funcs)
+			if err != nil {
+				return nil, fmt.Errorf("the default of %s: %w", q.Name, err)
+			}
+			q.Default = d
+		}
 		if v, ok := given[q.Name]; ok {
 			a, err := Check(q, v)
 			if err != nil {
@@ -113,7 +122,7 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any) (map[s
 			answers[q.Name] = a
 			continue
 		}
-		if p == nil {
+		if p == nil || q.Advanced {
 			if q.Default == nil && q.Type == "bool" {
 				answers[q.Name] = false
 				continue

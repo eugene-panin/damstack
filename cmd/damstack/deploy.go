@@ -204,7 +204,7 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 		if len(names) == 1 {
 			name = names[0]
 		} else {
-			answer, err := ask.Questions(s.prompt, []manifest.Question{{Name: "stack", Prompt: "Which stack", Type: "enum", Options: names, Default: names[0]}}, nil)
+			answer, err := ask.Questions(s.prompt, []manifest.Question{{Name: "stack", Prompt: "Which stack", Type: "enum", Options: names, Default: names[0]}}, nil, nil)
 			if err != nil {
 				return nil, "", project.StackRef{}, err
 			}

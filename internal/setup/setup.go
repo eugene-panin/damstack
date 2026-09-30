@@ -91,7 +91,7 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 			questions[k] = v
 		}
 	}
-	answers, err := ask.Questions(p, m.Questions, questions)
+	answers, err := ask.Questions(p, m.Questions, questions, DefaultFuncs())
 	if err != nil {
 		return nil, nil, nil, err
 	}
