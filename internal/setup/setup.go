@@ -33,6 +33,9 @@ type Options struct {
 	// Password is the vault password; empty makes a new one in the damstack
 	// config for the project.
 	Password string
+	// Review sees the answers before anything is written, and stops the set
+	// up with an error.
+	Review func(answers map[string]any) error
 }
 
 // Create makes the project and returns it with its vault password.
@@ -47,6 +50,11 @@ func Create(o Options) (*project.Project, string, error) {
 	answers, secrets, files, err := collect(m, o.Name, o.Given, o.Prompter, o.Placeholders)
 	if err != nil {
 		return nil, "", err
+	}
+	if o.Review != nil {
+		if err := o.Review(answers); err != nil {
+			return nil, "", err
+		}
 	}
 
 	config, err := m.RenderConfig(o.Stack, o.Name, answers)
@@ -98,6 +106,7 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 
 	secrets := map[string]any{}
 	files := map[string][]byte{}
+	heading := false
 	for _, s := range m.Secrets {
 		if !manifest.Holds(s.When, answers) {
 			continue
@@ -123,6 +132,10 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 		case placeholders:
 			secrets[s.Name] = "placeholder-" + s.Name
 		case p != nil:
+			if !heading {
+				fmt.Fprintln(p.Out, "\n── Secrets, not shown as you type them")
+				heading = true
+			}
 			if secrets[s.Name], err = p.Secret(s.Ask); err != nil {
 				return nil, nil, nil, err
 			}

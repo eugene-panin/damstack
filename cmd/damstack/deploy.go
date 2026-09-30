@@ -9,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -131,7 +134,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		if name != "" {
 			fmt.Fprintf(s.out, "  %s cannot be the name: 2 to 31 lowercase letters, digits and hyphens, not a project already\n", name)
 		}
-		if name, err = s.prompt.Line(fmt.Sprintf("A name for this project, such as my-%s: ", m.Name)); err != nil {
+		if name, err = s.prompt.Line("A name for this project, such as my-cloud: "); err != nil {
 			return err
 		}
 	}
@@ -147,7 +150,8 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		return err
 	}
 
-	p, _, err = setup.Create(setup.Options{Manifest: m, Stack: dir, Ref: ref, Name: name, Dir: path, Given: given, Prompter: s.prompt})
+	p, _, err = setup.Create(setup.Options{Manifest: m, Stack: dir, Ref: ref, Name: name, Dir: path, Given: given,
+		Prompter: s.prompt, Review: review(s, m, name, path)})
 	if err != nil {
 		return err
 	}
@@ -156,16 +160,9 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		return err
 	}
 	pass, _ := p.PasswordPath()
-	fmt.Fprintf(s.out, "\nSet up %s in %s.\n  stack.yaml is the one file to edit; vault.yml holds the secrets, encrypted.\n"+
-		"  The vault password is %s: keep a copy somewhere safe, such as a password manager.\n\n", name, path, pass)
-	ok, err := s.prompt.Confirm("Deploy it now?", true)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", path)
-		return nil
-	}
+	fmt.Fprintf(s.out, "\nSet up %s in %s: stack.yaml is the one file to edit.\n"+
+		"The secrets are in vault.yml, encrypted; its password is %s.\n"+
+		"Keep a copy of the password somewhere safe, such as a password manager: nothing restores without it.\n", name, path, pass)
 	return runSteps(ctx, s, p, m, dir)
 }
 
@@ -179,8 +176,20 @@ func taken(cfg *config.Config, name string) bool {
 }
 
 func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOptions) (*manifest.Manifest, string, project.StackRef, error) {
-	if o.from != "" {
-		dir, err := filepath.Abs(o.from)
+	arg, from := o.stack, o.from
+	if arg == "" && from == "" {
+		var err error
+		if arg, err = pickPlatform(s, cfg); err != nil {
+			return nil, "", project.StackRef{}, err
+		}
+	}
+	if from == "" {
+		if info, err := os.Stat(arg); err == nil && info.IsDir() {
+			from = arg
+		}
+	}
+	if from != "" {
+		dir, err := filepath.Abs(from)
 		if err != nil {
 			return nil, "", project.StackRef{}, err
 		}
@@ -191,40 +200,35 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 		if m.IsApp() {
 			return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add --from %s in it", m.Name, dir)
 		}
-		return m, dir, project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}, nil
+		ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}
+		intro(s, m, ref)
+		return m, dir, ref, nil
 	}
-	name := o.stack
-	if name == "" {
-		var names []string
+
+	name, url, library := arg, "", false
+	if st, ok := cfg.Stack(arg); ok {
+		url, library = st.URL, true
+	} else {
+		var err error
+		if url, err = stack.NormalizeURL(arg); err != nil {
+			return nil, "", project.StackRef{}, fmt.Errorf("%s is neither a platform of the library, nor an address, nor a directory; damstack stacks lists the library", arg)
+		}
 		for _, st := range cfg.AllStacks() {
-			if st.Kind != manifest.KindApp {
-				names = append(names, st.Name)
+			if st.URL == url {
+				name, library = st.Name, true
 			}
 		}
-		if len(names) == 1 {
-			name = names[0]
-		} else {
-			answer, err := ask.Questions(s.prompt, []manifest.Question{{Name: "stack", Prompt: "Which stack", Type: "enum", Options: names, Default: names[0]}}, nil, nil)
-			if err != nil {
-				return nil, "", project.StackRef{}, err
-			}
-			name = answer["stack"].(string)
-		}
-	}
-	st, ok := cfg.Stack(name)
-	if !ok {
-		return nil, "", project.StackRef{}, fmt.Errorf("no stack named %s; damstack stacks lists them, damstack add adds one", name)
 	}
 	cache, err := config.CacheDir()
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	fmt.Fprintf(s.out, "Looking at %s\n", st.URL)
-	r, err := stack.Latest(ctx, st.URL)
+	fmt.Fprintf(s.out, "Looking at %s\n", url)
+	r, err := stack.Latest(ctx, url)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	dir, err := stack.Fetch(ctx, cache, st.URL, r)
+	dir, err := stack.Fetch(ctx, cache, url, r)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
@@ -232,11 +236,106 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	if m.IsApp() {
-		return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add %s in it", st.Name, st.Name)
+	if !library {
+		name = m.Name
 	}
-	fmt.Fprintf(s.out, "%s %s: %s\n\n", st.Name, r.Tag, m.Description)
-	return m, dir, project.StackRef{Name: st.Name, URL: st.URL, Tag: r.Tag, Commit: r.Commit}, nil
+	if m.IsApp() {
+		return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add %s in it", name, arg)
+	}
+	ref := project.StackRef{Name: name, URL: url, Tag: r.Tag, Commit: r.Commit}
+	if !library {
+		fmt.Fprintf(s.out, "\n%s is not in the library of damstack. It runs with your SSH key and the secrets of the project.\n", url)
+		ok, err := s.prompt.Confirm("Use it only if you trust the people who wrote it. Go on?", false)
+		if err != nil {
+			return nil, "", project.StackRef{}, err
+		}
+		if !ok {
+			return nil, "", project.StackRef{}, engine.ErrDeclined
+		}
+	}
+	intro(s, m, ref)
+	return m, dir, ref, nil
+}
+
+// pickPlatform asks where a project starts from: a platform of the library,
+// or a stack of one's own.
+func pickPlatform(s *streams, cfg *config.Config) (string, error) {
+	var names []string
+	fmt.Fprintln(s.out, "Where your project starts from:")
+	fmt.Fprintln(s.out)
+	for _, st := range cfg.AllStacks() {
+		if st.Kind == manifest.KindApp {
+			continue
+		}
+		names = append(names, st.Name)
+		fmt.Fprintf(s.out, "  %d. %-8s %s\n", len(names), st.Name, st.Description)
+	}
+	own := len(names) + 1
+	fmt.Fprintf(s.out, "  %d. your own: owner/name, a git address, or a directory\n\n", own)
+	for {
+		answer, err := s.prompt.Line("Which? [1] ")
+		if err != nil {
+			return "", err
+		}
+		switch n, err := strconv.Atoi(answer); {
+		case answer == "":
+			return names[0], nil
+		case err == nil && n >= 1 && n <= len(names):
+			return names[n-1], nil
+		case err == nil && n == own, answer == "own":
+			return s.prompt.Line("Address of the stack, owner/name or a directory: ")
+		case slices.Contains(names, answer):
+			return answer, nil
+		}
+		fmt.Fprintf(s.out, "  answer a number from 1 to %d\n", own)
+	}
+}
+
+// intro says what a stack sets up, what it needs, and how long it takes.
+func intro(s *streams, m *manifest.Manifest, ref project.StackRef) {
+	fmt.Fprintf(s.out, "\n%s %s: %s\n", ref.Name, ref.Tag, m.Description)
+	if len(m.Needs) == 0 {
+		fmt.Fprintln(s.out)
+		return
+	}
+	if m.Takes != "" {
+		fmt.Fprintf(s.out, "\nYou will need, %s, and:\n", m.Takes)
+	} else {
+		fmt.Fprintln(s.out, "\nYou will need:")
+	}
+	for _, need := range m.Needs {
+		fmt.Fprintf(s.out, "  • %s\n", need)
+	}
+	fmt.Fprintln(s.out)
+}
+
+// review shows the summary of a new project and asks whether to set it up.
+func review(s *streams, m *manifest.Manifest, name, path string) func(map[string]any) error {
+	return func(answers map[string]any) error {
+		data := map[string]any{"project": name}
+		for k, v := range answers {
+			data[k] = v
+		}
+		fmt.Fprintln(s.out, "\nSummary")
+		tw := tabwriter.NewWriter(s.out, 0, 4, 3, ' ', 0)
+		fmt.Fprintf(tw, "  project\t%s\n", path)
+		for _, line := range m.Summary {
+			value, err := manifest.RenderDefault(line.Label, line.Value, data, nil)
+			if err != nil {
+				return fmt.Errorf("summary %s of the stack: %w", line.Label, err)
+			}
+			fmt.Fprintf(tw, "  %s\t%s\n", line.Label, value)
+		}
+		tw.Flush()
+		ok, err := s.prompt.Confirm("Set it up?", true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("nothing was set up: %w", engine.ErrDeclined)
+		}
+		return nil
+	}
 }
 
 // devTag marks a project set up from a stack directory rather than a release.

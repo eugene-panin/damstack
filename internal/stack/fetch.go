@@ -16,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"golang.org/x/mod/semver"
 )
@@ -62,6 +63,9 @@ func NormalizeURL(raw string) (string, error) {
 func Latest(ctx context.Context, url string) (Release, error) {
 	remote := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "origin", URLs: []string{url}})
 	refs, err := remote.ListContext(ctx, &git.ListOptions{PeelingOption: git.AppendPeeled})
+	if errors.Is(err, transport.ErrRepositoryNotFound) || errors.Is(err, transport.ErrAuthenticationRequired) {
+		return Release{}, fmt.Errorf("there is no public repository at %s", url)
+	}
 	if err != nil {
 		return Release{}, fmt.Errorf("list the tags of %s: %w", url, err)
 	}

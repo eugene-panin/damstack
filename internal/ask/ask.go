@@ -102,6 +102,7 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs 
 		}
 	}
 	answers := map[string]any{}
+	section := ""
 	for _, q := range qs {
 		if !manifest.Holds(q.When, answers) {
 			answers[q.Name] = zero(q)
@@ -136,6 +137,13 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs 
 			}
 			answers[q.Name] = a
 			continue
+		}
+		if q.Section != "" && q.Section != section {
+			fmt.Fprintf(p.Out, "\n── %s\n", q.Section)
+			section = q.Section
+		}
+		if q.Note != "" {
+			fmt.Fprintln(p.Out, q.Note)
 		}
 		for {
 			raw, err := p.Line(Prompt(q))

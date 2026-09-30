@@ -36,6 +36,13 @@ type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	// Needs are what the person must have before starting, and Takes about
+	// how long a first deploy takes; deploy says both first.
+	Needs []string `yaml:"needs"`
+	Takes string   `yaml:"takes"`
+	// Summary is shown before a project is set up: a label and a template
+	// over the answers each.
+	Summary []SummaryLine `yaml:"summary"`
 	// Kind is platform, the default, or app: an app runs on the platform of
 	// a project, and is added to it with damstack app add.
 	Kind string `yaml:"kind"`
@@ -57,6 +64,11 @@ type Manifest struct {
 	// first, by name, the platform of the project provides is used.
 	Targets map[string]Target `yaml:"targets"`
 	Check   Check             `yaml:"check"`
+}
+
+type SummaryLine struct {
+	Label string `yaml:"label"`
+	Value string `yaml:"value"`
 }
 
 type Target struct {
@@ -104,6 +116,10 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
+	// Section groups the questions under a heading; Note is said under it,
+	// before the question.
+	Section string `yaml:"section"`
+	Note    string `yaml:"note"`
 	// Advanced is a question not asked: its default is taken, and stack.yaml
 	// changes it later.
 	Advanced bool `yaml:"advanced"`
@@ -342,6 +358,12 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	}
 
 	c.checkQuestions(m.Questions)
+	for i, line := range m.Summary {
+		if line.Label == "" {
+			c.add(fmt.Sprintf("summary[%d].label", i), "is required")
+		}
+		c.checkTemplate(fmt.Sprintf("summary[%d].value", i), line.Value)
+	}
 
 	c.checkSecrets(m, dir)
 	if m.Config != "" {
