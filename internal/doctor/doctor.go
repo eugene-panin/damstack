@@ -283,6 +283,33 @@ func checkProject(ctx context.Context, env Env) []Result {
 	return append(results, Result{group, OK, "the server answers at " + p.Tunnel + " through WireGuard", ""})
 }
 
+// PrintBrief writes the results as one list, then, when something is wrong,
+// what to fix, and reports whether anything failed.
+func PrintBrief(w io.Writer, results []Result) bool {
+	fmt.Fprintln(w, "This machine")
+	var fixes []Result
+	for _, r := range results {
+		fmt.Fprintf(w, "  %-4s  %s\n", label(r.Status), r.Text)
+		if r.Status != OK && r.Fix != "" {
+			fixes = append(fixes, r)
+		}
+	}
+	if len(fixes) > 0 {
+		fmt.Fprintln(w, "\nBefore anything else")
+		for i, r := range fixes {
+			fmt.Fprintf(w, "  %d. %s\n", i+1, capitalize(r.Fix))
+		}
+	}
+	return failed(results)
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // Print writes the results grouped, then what to fix, and reports whether
 // anything failed.
 func Print(w io.Writer, results []Result) bool {

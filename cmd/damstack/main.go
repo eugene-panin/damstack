@@ -42,15 +42,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !checkedBefore() {
-				fmt.Fprintln(stdout, "First run: checking this machine.")
-				fmt.Fprintln(stdout)
-				if err := runDoctor(cmd.Context(), stdout); err != nil {
-					return err
-				}
-				fmt.Fprintln(stdout)
-			}
-			return cmd.Help()
+			return home(cmd.Context(), stdout)
 		},
 	}
 	s := newStreams(stdin, stdout, stderr)

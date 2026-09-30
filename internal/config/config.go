@@ -19,8 +19,12 @@ type Stack struct {
 	Name string `yaml:"name"`
 	URL  string `yaml:"url"`
 	// Kind is app for an app, empty for a platform.
-	Kind    string `yaml:"kind,omitempty"`
-	Builtin bool   `yaml:"-"`
+	Kind string `yaml:"kind,omitempty"`
+	// Description says what the stack sets up, in a line; Platform is the
+	// platform an app of the library runs on.
+	Description string `yaml:"description,omitempty"`
+	Platform    string `yaml:"platform,omitempty"`
+	Builtin     bool   `yaml:"-"`
 }
 
 type Project struct {
@@ -38,8 +42,10 @@ type Config struct {
 
 // Builtin are the stacks every damstack knows, maintained with it.
 var Builtin = []Stack{
-	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true},
-	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Builtin: true},
+	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true,
+		Description: "Nomad, Consul and Vault on one server, admin pages behind WireGuard"},
+	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "your own mail server, by Stalwart"},
 }
 
 // Dir is $XDG_CONFIG_HOME/damstack, or ~/.config/damstack, on every system.
