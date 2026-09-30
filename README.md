@@ -8,7 +8,7 @@ the stack, keeps the deployment in one directory described by `stack.yaml`,
 and runs the steps with the tools of a small Docker image. You install
 damstack and Docker, nothing else.
 
-Work in progress.
+Work in progress: [docs/design.md](docs/design.md) says where it is going.
 
 ```bash
 damstack               # on the first run, checks this machine, then shows the commands
