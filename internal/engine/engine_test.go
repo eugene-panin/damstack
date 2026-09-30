@@ -280,3 +280,29 @@ func TestInitIsTriedTwice(t *testing.T) {
 		t.Error("an init that fails twice went on")
 	}
 }
+
+func TestBriefConfirmsByCounts(t *testing.T) {
+	e, r := setup(t)
+	e.Brief = true
+	r.reply = func(c toolbox.Cmd) error {
+		switch {
+		case slices.Contains(c.Args, "plan"):
+			return &toolbox.ExitError{Name: "tofu", Code: 2}
+		case slices.Contains(c.Args, "show"):
+			c.Stdout.Write([]byte(`{"resource_changes":[
+				{"change":{"actions":["create"]}},{"change":{"actions":["create"]}},
+				{"change":{"actions":["delete","create"]}},{"change":{"actions":["no-op"]}},
+				{"change":{"actions":["delete"]}}]}`))
+		}
+		return nil
+	}
+	var asked string
+	e.Confirm = func(q string) (bool, error) { asked = q; return false, nil }
+	step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"}, Confirm: true}
+	if err := e.Run(t.Context(), step, nil); !errors.Is(err, ErrDeclined) {
+		t.Fatal(err)
+	}
+	if asked != "2 to create, 1 to replace, 1 to destroy. Go?" {
+		t.Errorf("asked %q", asked)
+	}
+}

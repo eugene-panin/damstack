@@ -189,7 +189,10 @@ var Generators = []string{"base64", "ca", "hex", "password", "uuid"}
 
 // Step runs one tool: exactly one of Ansible, Tofu and Run.
 type Step struct {
-	Name    string            `yaml:"name"`
+	Name string `yaml:"name"`
+	// Title says what the step does, for people, and Takes about how long.
+	Title   string            `yaml:"title"`
+	Takes   string            `yaml:"takes"`
 	Ansible *Ansible          `yaml:"ansible"`
 	Tofu    *Tofu             `yaml:"tofu"`
 	Run     []string          `yaml:"run"`

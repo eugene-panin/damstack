@@ -37,6 +37,8 @@ type streams struct {
 	out    io.Writer
 	err    io.Writer
 	prompt *ask.Prompter
+	// verbose shows the output of the tools instead of keeping it in a log.
+	verbose bool
 }
 
 func newStreams(stdin io.Reader, stdout, stderr io.Writer) *streams {
@@ -57,6 +59,7 @@ func (s *streams) tty() bool {
 }
 
 type deployOptions struct {
+	verbose bool
 	stack   string
 	name    string
 	dir     string
@@ -80,6 +83,7 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().StringVar(&o.name, "name", "", "the name of the new project")
 	cmd.Flags().StringVar(&o.dir, "dir", "", "where to put the new project, instead of ~/damstack/<name>")
 	cmd.Flags().StringVar(&o.answers, "answers", "", "a YAML file with answers to the questions, and the secrets the stack asks for")
+	cmd.Flags().BoolVarP(&o.verbose, "verbose", "v", false, "show the output of Ansible and OpenTofu, instead of keeping it in a log of the project")
 	cmd.Flags().StringVar(&o.from, "from", "", "deploy the stack in this directory as it is, instead of a release; for writing a stack")
 	return cmd
 }
@@ -87,6 +91,7 @@ func deployCommand(s *streams) *cobra.Command {
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
+	s.verbose = o.verbose
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -454,6 +459,13 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	}, key, nil
 }
 
+// job is a step to run, of the platform or of an app.
+type job struct {
+	e    *engine.Engine
+	name string
+	step manifest.Step
+}
+
 // runSteps deploys a project: the steps of its platform, then those of each
 // app, then the platform's steps that come after the apps.
 func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
@@ -466,16 +478,13 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
-	var before, after []manifest.Step
+	var jobs, after []job
 	for _, step := range m.Steps {
 		if step.AfterApps {
-			after = append(after, step)
+			after = append(after, job{e, step.Name, step})
 		} else {
-			before = append(before, step)
+			jobs = append(jobs, job{e, step.Name, step})
 		}
-	}
-	if err := runList(ctx, s, p, e, m.Server, "", before); err != nil {
-		return err
 	}
 	for _, ref := range p.Meta.Apps {
 		am, adir, err := refStack(ctx, ref)
@@ -494,49 +503,116 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		if ae.BaseEnv, err = appEnv(p, m, ae.Password); err != nil {
 			return err
 		}
-		if err := runList(ctx, s, p, ae, m.Server, ref.Name+"/", target.Steps); err != nil {
-			return err
+		for _, step := range target.Steps {
+			jobs = append(jobs, job{ae, ref.Name + "/" + step.Name, step})
 		}
 	}
-	if err := runList(ctx, s, p, e, m.Server, "", after); err != nil {
-		return err
+	jobs = append(jobs, after...)
+	for i, j := range jobs {
+		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(s.out, "\nDeployed %s.\n", p.Meta.Name)
 	return nil
 }
 
-func runList(ctx context.Context, s *streams, p *project.Project, e *engine.Engine, srv *manifest.Server, prefix string, steps []manifest.Step) error {
-	for _, step := range steps {
-		name := prefix + step.Name
-		if step.Once {
-			done, err := p.Done(name)
-			if err != nil {
-				return err
-			}
-			if done {
-				fmt.Fprintf(s.out, "\n== %s: done before, runs once\n", name)
-				continue
-			}
-		}
-		fmt.Fprintf(s.out, "\n== %s\n", name)
-		if step.Tunnel && srv != nil {
-			if err := waitTunnel(ctx, s, p, srv); err != nil {
-				return err
-			}
-		}
-		start := time.Now()
-		err := e.Run(ctx, step, nil)
-		if rerr := record(p, "deploy", name, start, err); rerr != nil && err == nil {
-			err = rerr
-		}
-		if errors.Is(err, engine.ErrDeclined) {
-			return fmt.Errorf("%s: %w; run damstack deploy again when you want it", name, err)
-		}
+func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server) error {
+	title := j.step.Title
+	if title == "" {
+		title = j.name
+	}
+	if strings.Contains(j.name, "/") && j.step.Title != "" {
+		title = j.name[:strings.Index(j.name, "/")] + ": " + title
+	}
+	if j.step.Once {
+		done, err := p.Done(j.name)
 		if err != nil {
-			return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack deploy again in %s", name, err, p.Dir)
+			return err
+		}
+		if done {
+			fmt.Fprintf(s.out, "\n%d/%d  %s: done before, runs once\n", n, total, title)
+			return nil
 		}
 	}
+	takes := ""
+	if j.step.Takes != "" {
+		takes = " (" + j.step.Takes + ")"
+	}
+	fmt.Fprintf(s.out, "\n%d/%d  %s%s\n", n, total, title, takes)
+	if j.step.Tunnel && srv != nil {
+		if err := waitTunnel(ctx, s, p, srv); err != nil {
+			return err
+		}
+	}
+
+	log := ""
+	if !s.verbose {
+		var restore func()
+		var err error
+		if log, restore, err = logTo(p, j); err != nil {
+			return err
+		}
+		defer restore()
+	}
+	start := time.Now()
+	err := j.e.Run(ctx, j.step, nil)
+	if rerr := record(p, "deploy", j.name, start, err); rerr != nil && err == nil {
+		err = rerr
+	}
+	if errors.Is(err, engine.ErrDeclined) {
+		return fmt.Errorf("%s: %w; run damstack deploy again when you want it", j.name, err)
+	}
+	if err != nil {
+		if log != "" {
+			tail(s.out, log, 30)
+			fmt.Fprintf(s.out, "  The whole output is in %s\n", log)
+		}
+		return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack deploy again in %s", j.name, err, p.Dir)
+	}
+	fmt.Fprintf(s.out, "     ok, %s\n", time.Since(start).Round(time.Second))
 	return nil
+}
+
+// logTo sends the output of the tools of a job to a log of the project, and
+// returns its path and how to send it back.
+func logTo(p *project.Project, j job) (string, func(), error) {
+	runner, ok := j.e.Runner.(*toolbox.Runner)
+	if !ok {
+		return "", func() {}, nil
+	}
+	dir := filepath.Join(p.Dir, project.WorkDir, "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, time.Now().Format("2006-01-02T15-04-05")+"-"+strings.ReplaceAll(j.name, "/", "-")+".log")
+	f, err := os.Create(path)
+	if err != nil {
+		return "", nil, err
+	}
+	stdout, stderr, stdin, tty := runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY
+	runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY = f, f, nil, false
+	j.e.Brief = true
+	return path, func() {
+		runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY = stdout, stderr, stdin, tty
+		j.e.Brief = false
+		f.Close()
+	}, nil
+}
+
+// tail writes the last lines of a log, indented.
+func tail(w io.Writer, path string, lines int) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	all := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	for _, line := range all {
+		fmt.Fprintf(w, "  | %s\n", line)
+	}
 }
 
 func ensureLogin(ctx context.Context, s *streams, e *engine.Engine, key string) error {

@@ -46,6 +46,9 @@ type Engine struct {
 	// BaseEnv is under the environment of every step, such as the app_env
 	// of the platform for an app.
 	BaseEnv map[string]string
+	// Brief is whether the output of the tools goes to a log rather than the
+	// terminal: a change is then confirmed by its counts.
+	Brief bool
 	// Confirm asks before a step marked confirm changes anything.
 	Confirm func(question string) (bool, error)
 	Out     io.Writer
@@ -210,8 +213,14 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	case !errors.As(err, &exit) || exit.Code != 2:
 		return err
 	}
+	planJSON := ""
+	if t.Policy != nil || (t.Action == "apply" && s.Confirm && e.Brief) {
+		if planJSON, err = e.showPlan(ctx, env, chdir, plan); err != nil {
+			return err
+		}
+	}
 	if t.Policy != nil {
-		if err := e.policy(ctx, t, env, chdir, plan); err != nil {
+		if err := e.policy(ctx, t, env, chdir, planJSON); err != nil {
 			return err
 		}
 	}
@@ -219,7 +228,15 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 		return nil
 	}
 	if s.Confirm {
-		ok, err := e.Confirm("Apply the changes above?")
+		question := "Apply the changes above?"
+		if e.Brief {
+			counts, err := e.counts(planJSON)
+			if err != nil {
+				return err
+			}
+			question = counts + ". Go?"
+		}
+		ok, err := e.Confirm(question)
 		if err != nil {
 			return err
 		}
@@ -267,20 +284,60 @@ func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, 
 
 // policy checks a plan against the stack's policies, with stack.yaml as their
 // data, and so the Nomad jobs the plan would submit.
-func (e *Engine) policy(ctx context.Context, t *manifest.Tofu, env map[string]string, chdir, plan string) error {
+// showPlan writes a plan as JSON next to it, and returns its path.
+func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, plan string) (string, error) {
 	planJSON := plan + ".json"
 	out, err := os.Create(e.hostPath(planJSON))
 	if err != nil {
-		return err
+		return "", err
 	}
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Stdout: out, Args: []string{"tofu", chdir, "show", "-json", plan}})
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
-	if err != nil {
-		return err
-	}
+	return planJSON, err
+}
 
+// counts says in words what a plan changes: 12 to create, 1 to destroy.
+func (e *Engine) counts(planJSON string) (string, error) {
+	data, err := os.ReadFile(e.hostPath(planJSON))
+	if err != nil {
+		return "", err
+	}
+	var plan struct {
+		ResourceChanges []struct {
+			Change struct {
+				Actions []string `json:"actions"`
+			} `json:"change"`
+		} `json:"resource_changes"`
+	}
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return "", fmt.Errorf("the plan: %w", err)
+	}
+	n := map[string]int{}
+	for _, rc := range plan.ResourceChanges {
+		switch a := strings.Join(rc.Change.Actions, ","); a {
+		case "create", "update", "delete":
+			n[a]++
+		case "delete,create", "create,delete":
+			n["replace"]++
+		}
+	}
+	var parts []string
+	for _, k := range []struct{ action, words string }{
+		{"create", "to create"}, {"update", "to change"}, {"replace", "to replace"}, {"delete", "to destroy"},
+	} {
+		if n[k.action] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n[k.action], k.words))
+		}
+	}
+	if len(parts) == 0 {
+		return "Only outputs change", nil
+	}
+	return strings.Join(parts, ", "), nil
+}
+
+func (e *Engine) policy(ctx context.Context, t *manifest.Tofu, env map[string]string, chdir, planJSON string) error {
 	flags := e.policyFlags(t.Policy)
 	fmt.Fprintln(e.Out, "\nChecking the plan against the policies of the stack.")
 	cmd := append(append([]string{"conftest", "test"}, flags...), "--namespace", "terraform", planJSON)

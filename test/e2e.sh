@@ -16,7 +16,7 @@ project=$work/demo1
 
 step() { printf '\n== %s\n' "$*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
-deploy() { "$damstack" deploy "$@" >"$work/out" 2>&1; }
+deploy() { "$damstack" deploy --verbose "$@" >"$work/out" 2>&1; }
 
 step "stack check proves the demo stack"
 "$damstack" stack check "$stack" >"$work/out" 2>&1 || { cat "$work/out"; fail "stack check"; }
@@ -40,16 +40,25 @@ grep -q 'init: done before' "$work/out" || fail "a once step ran again"
 grep -q 'changed=0' "$work/out" || { cat "$work/out"; fail "the playbook changed something"; }
 grep -q 'Nothing to change' "$work/out" || { cat "$work/out"; fail "OpenTofu had changes"; }
 
+step "without --verbose the steps are numbered and the tools write to a log"
+"$damstack" deploy </dev/null >"$work/out" 2>&1 || { cat "$work/out"; fail "a brief deploy"; }
+grep -Eq '^2/4  configure$' "$work/out" || { cat "$work/out"; fail "the steps are not numbered"; }
+grep -q 'PLAY RECAP' "$work/out" && fail "the output of Ansible is on the terminal"
+grep -q 'changed=0' .damstack/work/logs/*-configure.log || fail "the log has no output of Ansible"
+[[ $(grep -c '     ok, ' "$work/out") -eq 3 ]] || { cat "$work/out"; fail "the steps did not say ok"; }
+
 step "a plan the policy denies is not applied"
 sed -i.bak 's/^greeting: hello/greeting: bye/' stack.yaml
-deploy </dev/null && fail "the denied plan went through"
-grep -q 'the policy forbids' "$work/out" || { cat "$work/out"; fail "no policy message"; }
+"$damstack" deploy </dev/null >"$work/out" 2>&1 && fail "the denied plan went through"
+grep -q '  | FAIL .*the policy forbids' "$work/out" || { cat "$work/out"; fail "the reason is not shown from the log"; }
+grep -q 'The whole output is in .*-apply.log' "$work/out" || { cat "$work/out"; fail "no path to the log"; }
 grep -q 'breaks a rule of the stack' "$work/out" || { cat "$work/out"; fail "no explanation"; }
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "the denied plan was applied"
 
-step "a no to apply changes nothing"
+step "a no to apply changes nothing, asked by the counts of the plan"
 sed -i.bak 's/^greeting: bye/greeting: hi/' stack.yaml
-printf 'n\n' | deploy && fail "a no went through"
+printf 'n\n' | "$damstack" deploy >"$work/out" 2>&1 && fail "a no went through"
+grep -q '1 to change. Go?' "$work/out" || { cat "$work/out"; fail "the question does not count the changes"; }
 grep -q 'you said no' "$work/out" || { cat "$work/out"; fail "no explanation"; }
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "applied after a no"
 
@@ -59,8 +68,8 @@ app=$repo/test/demo-app
 sed -i.bak 's/^greeting: hi/greeting: hello/' stack.yaml
 printf 'hostname: hello.example.org\n' >"$work/app-answers.yaml"
 printf 'y\n' | "$damstack" app add --from "$app" --answers "$work/app-answers.yaml" >"$work/out" 2>&1 || { cat "$work/out"; fail "app add"; }
-order=$(grep -E '^== (apply|hello/apply|publish)$' "$work/out" | tr '\n' ' ')
-[[ $order == "== apply == hello/apply == publish " ]] || { cat "$work/out"; fail "steps ran in the order: $order"; }
+order=$(grep -Eo '^[0-9]+/[0-9]+  (apply|hello/apply|publish)$' "$work/out" | tr '\n' ' ')
+[[ $order == "3/5  apply 4/5  hello/apply 5/5  publish " ]] || { cat "$work/out"; fail "steps ran in the order: $order"; }
 grep -q 'hostname: hello.example.org' stack.yaml || fail "the settings of the app are not in stack.yaml"
 grep -qx 'clients: \[laptop, phone\]' stack.yaml || fail "stack.yaml lost what was there"
 grep -q hello.example.org published.txt || fail "the platform did not publish the records of the app"
