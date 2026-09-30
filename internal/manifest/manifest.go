@@ -116,6 +116,8 @@ type Question struct {
 	Default any      `yaml:"default"`
 	Options []string `yaml:"options"`
 	Pattern string   `yaml:"pattern"`
+	// Checks run on the answer; one that fails asks again.
+	Checks []CheckSpec `yaml:"checks"`
 	// Section groups the questions under a heading; Note is said under it,
 	// before the question.
 	Section string `yaml:"section"`
@@ -139,7 +141,8 @@ type Secret struct {
 	When     string `yaml:"when"`
 	// Cert is where a generated ca puts its certificate in the project; the
 	// key is the secret.
-	Cert string `yaml:"cert"`
+	Cert   string      `yaml:"cert"`
+	Checks []CheckSpec `yaml:"checks"`
 }
 
 // Server is how damstack reaches the server of a project, as templates over
@@ -155,6 +158,30 @@ type Server struct {
 	// TunnelHelp says how to turn the tunnel on, when a step that needs it
 	// finds it off.
 	TunnelHelp string `yaml:"tunnel_help"`
+}
+
+// CheckSpec names a check of an answer, with an argument for some:
+// ssh-port, or {cloudflare-token: dns_zones}.
+type CheckSpec struct {
+	Name string
+	Arg  string
+}
+
+// Checks are the checks of answers damstack knows.
+var Checks = []string{"cloudflare-token", "ssh-port"}
+
+func (c *CheckSpec) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		c.Name = n.Value
+		return nil
+	case yaml.MappingNode:
+		if len(n.Content) == 2 {
+			c.Name, c.Arg = n.Content[0].Value, n.Content[1].Value
+			return nil
+		}
+	}
+	return fmt.Errorf("line %d: a check is a name, or a name with its argument", n.Line)
 }
 
 // Generators are the ways a secret can be generated.
@@ -588,6 +615,11 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		if s.When != "" {
 			c.checkWhen(path+".when", s.When, m.Questions)
 		}
+		for _, check := range s.Checks {
+			if !slices.Contains(Checks, check.Name) {
+				c.add(path+".checks", "%q is not a check; one of %s", check.Name, strings.Join(Checks, ", "))
+			}
+		}
 	}
 }
 
@@ -669,6 +701,11 @@ func (c *checker) checkQuestions(questions []Question) {
 		seen[q.Name] = true
 		if strings.TrimSpace(q.Prompt) == "" {
 			c.add(path+".prompt", "is required")
+		}
+		for _, check := range q.Checks {
+			if !slices.Contains(Checks, check.Name) {
+				c.add(path+".checks", "%q is not a check; one of %s", check.Name, strings.Join(Checks, ", "))
+			}
 		}
 		if q.Advanced && q.Default == nil && q.Type != "bool" {
 			c.add(path+".advanced", "an advanced question is not asked, so it needs a default")

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
@@ -95,7 +96,7 @@ func (p *Prompter) Secret(prompt string) (string, error) {
 // such as from a file, is checked instead of asked; with a nil prompter, and
 // for an advanced question, the default is taken. A default that is a
 // template sees the answers before it and funcs.
-func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs template.FuncMap) (map[string]any, error) {
+func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs template.FuncMap, check CheckFunc) (map[string]any, error) {
 	for name := range given {
 		if !slices.ContainsFunc(qs, func(q manifest.Question) bool { return q.Name == name }) {
 			return nil, fmt.Errorf("%s is not a question of the stack", name)
@@ -119,6 +120,9 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs 
 			a, err := Check(q, v)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", q.Name, err)
+			}
+			if failed := Report(p, check, q.Checks, a, answers); failed != "" {
+				return nil, fmt.Errorf("%s: %s", q.Name, failed)
 			}
 			answers[q.Name] = a
 			continue
@@ -151,14 +155,42 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs 
 				return nil, err
 			}
 			a, err := Parse(q, raw)
-			if err == nil {
+			if err != nil {
+				fmt.Fprintf(p.Out, "  %v\n", err)
+				continue
+			}
+			if Report(p, check, q.Checks, a, answers) == "" {
 				answers[q.Name] = a
 				break
 			}
-			fmt.Fprintf(p.Out, "  %v\n", err)
 		}
 	}
 	return answers, nil
+}
+
+// CheckFunc runs the checks of an answer, given the answers before it.
+type CheckFunc func(specs []manifest.CheckSpec, value any, answers map[string]any) []checks.Result
+
+// Report runs the checks of an answer and says how they went, and returns
+// the text of the first that failed.
+func Report(p *Prompter, check CheckFunc, specs []manifest.CheckSpec, value any, answers map[string]any) string {
+	if check == nil || len(specs) == 0 {
+		return ""
+	}
+	failed := ""
+	for _, r := range check(specs, value, answers) {
+		status := "ok"
+		if !r.OK {
+			status = "FAIL"
+			if failed == "" {
+				failed = r.Text
+			}
+		}
+		if p != nil {
+			fmt.Fprintf(p.Out, "  %-4s  %s\n", status, r.Text)
+		}
+	}
+	return failed
 }
 
 // Prompt is the line a question is asked with.

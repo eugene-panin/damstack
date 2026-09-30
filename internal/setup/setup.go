@@ -3,6 +3,7 @@
 package setup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/ask"
+	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/secret"
@@ -99,7 +101,13 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 			questions[k] = v
 		}
 	}
-	answers, err := ask.Questions(p, m.Questions, questions, DefaultFuncs())
+	var check ask.CheckFunc
+	if !placeholders {
+		check = func(specs []manifest.CheckSpec, v any, answers map[string]any) []checks.Result {
+			return checks.Default().Run(context.Background(), specs, v, answers)
+		}
+	}
+	answers, err := ask.Questions(p, m.Questions, questions, DefaultFuncs(), check)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -128,6 +136,9 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 			if !isText || text == "" {
 				return nil, nil, nil, fmt.Errorf("secret %s: must be text", s.Name)
 			}
+			if failed := ask.Report(p, check, s.Checks, text, answers); failed != "" {
+				return nil, nil, nil, fmt.Errorf("secret %s: %s", s.Name, failed)
+			}
 			secrets[s.Name] = text
 		case placeholders:
 			secrets[s.Name] = "placeholder-" + s.Name
@@ -136,8 +147,15 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 				fmt.Fprintln(p.Out, "\n── Secrets, not shown as you type them")
 				heading = true
 			}
-			if secrets[s.Name], err = p.Secret(s.Ask); err != nil {
-				return nil, nil, nil, err
+			for {
+				value, err := p.Secret(s.Ask)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				if ask.Report(p, check, s.Checks, value, answers) == "" {
+					secrets[s.Name] = value
+					break
+				}
 			}
 		default:
 			return nil, nil, nil, fmt.Errorf("secret %s: not given", s.Name)
