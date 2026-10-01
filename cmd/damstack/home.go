@@ -19,7 +19,7 @@ import (
 // is, the machine and where to start; later the projects, and the machine
 // only when something on it broke.
 func home(ctx context.Context, w io.Writer) error {
-	cfg, err := config.Load()
+	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
 	}

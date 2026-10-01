@@ -21,8 +21,8 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 		Use:   "stacks",
 		Short: "List the stacks damstack can deploy",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			cfg, err := config.Load()
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := loadConfig(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -31,7 +31,7 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 			for _, s := range cfg.AllStacks() {
 				from, kind := "added", "platform"
 				if s.Builtin {
-					from = "built in"
+					from = "library"
 				}
 				if s.Kind == manifest.KindApp {
 					kind = "app"
@@ -96,7 +96,7 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 	if !yes && !confirm(stdin, stdout, fmt.Sprintf("Add it as %s?", name)) {
 		return fmt.Errorf("not added")
 	}
-	cfg, err := config.Load()
+	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
 	}

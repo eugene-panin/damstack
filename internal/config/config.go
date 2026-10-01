@@ -36,11 +36,14 @@ type Project struct {
 type Config struct {
 	Stacks   []Stack   `yaml:"stacks,omitempty"`
 	Projects []Project `yaml:"projects,omitempty"`
+	// Library is the library of damstack, fetched; Builtin when not set.
+	Library []Stack `yaml:"-"`
 
 	path string
 }
 
-// Builtin are the stacks every damstack knows, maintained with it.
+// Builtin is the library built into damstack, for when the library cannot
+// be fetched and was never fetched before.
 var Builtin = []Stack{
 	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true,
 		Description: "Nomad, Consul and Vault on one server, admin pages behind WireGuard"},
@@ -113,7 +116,11 @@ func (c *Config) Path() string { return c.path }
 
 // AllStacks are the builtin stacks, then the added ones.
 func (c *Config) AllStacks() []Stack {
-	return append(slices.Clone(Builtin), c.Stacks...)
+	library := c.Library
+	if library == nil {
+		library = Builtin
+	}
+	return append(slices.Clone(library), c.Stacks...)
 }
 
 func (c *Config) Stack(name string) (Stack, bool) {

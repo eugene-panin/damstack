@@ -17,6 +17,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
+	"github.com/eugene-panin/damstack/internal/library"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
@@ -165,4 +166,16 @@ func markChecked() {
 	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
 		_ = os.WriteFile(path, nil, 0o644)
 	}
+}
+
+// loadConfig is the config of damstack with the library fetched.
+func loadConfig(ctx context.Context) (*config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if l, err := library.Default(); err == nil {
+		cfg.Library = l.Get(ctx)
+	}
+	return cfg, nil
 }

@@ -113,7 +113,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		return runSteps(ctx, s, p, m, dir)
 	}
 
-	cfg, err := config.Load()
+	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
 	}

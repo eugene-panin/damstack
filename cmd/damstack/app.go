@@ -131,7 +131,7 @@ func findApp(ctx context.Context, s *streams, arg, from string) (*manifest.Manif
 		}
 		return m, dir, project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}, nil
 	}
-	cfg, err := config.Load()
+	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
