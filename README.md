@@ -10,6 +10,18 @@ damstack and Docker, nothing else.
 
 Work in progress: [docs/design.md](docs/design.md) says where it is going.
 
+## Install
+
+```bash
+brew install eugene-panin/tap/damstack
+damstack
+```
+
+On Linux, take the archive for your machine from the
+[releases](https://github.com/eugene-panin/damstack/releases) and put
+`damstack` on your PATH. damstack needs Docker: Docker Desktop, OrbStack,
+Colima, or Docker Engine on Linux.
+
 ```bash
 damstack               # on the first run, checks this machine, then shows the commands
 damstack doctor        # checks this machine, and says how to get what it lacks

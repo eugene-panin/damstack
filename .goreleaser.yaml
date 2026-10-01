@@ -1,0 +1,47 @@
+version: 2
+project_name: damstack
+
+builds:
+  - main: ./cmd/damstack
+    binary: damstack
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/eugene-panin/damstack/internal/release.Version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+
+homebrew_casks:
+  - name: damstack
+    repository:
+      owner: eugene-panin
+      name: homebrew-tap
+    directory: Casks
+    homepage: https://github.com/eugene-panin/damstack
+    description: Set up your own server and run apps on it, from one file you edit, with nothing but Docker installed
+    license: MIT
+    caveats: |
+      damstack runs its tools in Docker: install Docker Desktop, OrbStack or Colima.
+      Then run damstack: it checks this machine and says where to start.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/damstack"]
+          end
