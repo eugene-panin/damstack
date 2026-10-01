@@ -175,8 +175,9 @@ func (e *Engine) ansibleConfig(playbook string) string {
 	}
 }
 
-func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]string, args []string) error {
-	t := s.Tofu
+// prepareTofu sets up the environment of an OpenTofu directory and inits it,
+// and returns its -chdir and its work directory.
+func (e *Engine) prepareTofu(ctx context.Context, t *manifest.Tofu, env map[string]string) (string, string, error) {
 	name := e.unit(t.Dir)
 	data := path.Join(work, "tofu", name)
 	env["TF_DATA_DIR"] = data
@@ -189,10 +190,56 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	chdir := "-chdir=" + path.Join(toolbox.StackDir, t.Dir)
 	for _, dir := range []string{filepath.Join(e.Project.Dir, "state"), e.hostPath(data)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
+			return "", "", err
 		}
 	}
-	if err := e.init(ctx, env, chdir, "-backend-config=path="+path.Join(toolbox.ProjectDir, "state", name+".tfstate")); err != nil {
+	err := e.init(ctx, env, chdir, "-backend-config=path="+path.Join(toolbox.ProjectDir, "state", name+".tfstate"))
+	return chdir, data, err
+}
+
+// Drift says what a step of OpenTofu would change now, without changing
+// anything: the counts of its plan, empty when nothing but outputs differs.
+func (e *Engine) Drift(ctx context.Context, s manifest.Step) (string, error) {
+	config, err := e.Project.Config()
+	if err != nil {
+		return "", err
+	}
+	secrets, err := e.Project.Secrets(e.Password)
+	if err != nil {
+		return "", err
+	}
+	env, err := e.env(s, config, secrets)
+	if err != nil {
+		return "", err
+	}
+	chdir, data, err := e.prepareTofu(ctx, s.Tofu, env)
+	if err != nil {
+		return "", err
+	}
+	plan := path.Join(data, "drift")
+	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "plan", "-input=false", "-detailed-exitcode", "-out=" + plan}})
+	var exit *toolbox.ExitError
+	switch {
+	case err == nil:
+		return "", nil
+	case !errors.As(err, &exit) || exit.Code != 2:
+		return "", err
+	}
+	planJSON, err := e.showPlan(ctx, env, chdir, plan)
+	if err != nil {
+		return "", err
+	}
+	counts, err := e.counts(planJSON)
+	if err != nil || counts == onlyOutputs {
+		return "", err
+	}
+	return counts, nil
+}
+
+func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]string, args []string) error {
+	t := s.Tofu
+	chdir, data, err := e.prepareTofu(ctx, t, env)
+	if err != nil {
 		return err
 	}
 	if t.Action == "output" {
@@ -200,7 +247,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	}
 
 	plan := path.Join(data, "plan")
-	err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
+	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
 		"-detailed-exitcode", "-out=" + plan}, args...)})
 	var exit *toolbox.ExitError
 	switch {
@@ -298,6 +345,8 @@ func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, pla
 	return planJSON, err
 }
 
+const onlyOutputs = "Only outputs change"
+
 // counts says in words what a plan changes: 12 to create, 1 to destroy.
 func (e *Engine) counts(planJSON string) (string, error) {
 	data, err := os.ReadFile(e.hostPath(planJSON))
@@ -332,7 +381,7 @@ func (e *Engine) counts(planJSON string) (string, error) {
 		}
 	}
 	if len(parts) == 0 {
-		return "Only outputs change", nil
+		return onlyOutputs, nil
 	}
 	return strings.Join(parts, ", "), nil
 }

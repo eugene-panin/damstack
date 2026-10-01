@@ -518,36 +518,10 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
-	var jobs, after []job
-	for _, step := range m.Steps {
-		if step.AfterApps {
-			after = append(after, job{e, step.Name, step})
-		} else {
-			jobs = append(jobs, job{e, step.Name, step})
-		}
+	jobs, err := buildJobs(ctx, s, p, m, e)
+	if err != nil {
+		return err
 	}
-	for _, ref := range p.Meta.Apps {
-		am, adir, err := refStack(ctx, ref)
-		if err != nil {
-			return fmt.Errorf("the app %s: %w", ref.Name, err)
-		}
-		_, target, ok := am.Target(m.Provides)
-		if !ok {
-			return fmt.Errorf("the app %s has no way to run on %s, which provides %s", ref.Name, m.Name, strings.Join(m.Provides, ", "))
-		}
-		ae, _, err := newEngine(ctx, s, p, am, adir)
-		if err != nil {
-			return err
-		}
-		ae.App = ref.Name
-		if ae.BaseEnv, err = appEnv(p, m, ae.Password); err != nil {
-			return err
-		}
-		for _, step := range target.Steps {
-			jobs = append(jobs, job{ae, ref.Name + "/" + step.Name, step})
-		}
-	}
-	jobs = append(jobs, after...)
 	for i, j := range jobs {
 		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server); err != nil {
 			return err
@@ -562,6 +536,41 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		}
 	}
 	return nil
+}
+
+// buildJobs lists the steps of a deploy in their order: the platform's, every
+// app's, then the platform's that come after the apps.
+func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, e *engine.Engine) ([]job, error) {
+	var jobs, after []job
+	for _, step := range m.Steps {
+		if step.AfterApps {
+			after = append(after, job{e, step.Name, step})
+		} else {
+			jobs = append(jobs, job{e, step.Name, step})
+		}
+	}
+	for _, ref := range p.Meta.Apps {
+		am, adir, err := refStack(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("the app %s: %w", ref.Name, err)
+		}
+		_, target, ok := am.Target(m.Provides)
+		if !ok {
+			return nil, fmt.Errorf("the app %s has no way to run on %s, which provides %s", ref.Name, m.Name, strings.Join(m.Provides, ", "))
+		}
+		ae, _, err := newEngine(ctx, s, p, am, adir)
+		if err != nil {
+			return nil, err
+		}
+		ae.App = ref.Name
+		if ae.BaseEnv, err = appEnv(p, m, ae.Password); err != nil {
+			return nil, err
+		}
+		for _, step := range target.Steps {
+			jobs = append(jobs, job{ae, ref.Name + "/" + step.Name, step})
+		}
+	}
+	return append(jobs, after...), nil
 }
 
 // done says what a stack serves, from its done lines.

@@ -29,14 +29,22 @@ import (
 var errNoProject = errors.New("there is no project yet: damstack deploy sets one up")
 
 func statusCommand(s *streams) *cobra.Command {
-	return &cobra.Command{
+	var live bool
+	cmd := &cobra.Command{
 		Use:   "status [project]",
-		Short: "Show a project: its stack, and how each step went last",
+		Short: "Show a project: its stack and how each step went last; --live checks the server now",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := pickProject(s, firstArg(args))
 			if err != nil {
 				return err
+			}
+			if live {
+				m, dir, err := projectStack(cmd.Context(), p, "")
+				if err != nil {
+					return err
+				}
+				return liveCheck(cmd.Context(), s, p, m, dir)
 			}
 			ref := p.Meta.Stack
 			fmt.Fprintf(s.out, "%s, in %s\n", p.Meta.Name, p.Dir)
@@ -60,8 +68,10 @@ func statusCommand(s *streams) *cobra.Command {
 			if m, _ := cachedStack(p); m != nil {
 				order = stepOrder(p, m)
 			}
+			fmt.Fprintln(s.out, "The last run of each step, from the history; damstack status --live checks the server now.")
+			fmt.Fprintln(s.out)
 			w := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "STEP\tLAST RUN\tRESULT\tSTACK")
+			fmt.Fprintln(w, "STEP\tLAST RUN\tTHAT RUN\tSTACK THEN")
 			for _, name := range order {
 				e, ok := last[name]
 				if !ok {
@@ -73,6 +83,8 @@ func statusCommand(s *streams) *cobra.Command {
 			return w.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&live, "live", false, "check the server now: playbooks in check mode and OpenTofu plans, changing nothing")
+	return cmd
 }
 
 func historyCommand(s *streams) *cobra.Command {

@@ -98,6 +98,16 @@ printf '' | "$damstack" deploy --from "$stack" --name hashi --dir "$work/other" 
 grep -q "hashi cannot be the name" "$work/out" || { cat "$work/out"; fail "no reason for the refused name"; }
 cd "$project"
 
+step "status --live checks the server and changes nothing"
+"$damstack" status --live >"$work/out" 2>&1 || { cat "$work/out"; fail "status --live"; }
+grep -Eq '^apply +as stack.yaml says' "$work/out" && grep -Eq '^configure +as stack.yaml says' "$work/out" &&
+  grep -Eq '^init +runs once' "$work/out" && grep -q 'The server is as stack.yaml says' "$work/out" || { cat "$work/out"; fail "a clean check"; }
+sed -i.bak 's/^greeting: hello/greeting: hi/' stack.yaml
+"$damstack" status --live >"$work/out" 2>&1
+grep -Eq '^apply +differs: 1 to change' "$work/out" && grep -q 'step(s) differ from stack.yaml' "$work/out" || { cat "$work/out"; fail "the drift is not seen"; }
+[[ $("$damstack" output greeting) == '"hello"' ]] || fail "status --live changed something"
+mv stack.yaml.bak stack.yaml
+
 step "status and history"
 "$damstack" status >"$work/out"
 grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/out" && grep -Eq '^publish +.* ok' "$work/out" ||
