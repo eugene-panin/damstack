@@ -61,7 +61,7 @@ func statusCommand(s *streams) *cobra.Command {
 			last := map[string]project.Entry{}
 			var order []string
 			for _, e := range entries {
-				if e.Command != "deploy" {
+				if e.Command != "deploy" && e.Command != "import" {
 					continue
 				}
 				if _, ok := last[e.Step]; !ok {

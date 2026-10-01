@@ -538,7 +538,7 @@ func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
 	}
 	for i, text := range m.Done {
 		line, err := manifest.RenderData(fmt.Sprintf("done[%d]", i), text, data, nil)
-		if err != nil {
+		if err != nil || strings.TrimSpace(line) == "" {
 			continue
 		}
 		fmt.Fprintf(w, "  %s\n", line)
