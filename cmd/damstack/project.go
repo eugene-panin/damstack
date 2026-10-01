@@ -26,27 +26,15 @@ import (
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
 
-var errNoProject = errors.New("this is not a damstack project; cd into one, such as ~/damstack/<name>")
-
-func currentProject() (*project.Project, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	p, err := project.Find(wd)
-	if err == nil && p == nil {
-		err = errNoProject
-	}
-	return p, err
-}
+var errNoProject = errors.New("there is no project yet: damstack deploy sets one up")
 
 func statusCommand(s *streams) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show the project you are in: its stack, and how each step went last",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			p, err := currentProject()
+		Use:   "status [project]",
+		Short: "Show a project: its stack, and how each step went last",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			p, err := pickProject(s, firstArg(args))
 			if err != nil {
 				return err
 			}
@@ -89,11 +77,11 @@ func statusCommand(s *streams) *cobra.Command {
 
 func historyCommand(s *streams) *cobra.Command {
 	return &cobra.Command{
-		Use:   "history",
-		Short: "List everything damstack ran on the project you are in",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			p, err := currentProject()
+		Use:   "history [project]",
+		Short: "List everything damstack ran on a project",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			p, err := pickProject(s, firstArg(args))
 			if err != nil {
 				return err
 			}
@@ -144,51 +132,98 @@ func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 	return append(before, after...)
 }
 
-// stackCommands are the commands of the stack of the project in wd, and of
-// its apps under their names, when they are on this machine.
+// stackCommands are the commands of the stacks of a project, and of its apps
+// under their names. When the project is clear without asking, they are its
+// commands; otherwise those of every project, and the project is asked for
+// when one runs.
 func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
-	p, err := currentProject()
-	if err != nil {
+	p, cfg, err := resolveProject("")
+	if err != nil || cfg == nil {
 		return nil
 	}
-	m, dir := cachedStack(p)
-	if m == nil {
-		return nil
+	projects := []*project.Project{p}
+	if p == nil {
+		projects = nil
+		for _, entry := range cfg.Projects {
+			if other, err := project.Open(entry.Path); err == nil {
+				projects = append(projects, other)
+			}
+		}
+	}
+	platform := map[string]string{}
+	apps := map[string]map[string]string{}
+	for _, p := range projects {
+		m, _ := cachedStack(p)
+		if m == nil {
+			continue
+		}
+		for name := range m.Commands {
+			platform[name] = m.Name
+		}
+		for _, ref := range p.Meta.Apps {
+			am, _ := cachedRef(ref)
+			if am == nil {
+				continue
+			}
+			if _, t, ok := am.Target(m.Provides); ok {
+				for name := range t.Commands {
+					if apps[ref.Name] == nil {
+						apps[ref.Name] = map[string]string{}
+					}
+					apps[ref.Name][name] = ref.Name
+				}
+			}
+		}
 	}
 	var cmds []*cobra.Command
-	for _, name := range slices.Sorted(maps.Keys(m.Commands)) {
+	for _, name := range slices.Sorted(maps.Keys(platform)) {
 		if !taken(name) {
-			cmds = append(cmds, stackCommand(s, p, m, dir, "", name, m.Commands[name], m))
+			cmds = append(cmds, stackCommand(s, "", name, "A command of the stack "+platform[name]))
 		}
 	}
-	for _, ref := range p.Meta.Apps {
-		am, adir := cachedRef(ref)
-		if am == nil || taken(ref.Name) || m.Commands[ref.Name].Name != "" {
+	for _, app := range slices.Sorted(maps.Keys(apps)) {
+		if taken(app) || platform[app] != "" {
 			continue
 		}
-		_, t, ok := am.Target(m.Provides)
-		if !ok || len(t.Commands) == 0 {
-			continue
-		}
-		group := &cobra.Command{Use: ref.Name, Short: "Commands of the app " + ref.Name}
-		for _, name := range slices.Sorted(maps.Keys(t.Commands)) {
-			group.AddCommand(stackCommand(s, p, am, adir, ref.Name, name, t.Commands[name], m))
+		group := &cobra.Command{Use: app, Short: "Commands of the app " + app}
+		for _, name := range slices.Sorted(maps.Keys(apps[app])) {
+			group.AddCommand(stackCommand(s, app, name, "A command of the app "+app))
 		}
 		cmds = append(cmds, group)
 	}
 	return cmds
 }
 
-func stackCommand(s *streams, p *project.Project, m *manifest.Manifest, dir, app, name string, step manifest.Step, platform *manifest.Manifest) *cobra.Command {
-	short := "A command of the stack " + m.Name
-	if app != "" {
-		short = "A command of the app " + app
-	}
+// stackCommand runs a command of the platform of a project, or of one of its
+// apps, the project found when it runs.
+func stackCommand(s *streams, app, name, short string) *cobra.Command {
 	return &cobra.Command{
 		Use:                name + " [args]",
 		Short:              short,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := pickProject(s, "")
+			if err != nil {
+				return err
+			}
+			platform, pdir := cachedStack(p)
+			if platform == nil {
+				return fmt.Errorf("the stack of %s is not on this machine yet; damstack deploy %s fetches it", p.Meta.Name, p.Meta.Name)
+			}
+			m, dir, step, ok := platform, pdir, manifest.Step{}, false
+			if app == "" {
+				step, ok = platform.Commands[name]
+			} else if ref, found := p.Meta.App(app); found {
+				if am, adir := cachedRef(ref); am != nil {
+					if _, t, has := am.Target(platform.Provides); has {
+						m, dir = am, adir
+						step, ok = t.Commands[name]
+					}
+				}
+			}
+			if !ok {
+				return fmt.Errorf("%s has no command %s", p.Meta.Name, strings.TrimSpace(app+" "+name))
+			}
 			e, _, err := newEngine(cmd.Context(), s, p, m, dir)
 			if err != nil {
 				return err
@@ -204,10 +239,7 @@ func stackCommand(s *streams, p *project.Project, m *manifest.Manifest, dir, app
 					return err
 				}
 			}
-			command := name
-			if app != "" {
-				command = app + " " + name
-			}
+			command := strings.TrimSpace(app + " " + name)
 			start := time.Now()
 			err = e.Run(cmd.Context(), step, args)
 			if rerr := record(p, command, "", start, err); rerr != nil && err == nil {
@@ -311,4 +343,11 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 func firstLine(text string) string {
 	line, _, _ := strings.Cut(text, "\n")
 	return line
+}
+
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }

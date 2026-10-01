@@ -71,8 +71,8 @@ type deployOptions struct {
 func deployCommand(s *streams) *cobra.Command {
 	var o deployOptions
 	cmd := &cobra.Command{
-		Use:   "deploy [stack]",
-		Short: "Set up a project from a stack and deploy it; in a project, deploy it again",
+		Use:   "deploy [project or stack]",
+		Short: "Deploy a project again, or set up a new one from a stack",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
@@ -93,19 +93,25 @@ var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	s.verbose = o.verbose
-	wd, err := os.Getwd()
+	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
 	}
-	p, err := project.Find(wd)
-	if err != nil {
-		return err
+	fresh := o.name != "" || o.dir != "" || o.answers != ""
+	var p *project.Project
+	switch {
+	case o.stack != "" && !fresh:
+		if entry, ok := cfg.Project(o.stack); ok {
+			if p, err = project.Open(entry.Path); err != nil {
+				return err
+			}
+		}
+	case o.stack == "" && !fresh:
+		if p, err = pickOrNew(s, cfg, o.from); err != nil {
+			return err
+		}
 	}
 	if p != nil {
-		if o.stack != "" || o.name != "" || o.dir != "" || o.answers != "" {
-			return fmt.Errorf("you are in the project %s, at %s, and damstack deploy deploys it again; "+
-				"to set up another project, run damstack deploy outside it", p.Meta.Name, p.Dir)
-		}
 		m, dir, err := projectStack(ctx, p, o.from)
 		if err != nil {
 			return err
@@ -113,10 +119,6 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		return runSteps(ctx, s, p, m, dir)
 	}
 
-	cfg, err := loadConfig(ctx)
-	if err != nil {
-		return err
-	}
 	m, dir, ref, err := chooseStack(ctx, s, cfg, o)
 	if err != nil {
 		return err
@@ -138,7 +140,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	delete(given, "project")
 	for name == "" || !projectNameRe.MatchString(name) || taken(cfg, name) {
 		if name != "" {
-			fmt.Fprintf(s.out, "  %s cannot be the name: 2 to 31 lowercase letters, digits and hyphens, not a project already\n", name)
+			fmt.Fprintf(s.out, "  %s cannot be the name: 2 to 31 lowercase letters, digits and hyphens, not a project or a stack already\n", name)
 		}
 		if name, err = s.prompt.Line("A name for this project, such as my-cloud: "); err != nil {
 			return err
@@ -146,11 +148,11 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	}
 	path := o.dir
 	if path == "" {
-		home, err := os.UserHomeDir()
+		dir, err := config.ProjectsDir()
 		if err != nil {
 			return err
 		}
-		path = filepath.Join(home, "damstack", name)
+		path = filepath.Join(dir, name)
 	}
 	if path, err = filepath.Abs(path); err != nil {
 		return err
@@ -172,13 +174,50 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	return runSteps(ctx, s, p, m, dir)
 }
 
+// taken is whether a name is a project already, or a stack, which deploy
+// would take it for.
 func taken(cfg *config.Config, name string) bool {
-	for _, p := range cfg.Projects {
-		if p.Name == name {
-			return true
-		}
+	if _, ok := cfg.Project(name); ok {
+		return true
 	}
-	return false
+	_, ok := cfg.Stack(name)
+	return ok
+}
+
+// pickOrNew is the project deploy works on when none and no stack is named:
+// the one the rules of pickProject find, else one picked from a list that
+// also offers a new one, which is nil.
+func pickOrNew(s *streams, cfg *config.Config, from string) (*project.Project, error) {
+	p, _, err := resolveProject("")
+	if err != nil || p != nil {
+		return p, err
+	}
+	if len(cfg.Projects) == 0 || from != "" {
+		return nil, nil
+	}
+	if !s.tty() {
+		return nil, fmt.Errorf("there are %d projects: name the one to deploy, such as damstack deploy %s, or a stack to set up a new one",
+			len(cfg.Projects), cfg.Projects[0].Name)
+	}
+	fmt.Fprintln(s.out, "Which project?")
+	for i, entry := range cfg.Projects {
+		fmt.Fprintf(s.out, "  %d. %s\n", i+1, entry.Name)
+	}
+	fmt.Fprintf(s.out, "  %d. a new project\n", len(cfg.Projects)+1)
+	for {
+		answer, err := s.prompt.Line("Which? ")
+		if err != nil {
+			return nil, err
+		}
+		n, err := strconv.Atoi(answer)
+		switch {
+		case err == nil && n == len(cfg.Projects)+1:
+			return nil, nil
+		case err == nil && n >= 1 && n <= len(cfg.Projects):
+			return project.Open(cfg.Projects[n-1].Path)
+		}
+		fmt.Fprintf(s.out, "  answer a number from 1 to %d\n", len(cfg.Projects)+1)
+	}
 }
 
 func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOptions) (*manifest.Manifest, string, project.StackRef, error) {

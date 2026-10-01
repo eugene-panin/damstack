@@ -36,6 +36,8 @@ type Project struct {
 type Config struct {
 	Stacks   []Stack   `yaml:"stacks,omitempty"`
 	Projects []Project `yaml:"projects,omitempty"`
+	// Current is the project commands work on when none is named.
+	Current string `yaml:"current,omitempty"`
 	// Library is the library of damstack, fetched; Builtin when not set.
 	Library []Stack `yaml:"-"`
 
@@ -143,4 +145,25 @@ func (c *Config) AddStack(s Stack) (bool, error) {
 	}
 	c.Stacks = append(c.Stacks, s)
 	return true, nil
+}
+
+func (c *Config) Project(name string) (Project, bool) {
+	for _, p := range c.Projects {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Project{}, false
+}
+
+// ProjectsDir is where new projects go: $DAMSTACK_HOME, or ~/.damstack.
+func ProjectsDir() (string, error) {
+	if dir := os.Getenv("DAMSTACK_HOME"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".damstack"), nil
 }

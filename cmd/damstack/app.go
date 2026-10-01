@@ -48,7 +48,7 @@ func appCommand(s *streams) *cobra.Command {
 		Short: "List the apps of the project you are in",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			p, err := currentProject()
+			p, err := pickProject(s, "")
 			if err != nil {
 				return err
 			}
@@ -64,7 +64,7 @@ func appCommand(s *streams) *cobra.Command {
 }
 
 func addApp(ctx context.Context, s *streams, arg, from, answers string) error {
-	p, err := currentProject()
+	p, err := pickProject(s, "")
 	if err != nil {
 		return err
 	}

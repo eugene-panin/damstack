@@ -47,7 +47,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		},
 	}
 	s := newStreams(stdin, stdout, stderr)
-	root.SetArgs(args)
+	root.SetArgs(takeProjectFlag(args))
+	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
@@ -107,7 +108,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return checkStack(cmd.Context(), s, dir)
 		},
 	})
-	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s))
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s), useCommand(s), editCommand(s))
 	root.InitDefaultCompletionCmd()
 	root.AddCommand(stackCommands(s, func(name string) bool {
 		c, _, err := root.Find([]string{name})
@@ -118,7 +119,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 func runDoctor(ctx context.Context, w io.Writer) error {
 	var dp *doctor.Project
-	if p, err := currentProject(); err == nil {
+	if p, _, err := resolveProject(""); err == nil && p != nil {
 		password, err := p.PasswordPath()
 		if err != nil {
 			return err
@@ -131,7 +132,7 @@ func runDoctor(ctx context.Context, w io.Writer) error {
 				dp.KnownHosts = filepath.Join(p.Dir, project.KnownHosts)
 			}
 		}
-	} else if !errors.Is(err, errNoProject) {
+	} else if err != nil {
 		return err
 	}
 	if doctor.Print(w, doctor.Run(ctx, doctor.Host(dp))) {

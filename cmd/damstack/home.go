@@ -111,7 +111,11 @@ func projects(w io.Writer, cfg *config.Config) {
 			}
 			apps = "apps: " + strings.Join(names, ", ")
 		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", p.Meta.Name, platform, apps, lastDeploy(p), path)
+		mark := " "
+		if cfg.Current == p.Meta.Name {
+			mark = "*"
+		}
+		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\n", mark, p.Meta.Name, platform, apps, lastDeploy(p), path)
 	}
 	tw.Flush()
 	fmt.Fprintln(w)
@@ -122,7 +126,14 @@ func projects(w io.Writer, cfg *config.Config) {
 			break
 		}
 	}
-	fmt.Fprintf(w, "In a project: damstack deploy, status, history.   New project: damstack deploy %s\n", start)
+	if cfg.Current != "" {
+		fmt.Fprintf(w, "* the current project: damstack deploy, edit, status work on it; damstack use <project> changes it.\n")
+	} else if len(cfg.Projects) > 1 {
+		fmt.Fprintln(w, "Name the project, such as damstack deploy <project>, or make one current: damstack use <project>.")
+	} else {
+		fmt.Fprintln(w, "damstack deploy, edit and status work on it.")
+	}
+	fmt.Fprintf(w, "A new project: damstack deploy %s\n", start)
 }
 
 // lastDeploy is how the last deploy of a project went, in a few words.

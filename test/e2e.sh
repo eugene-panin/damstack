@@ -83,6 +83,21 @@ grep -q 'already an app' "$work/out" || { cat "$work/out"; fail "no explanation 
 deploy </dev/null || { cat "$work/out"; fail "deploy with the app"; }
 grep -q 'hello/apply' "$work/out" && grep -q 'Nothing to change' "$work/out" || { cat "$work/out"; fail "a second deploy changed the app"; }
 
+step "from anywhere: a project by its name, with -p, the only one, and the current one"
+cd "$work"
+grep -q '^demo1, in ' <<<"$("$damstack" status demo1)" || fail "status by name"
+[[ $("$damstack" -p demo1 output greeting) == '"hello"' ]] || fail "-p before the command"
+[[ $("$damstack" output greeting -p demo1) == '"hello"' ]] || fail "-p after the command"
+grep -q '^demo1, in ' <<<"$("$damstack" status)" || fail "the only project"
+grep -q 'demo1 is the current project' <<<"$("$damstack" use demo1)" || fail "use"
+grep -q '^\* demo1' <<<"$("$damstack")" || fail "the home screen does not mark the current project"
+[[ $("$damstack" hello output message) == '"hello from hello.example.org"' ]] || fail "a command of an app from anywhere"
+deploy demo1 </dev/null || { cat "$work/out"; fail "deploy by the name of the project"; }
+grep -q 'Done. demo1 is running.' "$work/out" || { cat "$work/out"; fail "deploy demo1 did not deploy it"; }
+printf '' | "$damstack" deploy --from "$stack" --name hashi --dir "$work/other" >"$work/out" 2>&1 && fail "a project took the name of a stack"
+grep -q "hashi cannot be the name" "$work/out" || { cat "$work/out"; fail "no reason for the refused name"; }
+cd "$project"
+
 step "status and history"
 "$damstack" status >"$work/out"
 grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/out" && grep -Eq '^publish +.* ok' "$work/out" ||

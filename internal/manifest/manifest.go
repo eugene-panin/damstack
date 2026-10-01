@@ -30,7 +30,7 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "version"}
+var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "use", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`

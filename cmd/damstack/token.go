@@ -18,7 +18,7 @@ func tokenCommand(s *streams) *cobra.Command {
 		Short: "Copy a token of the project you are in, such as the one of the Nomad admin page",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, err := currentProject()
+			p, err := pickProject(s, "")
 			if err != nil {
 				return err
 			}
