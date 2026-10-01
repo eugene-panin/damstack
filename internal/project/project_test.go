@@ -97,6 +97,12 @@ func TestHistory(t *testing.T) {
 	if done, err := p.Done("bootstrap"); !done || err != nil {
 		t.Errorf("done %v, %v", done, err)
 	}
+	if err := p.Record(Entry{Command: "import", Step: "provision", Result: OK}); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := p.Done("provision"); !done || err != nil {
+		t.Errorf("a step done before damstack: %v, %v", done, err)
+	}
 }
 
 func TestSetApp(t *testing.T) {

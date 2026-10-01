@@ -288,14 +288,15 @@ func (p *Project) History() ([]Entry, error) {
 	return entries, scanner.Err()
 }
 
-// Done reports whether a step of a deploy ever finished.
+// Done reports whether a step of a deploy ever finished, here or before the
+// project came to damstack: an import entry records a step done elsewhere.
 func (p *Project) Done(step string) (bool, error) {
 	entries, err := p.History()
 	if err != nil {
 		return false, err
 	}
 	for _, e := range entries {
-		if e.Command == "deploy" && e.Step == step && e.Result == OK {
+		if (e.Command == "deploy" || e.Command == "import") && e.Step == step && e.Result == OK {
 			return true, nil
 		}
 	}
