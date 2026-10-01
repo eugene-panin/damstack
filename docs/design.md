@@ -61,8 +61,9 @@ Every later `damstack` without arguments is a home screen: the projects, their
 platform, apps and last deploy; the machine is checked again only when
 something broke.
 
-Now: doctor runs on the first run, then the help of cobra; no home screen,
-the catalog is built into the binary.
+Now: done, in 0.1.0. The library comes from
+[damstack-library](https://github.com/eugene-panin/damstack-library), at most
+once an hour.
 
 ## Setting up a platform
 
@@ -129,10 +130,9 @@ What the manifest needs for it:
   itself with `damstack plan`;
 - the ending of a platform: the addresses it serves, and `damstack token`.
 
-Now: questions in a flat list, no checks of answers, the output of Ansible
-and OpenTofu as is, the tunnel is a failed step with a hint, no ending.
-`damstack deploy` without a stack takes the only platform without asking;
-a stack of one's own needs `damstack add` first.
+Now: done, in 0.1.0, except the first login as a numbered step; the network
+interface is `auto`, the interface of the server's default route. Not yet run
+on a real server as a whole.
 
 ## Adding an app
 
@@ -334,10 +334,12 @@ in the template. Test when it comes: three GCP servers.
 
 | Repository | What | Published |
 |---|---|---|
-| damstack | the program | GitHub, no binary release yet |
+| damstack | the program | GitHub release 0.1.0, `brew install eugene-panin/tap/damstack` |
+| damstack-library | the platforms and apps damstack offers | GitHub |
+| homebrew-tap | the cask of damstack, written by GoReleaser | GitHub |
 | damstack-toolbox | the image steps run in | ghcr.io, 1.0.0 |
-| damstack-hashi | the platform | GitHub, v0.1.0 |
-| damstack-mail | the mail app | GitHub, v0.1.0 |
+| damstack-hashi | the platform | GitHub, v0.2.0 |
+| damstack-mail | the mail app | GitHub, v0.2.0 |
 | ansible-collection-base | WireGuard, firewall, Docker, backup | Galaxy 0.5.0 |
 | ansible-collection-hashistack | Consul, Vault with auto-unseal, Nomad | Galaxy 0.7.0 |
 | terraform-nomad-hashistack | Traefik, workload identity, DNS on Cloudflare | registry 0.8.0 |
