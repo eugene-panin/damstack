@@ -30,7 +30,7 @@ var HostChecks = []string{"docker", "ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "use", "version"}
+var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "use", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
@@ -63,6 +63,7 @@ type Manifest struct {
 	Secrets   []Secret          `yaml:"secrets"`
 	Config    string            `yaml:"config"`
 	Server    *Server           `yaml:"server"`
+	Backup    *Backup           `yaml:"backup"`
 	Steps     []Step            `yaml:"steps"`
 	Commands  map[string]Step   `yaml:"commands"`
 	// Targets are the ways an app runs, by what a platform provides: the
@@ -167,6 +168,25 @@ type Server struct {
 	TunnelHelp    string `yaml:"tunnel_help"`
 	TunnelConfigs string `yaml:"tunnel_configs"`
 }
+
+// Backup is where the server keeps its restic backups, and where damstack
+// pulls them on this machine, as templates over stack.yaml. From is a path on
+// the server, reached over SFTP as server.ops_user through server.tunnel; a
+// stack without a server has it in the project. To is a path on this machine,
+// under the home directory with ~/, or in the project. Keep is how many
+// snapshots stay after a pull, by restic's names: last, hourly, daily,
+// weekly, monthly, yearly. Every is how often a pull runs by itself, such as
+// 1h or 30m, or off.
+type Backup struct {
+	From     string            `yaml:"from"`
+	To       string            `yaml:"to"`
+	Password string            `yaml:"password"`
+	Keep     map[string]string `yaml:"keep"`
+	Every    string            `yaml:"every"`
+}
+
+// KeepNames are the counts of restic forget a backup may keep.
+var KeepNames = []string{"last", "hourly", "daily", "weekly", "monthly", "yearly"}
 
 // CheckSpec names a check of an answer, with an argument for some:
 // ssh-port, or {cloudflare-token: dns_zones}.
@@ -434,6 +454,23 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		}
 	}
 
+	if b := m.Backup; b != nil {
+		for field, text := range map[string]string{"from": b.From, "to": b.To, "password": b.Password} {
+			if text == "" {
+				c.add("backup."+field, "is required")
+			}
+		}
+		for field, text := range map[string]string{"from": b.From, "to": b.To, "password": b.Password, "every": b.Every} {
+			c.checkTemplate("backup."+field, text)
+		}
+		for _, name := range slices.Sorted(maps.Keys(b.Keep)) {
+			if !slices.Contains(KeepNames, name) {
+				c.add("backup.keep."+name, "is not a count restic keeps; one of %s", strings.Join(KeepNames, ", "))
+			}
+			c.checkTemplate("backup.keep."+name, b.Keep[name])
+		}
+	}
+
 	for i, p := range m.Provides {
 		if !capRe.MatchString(p) {
 			c.add(fmt.Sprintf("provides[%d]", i), "must be lowercase letters, digits and hyphens")
@@ -464,6 +501,9 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		}
 		if m.Server != nil {
 			c.add("server", "is the platform's; an app reaches the server through it")
+		}
+		if m.Backup != nil {
+			c.add("backup", "is the platform's; it backs up the apps on it")
 		}
 		if len(m.Requires.Provides) == 0 {
 			c.add("requires.provides", "is required: what the app needs of the platform, such as nomad")

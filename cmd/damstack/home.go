@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/eugene-panin/damstack/internal/backup"
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -119,6 +120,24 @@ func projects(w io.Writer, cfg *config.Config) {
 	}
 	tw.Flush()
 	fmt.Fprintln(w)
+	warned := false
+	for _, entry := range cfg.Projects {
+		p, err := project.Open(entry.Path)
+		if err != nil {
+			continue
+		}
+		if m, _ := cachedStack(p); m == nil || m.Backup == nil {
+			continue
+		}
+		st, _ := backup.LoadState(p.Dir)
+		if warn := staleWarning(st); warn != "" {
+			fmt.Fprintf(w, "! %s: %s\n", p.Meta.Name, warn)
+			warned = true
+		}
+	}
+	if warned {
+		fmt.Fprintln(w)
+	}
 	start := ""
 	for _, s := range cfg.AllStacks() {
 		if s.Kind != "app" {

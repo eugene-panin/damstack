@@ -36,6 +36,12 @@ secrets:
   - name: api_token
     ask: An API token
 config: template/stack.yaml.tmpl
+backup:
+  from: "{{ .config.backup.server }}"
+  to: "{{ .config.backup.laptop }}"
+  password: '{{ secret "api_token" }}'
+  keep: {last: "{{ .config.backup.keep_last }}"}
+  every: "{{ .config.backup.pull_every }}"
 steps:
   - name: init
     run: [bin/init]

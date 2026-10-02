@@ -4,3 +4,9 @@ clients: {{ yaml .clients }}
 {{- if .extra }}
 extra: {{ yaml .extra_name }}
 {{- end }}
+
+backup:
+  server: server-backups
+  laptop: laptop-backups
+  keep_last: 3
+  pull_every: "off"

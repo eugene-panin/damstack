@@ -266,8 +266,12 @@ $ damstack backup status
   declares how it restores, and a test on a real server deploys, backs up,
   destroys and restores.
 
-Now: hashi backs up on the server every night; pulling to the laptop and
-restoring exist only in the old bin/stack of ovh-stack-iac.
+Now: hashi backs up on the server every night; `damstack backup pull`
+copies the snapshots to the laptop over SFTP through the tunnel, and forgets
+what `backup.keep` of the stack does not keep; deploy schedules it with
+launchd or systemd as `backup.every` says; `damstack backup status` and the
+home screen warn when the laptop copy is older than two days or missing.
+Restoring is not there yet.
 
 ## Open questions, and the plan for each
 

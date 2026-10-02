@@ -108,6 +108,27 @@ grep -Eq '^apply +differs: 1 to change' "$work/out" && grep -q 'step(s) differ f
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "status --live changed something"
 mv stack.yaml.bak stack.yaml
 
+step "backups: pulled from the server, the old ones dropped, the state shown"
+"$damstack" backup pull >"$work/out" 2>&1 && fail "a pull with no backups went through"
+grep -q 'no backups at .*server-backups yet' "$work/out" || { cat "$work/out"; fail "no reason for a pull with no backups"; }
+grep -q 'Nothing is backed up on this machine yet' <<<"$("$damstack")" || fail "the home screen does not warn of no backups"
+restic=$XDG_CACHE_HOME/damstack/restic/0.19.1/restic
+"$damstack" backup >/dev/null 2>&1 || true
+[[ -x $restic ]] || fail "restic was not fetched"
+export RESTIC_PASSWORD=tok
+"$restic" -r server-backups init -q
+for i in 1 2 3 4 5; do echo "$i" >backed-up.txt; "$restic" -r server-backups backup -q --tag scheduled backed-up.txt; done
+unset RESTIC_PASSWORD
+"$damstack" backup pull >"$work/out" 2>&1 || { cat "$work/out"; fail "backup pull"; }
+grep -q '^3 snapshots on this machine' "$work/out" || { cat "$work/out"; fail "the pull did not keep the last 3"; }
+"$damstack" backup pull >"$work/out" 2>&1 || { cat "$work/out"; fail "a second pull"; }
+grep -q '^3 snapshots on this machine' "$work/out" || { cat "$work/out"; fail "a second pull changed the count"; }
+"$damstack" backup status >"$work/out" 2>&1 || { cat "$work/out"; fail "backup status"; }
+grep -q '^3 snapshots on this machine, the latest from' "$work/out" && grep -q '^The last pull: .*, ok' "$work/out" &&
+  grep -q 'Pulls run only by hand' "$work/out" || { cat "$work/out"; fail "backup status says"; }
+grep -q 'Nothing is backed up' <<<"$("$damstack")" && fail "the home screen still warns"
+rm -f backed-up.txt
+
 step "status and history"
 "$damstack" status >"$work/out"
 grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/out" && grep -Eq '^publish +.* ok' "$work/out" ||

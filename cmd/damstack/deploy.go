@@ -535,7 +535,15 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			done(s.out, p, am, ref.Name)
 		}
 	}
-	return nil
+	if m.Backup == nil {
+		return nil
+	}
+	b, err := loadBackup(ctx, p)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(s.out)
+	return scheduleBackup(ctx, s, p, b, true)
 }
 
 // buildJobs lists the steps of a deploy in their order: the platform's, every
@@ -760,9 +768,13 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 				"server than %s, most likely through the tunnel of another project. Nothing was changed. Turn that "+
 				"tunnel off, and this project's on. %s", address, public, help)
 		}
+		on, known := login.WireGuardOn(ctx)
+		hint := login.TunnelHint(on, public, known)
 		if !s.tty() {
-			if help != "" {
-				msg += " " + help
+			for _, more := range []string{hint, help} {
+				if more != "" {
+					msg += " " + more
+				}
 			}
 			return errors.New(msg)
 		}
@@ -771,6 +783,9 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 			shown = true
 		} else {
 			fmt.Fprintf(s.out, "  %s does not answer yet.\n", address)
+		}
+		if hint != "" {
+			fmt.Fprintf(s.out, "  %s\n", hint)
 		}
 		if _, err := s.prompt.Line("Press Enter once the tunnel is on: "); err != nil {
 			return err

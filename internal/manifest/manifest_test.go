@@ -46,6 +46,12 @@ server:
   first_user: root
   ops_user: "{{ .config.server.ops_user }}"
   tunnel: "{{ firstHost .config.network.cidr }}"
+backup:
+  from: "{{ .config.backup.server }}"
+  to: ~/Backups/{{ .config.name }}
+  password: '{{ secret "backup_password" }}'
+  keep: {daily: "30", weekly: "{{ .config.backup.weekly }}"}
+  every: 1h
 steps:
   - name: provision
     ansible:
@@ -120,7 +126,8 @@ func TestValidManifestLoads(t *testing.T) {
 	}
 	if m.Name != "hashistack" || len(m.Steps) != 2 || m.Steps[0].Ansible.Playbook != "ansible/provision.yml" ||
 		m.Steps[1].Tofu.Policy == nil || !m.Steps[1].Confirm || m.Commands["output"].Tofu.Action != "output" ||
-		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" || len(m.Check.Steps) != 1 || !m.Steps[1].Tunnel {
+		m.Secrets[0].Generate != "ca" || m.Check.Answers != "test/answers.yaml" || m.Server.FirstUser != "root" || len(m.Check.Steps) != 1 || !m.Steps[1].Tunnel ||
+		m.Backup == nil || m.Backup.Keep["daily"] != "30" {
 		t.Errorf("got %+v", m)
 	}
 }
@@ -170,6 +177,9 @@ func TestProblems(t *testing.T) {
 		{"server without first user", "  first_user: root\n", "", "server.first_user: is required", "server:"},
 		{"server template that does not parse", "{{ .config.server.address }}", "{{ .config.server.address", "unclosed action", "  address:"},
 		{"tunnel step without a tunnel", "  tunnel: \"{{ firstHost .config.network.cidr }}\"\n", "", "needs server.tunnel", "    tunnel: true"},
+		{"backup without a password", "  password: '{{ secret \"backup_password\" }}'\n", "", "backup.password: is required", "backup:"},
+		{"backup keeping an unknown count", "weekly: \"{{", "fortnightly: \"{{", "not a count restic keeps", "  keep:"},
+		{"backup template that does not parse", "to: ~/Backups/{{ .config.name }}", "to: ~/Backups/{{ .config.name", "unclosed action", "  to:"},
 		{"no steps", "steps:\n", "steps: []\nold_steps:\n", "unknown field old_steps", "old_steps"},
 	}
 	for _, tc := range tests {
@@ -292,6 +302,7 @@ func TestAppProblems(t *testing.T) {
 		{"secret without the app's name", "name: mail_admin_password", "name: admin_password", "begin with its name: mail_"},
 		{"app step after apps", "        confirm: true", "        after_apps: true", "is for a step of a platform"},
 		{"output outside the project", "dns/mail.json", "../mail.json", "a path inside the project"},
+		{"app with a backup", "kind: app", "kind: app\nbackup: {from: x, to: y, password: z}", "is the platform's; it backs up"},
 		{"no platform to check on", "  platform: test/answers.yaml\n", "", "check.platform: is required"},
 		{"target without steps", "    steps:\n      - name: apply\n        tofu:\n          dir: infra\n          action: apply\n          outputs: {dns_records: dns/mail.json}\n        confirm: true\n", "", "targets.nomad.steps: at least one"},
 	}
