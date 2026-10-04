@@ -30,6 +30,9 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
 
+      - name: Known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
       - name: An SSH key, as a person has
         run: ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
 

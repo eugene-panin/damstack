@@ -2,6 +2,8 @@ module github.com/eugene-panin/damstack
 
 go 1.26.5
 
+toolchain go1.26.6
+
 require (
 	filippo.io/age v1.3.2
 	github.com/go-git/go-git/v5 v5.19.2
@@ -10,7 +12,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
