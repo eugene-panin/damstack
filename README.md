@@ -36,6 +36,18 @@ damstack stack lint    # checks the damstack.yaml of a stack
 damstack stack check   # proves a stack without a server
 ```
 
+To remove it, `brew uninstall damstack`, then what it keeps on this Mac:
+
+- `~/.config/damstack`: the vault password of each project. Without it the
+  secrets of a project cannot be read, so keep it, or a recovery kit from
+  `damstack backup kit`, as long as a server of the project runs;
+- `~/.damstack`: the projects themselves, unless `--dir` put them elsewhere;
+- `~/.cache/damstack`: the toolbox and the stacks, safe to delete;
+- the backup pulls `damstack backup schedule` set up:
+  `launchctl bootout gui/$(id -u)/dev.damstack.backup.<project>`, then delete
+  `~/Library/LaunchAgents/dev.damstack.backup.<project>.plist` and
+  `~/Library/Logs/damstack`.
+
 ## A project
 
 `damstack deploy` asks the questions of the stack and sets up a project in

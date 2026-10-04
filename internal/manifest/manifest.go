@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -318,6 +319,9 @@ var (
 func Load(dir, damstackVersion string) (*Manifest, error) {
 	path := filepath.Join(dir, File)
 	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s has no %s: is it the directory of a stack?", dir, File)
+	}
 	if err != nil {
 		return nil, err
 	}

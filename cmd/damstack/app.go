@@ -33,7 +33,7 @@ func appCommand(s *streams) *cobra.Command {
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 && from == "" {
-				return fmt.Errorf("name the app, or give --from")
+				return asUsage(cmd, fmt.Errorf("requires at least 1 arg(s): name the app, or give --from"))
 			}
 			arg := ""
 			if len(args) == 1 {

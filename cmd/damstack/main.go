@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
@@ -25,21 +26,120 @@ import (
 
 var errProblems = errors.New("damstack cannot work until the problems above are fixed")
 
+// Exit statuses, part of the interface: scripts tell these apart.
+const (
+	exitFailure   = 1
+	exitUsage     = 2   // a malformed command line
+	exitInterrupt = 130 // stopped with Ctrl-C
+)
+
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
-		if !errors.Is(err, errProblems) {
-			fmt.Fprintln(os.Stderr, "damstack:", err)
+	ctx, stop := interruptible(os.Stderr)
+	code := report(ctx, run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr), os.Stderr)
+	stop()
+	os.Exit(code)
+}
+
+// interruptible is cancelled by the first Ctrl-C, which says so; the second
+// quits at once, without waiting for the tools to stop.
+func interruptible(stderr io.Writer) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		if _, ok := <-sigs; !ok {
+			return
 		}
-		os.Exit(1)
+		fmt.Fprintln(stderr, "\ndamstack: stopping; press Ctrl-C again to quit at once")
+		cancel()
+		if _, ok := <-sigs; ok {
+			os.Exit(exitInterrupt)
+		}
+	}()
+	return ctx, func() { signal.Stop(sigs); close(sigs); cancel() }
+}
+
+// usageError is a malformed command line, with what to read about it.
+type usageError struct {
+	err  error
+	help string
+}
+
+func (e *usageError) Error() string { return e.err.Error() }
+func (e *usageError) Unwrap() error { return e.err }
+
+// report prints err, once, and returns the exit status for it.
+func report(ctx context.Context, err error, stderr io.Writer) int {
+	var ue *usageError
+	switch {
+	case err == nil:
+		return 0
+	case ctx.Err() != nil:
+		if !errors.Is(err, context.Canceled) {
+			fmt.Fprintln(stderr, "damstack:", err)
+		}
+		return exitInterrupt
+	case errors.As(err, &ue):
+		fmt.Fprintln(stderr, "damstack:", ue.err)
+		fmt.Fprintln(stderr, ue.help)
+		return exitUsage
+	case errors.Is(err, errProblems):
+		return exitFailure
+	}
+	fmt.Fprintln(stderr, "damstack:", err)
+	return exitFailure
+}
+
+// asUsage makes a command line error of cobra's a usageError. Run without the
+// arguments it needs, a command shows what it does, its usage and examples.
+func asUsage(c *cobra.Command, err error) error {
+	msg := err.Error()
+	if !slices.ContainsFunc([]string{"unknown command", "unknown flag", "unknown shorthand", "accepts ", "requires ", "invalid argument", "flag needs an argument"},
+		func(prefix string) bool { return strings.HasPrefix(msg, prefix) }) {
+		return err
+	}
+	more := fmt.Sprintf("Run '%s --help' for usage.", c.CommandPath())
+	if strings.HasSuffix(msg, "received 0") || strings.HasPrefix(msg, "requires at least") {
+		var b strings.Builder
+		fmt.Fprintf(&b, "\n%s\n\nUsage:\n  %s\n", c.Short, c.UseLine())
+		if c.Example != "" {
+			fmt.Fprintf(&b, "\nExamples:\n%s\n", c.Example)
+		}
+		fmt.Fprintf(&b, "\nRun '%s --help' for all flags.", c.CommandPath())
+		more = b.String()
+	}
+	return &usageError{err: err, help: more}
+}
+
+// helpWins shows the help when -h or --help is on the line, even next to a
+// flag cobra does not know.
+func helpWins(args []string) func(*cobra.Command, error) error {
+	return func(c *cobra.Command, err error) error {
+		for _, arg := range args {
+			if arg == "--" {
+				break
+			}
+			if arg == "-h" || arg == "--help" {
+				return pflag.ErrHelp
+			}
+		}
+		return err
 	}
 }
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	root := &cobra.Command{
-		Use:           "damstack",
-		Short:         "Deploy and run infrastructure stacks from one config file, on a Mac, with nothing else installed",
+		Use:   "damstack",
+		Short: "Deploy and run infrastructure stacks from one config file, on a Mac, with nothing else installed",
+		Long: `damstack sets up your own server and runs apps on it, from one file you edit.
+
+Docs:   https://github.com/eugene-panin/damstack
+Issues: https://github.com/eugene-panin/damstack/issues`,
+		Example: `  damstack                  check this machine, then show the projects
+  damstack deploy hashi     set up a new project on the hashi platform
+  damstack status           how each step of the current project went last
+  damstack app add mail     add an app to the project you are in`,
+		Version:       release.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -49,6 +149,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	s := newStreams(stdin, stdout, stderr)
 	root.SetArgs(takeProjectFlag(args))
 	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
+	// Declared before cobra adds its own, so --version gets no -v shorthand: -v is --verbose.
+	root.Flags().Bool("version", false, "print the version and the toolbox it uses")
+	root.SetVersionTemplate(fmt.Sprintf("damstack %s, toolbox %s\n", release.Version, release.Toolbox))
+	root.SetUsageTemplate(usageTemplate)
+	root.SetFlagErrorFunc(helpWins(args))
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
@@ -114,7 +219,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		c, _, err := root.Find([]string{name})
 		return err == nil && c != root
 	})...)
-	return root.ExecuteContext(ctx)
+	describe(root, s)
+	c, err := root.ExecuteContextC(ctx)
+	if err != nil {
+		return asUsage(c, err)
+	}
+	return nil
 }
 
 func runDoctor(ctx context.Context, w io.Writer) error {
