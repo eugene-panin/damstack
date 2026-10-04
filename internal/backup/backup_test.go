@@ -86,11 +86,6 @@ func TestPlist(t *testing.T) {
 			t.Errorf("no %q in\n%s", want, got)
 		}
 	}
-	service, timer := Units(j)
-	if !strings.Contains(string(service), `ExecStart="/opt/homebrew/bin/damstack" "backup" "pull" "ovh" "--scheduled"`) ||
-		!strings.Contains(string(service), `Environment="DAMSTACK_HOME=/a&b"`) || !strings.Contains(string(timer), "OnUnitActiveSec=3600s") {
-		t.Errorf("units:\n%s\n%s", service, timer)
-	}
 }
 
 func TestState(t *testing.T) {

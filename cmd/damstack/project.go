@@ -242,7 +242,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			}
 			if app != "" {
 				e.App = app
-				if e.BaseEnv, err = appEnv(p, platform, e.Password); err != nil {
+				if e.BaseEnv, err = appEnv(p, platform, pdir, e.Password); err != nil {
 					return err
 				}
 			}
@@ -333,15 +333,15 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 			return err
 		}
 	}
-	image := m.Image
-	if image == "" {
-		image = release.ImageRef()
+	tb, cache, err := fetchToolbox(ctx, s, m)
+	if err != nil {
+		return err
 	}
 	runner := &toolbox.Runner{
-		Image: image, Stack: dir, Project: p.Dir, Password: passwordPath, PublicKey: "ssh-ed25519 AAAA damstack-check",
-		UID: os.Getuid(), GID: os.Getgid(), Stdin: nil, Stdout: s.out, Stderr: s.err,
+		Toolbox: tb, Stack: dir, Project: p.Dir, Password: passwordPath, Cache: cache,
+		PublicKey: "ssh-ed25519 AAAA damstack-check", Stdout: s.out, Stderr: s.err,
 	}
-	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, Out: s.out}
+	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Out: s.out}
 	if m.IsApp() {
 		e.App = m.Name
 	}

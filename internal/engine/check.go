@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 
@@ -77,16 +76,16 @@ func (e *Engine) Check(ctx context.Context) error {
 }
 
 func (e *Engine) validate(ctx context.Context, dir string, env map[string]string) error {
-	data := path.Join(work, "tofu", e.unit(dir))
-	if err := os.MkdirAll(e.hostPath(data), 0o755); err != nil {
+	data := filepath.Join(e.work(), "tofu", e.unit(dir))
+	if err := os.MkdirAll(data, 0o755); err != nil {
 		return err
 	}
 	env["TF_DATA_DIR"] = data
 	env["TF_IN_AUTOMATION"] = "1"
 	env["TF_INPUT"] = "0"
-	env["TF_VAR_project"] = toolbox.ProjectDir
+	env["TF_VAR_project"] = e.Project.Dir
 	env["TF_CLI_ARGS"] = "-no-color"
-	chdir := "-chdir=" + path.Join(toolbox.StackDir, dir)
+	chdir := "-chdir=" + filepath.Join(e.Stack, dir)
 	if err := e.init(ctx, env, chdir, "-backend=false"); err != nil {
 		return err
 	}
@@ -94,10 +93,10 @@ func (e *Engine) validate(ctx context.Context, dir string, env map[string]string
 }
 
 func (e *Engine) policyFlags(p *manifest.Policy) []string {
-	policy := path.Join(toolbox.StackDir, p.Dir)
-	flags := []string{"--no-color", "--policy", policy, "--data", path.Join(toolbox.ProjectDir, project.ConfigFile)}
+	policy := filepath.Join(e.Stack, p.Dir)
+	flags := []string{"--no-color", "--policy", policy, "--data", filepath.Join(e.Project.Dir, project.ConfigFile)}
 	if info, err := os.Stat(filepath.Join(e.Stack, p.Dir, "data")); err == nil && info.IsDir() {
-		flags = append(flags, "--data", path.Join(policy, "data"))
+		flags = append(flags, "--data", filepath.Join(policy, "data"))
 	}
 	return flags
 }

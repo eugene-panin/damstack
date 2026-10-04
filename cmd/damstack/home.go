@@ -28,7 +28,7 @@ func home(ctx context.Context, w io.Writer) error {
 	first := !checkedBefore()
 	if first {
 		fmt.Fprintln(w, "damstack sets up your own server and runs apps on it, from one file you edit.")
-		fmt.Fprintln(w, "You install Docker; damstack brings the rest.")
+		fmt.Fprintln(w, "It runs on this Mac and brings its own tools; you install nothing else.")
 		fmt.Fprintln(w)
 	}
 	if first || broken(results) {

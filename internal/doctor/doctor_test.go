@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,9 +28,8 @@ type reply struct {
 
 type fakeFile struct{ fs.FileInfo }
 
-// machine is a healthy macOS host with Docker Desktop running, the image
-// pulled, an SSH key without a passphrase and WireGuard installed; each test
-// breaks one thing.
+// machine is a healthy Mac with git, the toolbox reachable, an SSH key
+// without a passphrase and WireGuard installed; each test breaks one thing.
 type machine struct {
 	goos     string
 	paths    map[string]bool
@@ -44,37 +45,26 @@ func healthy() *machine {
 	return &machine{
 		goos: "darwin",
 		paths: map[string]bool{
-			"/usr/local/bin/docker":                             true,
 			"/home/u/.ssh/id_ed25519.pub":                       true,
 			"/home/u/.ssh/id_ed25519":                           true,
 			"/Applications/WireGuard.app":                       true,
 			"/home/u/.config/damstack/projects/demo/vault-pass": true,
 		},
 		commands: map[string]reply{
-			"docker version --format {{.Server.Version}}":                                         {out: "29.8.0\n"},
-			"docker info --format {{.NCPU}}|{{.MemTotal}}|{{.Architecture}}|{{.OperatingSystem}}": {out: "8|8589934592|aarch64|Docker Desktop\n"},
-			"docker image inspect --format {{.Id}} " + release.ImageRef():                         {out: "sha256:abc\n"},
-			"ssh-keygen -y -P  -f /home/u/.ssh/id_ed25519":                                        {out: "ssh-ed25519 AAAA\n"},
+			"git --version": {out: "git version 2.50.1 (Apple Git-155)\n"},
+			"ssh-keygen -y -P  -f /home/u/.ssh/id_ed25519": {out: "ssh-ed25519 AAAA\n"},
 		},
 		env:  map[string]string{},
-		head: func() (int, error) { return 401, nil },
+		head: func() (int, error) { return 200, nil },
 	}
 }
 
 func (m *machine) Env() Env {
 	return Env{
-		GOOS:   m.goos,
-		Home:   "/home/u",
-		Getenv: func(k string) string { return m.env[k] },
-		LookPath: func(name string) (string, error) {
-			if name == "docker" && m.paths["/usr/local/bin/docker"] {
-				return "/usr/local/bin/docker", nil
-			}
-			if name == "wg-quick" && m.paths["/usr/bin/wg-quick"] {
-				return "/usr/bin/wg-quick", nil
-			}
-			return "", errors.New("not found")
-		},
+		GOOS:     m.goos,
+		Home:     "/home/u",
+		Getenv:   func(k string) string { return m.env[k] },
+		LookPath: func(string) (string, error) { return "", errors.New("not found") },
 		Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			r, ok := m.commands[strings.Join(append([]string{name}, args...), " ")]
 			if !ok {
@@ -135,61 +125,21 @@ func TestProblems(t *testing.T) {
 		fix    string
 	}{
 		{
-			name:   "no docker on macOS",
-			break_: func(m *machine) { delete(m.paths, "/usr/local/bin/docker") },
-			text:   "Docker is not installed", status: Fail, fix: "brew install --cask docker",
+			name:   "not a Mac",
+			break_: func(m *machine) { m.goos = "linux" },
+			text:   "damstack runs on macOS", status: Fail, fix: "on a Mac",
 		},
 		{
-			name:   "no docker on Linux",
-			break_: func(m *machine) { m.goos = "linux"; delete(m.paths, "/usr/local/bin/docker") },
-			text:   "Docker is not installed", status: Fail, fix: "docs.docker.com/engine/install",
-		},
-		{
-			name: "docker not running",
+			name: "no command line tools of Xcode",
 			break_: func(m *machine) {
-				m.commands["docker version --format {{.Server.Version}}"] = reply{"Cannot connect to the Docker daemon", exitError(1)}
+				m.commands["git --version"] = reply{"xcrun: error: invalid active developer path", exitError(1)}
 			},
-			text: "installed but not running", status: Fail, fix: "open Docker Desktop, or run colima start",
+			text: "git does not run", status: Fail, fix: "xcode-select --install",
 		},
 		{
-			name: "no permission on the docker socket",
-			break_: func(m *machine) {
-				m.goos = "linux"
-				m.commands["docker version --format {{.Server.Version}}"] = reply{"permission denied while trying to connect", exitError(1)}
-			},
-			text: "this user may not use it", status: Fail, fix: "usermod -aG docker",
-		},
-		{
-			name:   "old docker",
-			break_: func(m *machine) { m.commands["docker version --format {{.Server.Version}}"] = reply{out: "20.10.24\n"} },
-			text:   "is old", status: Warn, fix: "update Docker",
-		},
-		{
-			name: "too little memory",
-			break_: func(m *machine) {
-				m.commands["docker info --format {{.NCPU}}|{{.MemTotal}}|{{.Architecture}}|{{.OperatingSystem}}"] = reply{out: "2|2147483648|aarch64|Docker Desktop\n"}
-			},
-			text: "Docker has 2.0 GB of memory", status: Warn, fix: "at least 4 GB",
-		},
-		{
-			name: "unsupported architecture",
-			break_: func(m *machine) {
-				m.commands["docker info --format {{.NCPU}}|{{.MemTotal}}|{{.Architecture}}|{{.OperatingSystem}}"] = reply{out: "4|8589934592|riscv64|Ubuntu\n"}
-			},
-			text: "Docker runs on riscv64", status: Fail, fix: "ARM64",
-		},
-		{
-			name:   "image not pulled yet",
-			break_: func(m *machine) { delete(m.commands, "docker image inspect --format {{.Id}} "+release.ImageRef()) },
-			text:   "is not downloaded yet", status: Warn, fix: "downloaded on first use",
-		},
-		{
-			name: "image not pulled and ghcr.io unreachable",
-			break_: func(m *machine) {
-				delete(m.commands, "docker image inspect --format {{.Id}} "+release.ImageRef())
-				m.head = func() (int, error) { return 0, errors.New("dial tcp: no route to host") }
-			},
-			text: "ghcr.io, where the tools image is, does not answer", status: Fail, fix: "internet connection",
+			name:   "github unreachable before the toolbox is downloaded",
+			break_: func(m *machine) { m.head = func() (int, error) { return 0, errors.New("dial tcp: no route to host") } },
+			text:   "github.com, where the toolbox is, does not answer", status: Fail, fix: "internet connection",
 		},
 		{
 			name:   "no ssh key",
@@ -244,13 +194,18 @@ func TestProblems(t *testing.T) {
 	}
 }
 
-func TestDockerNotRunningSkipsTheImageCheck(t *testing.T) {
+func TestTheToolbox(t *testing.T) {
 	m := healthy()
-	m.commands["docker version --format {{.Server.Version}}"] = reply{"Cannot connect", exitError(1)}
-	for _, r := range Run(t.Context(), m.Env()) {
-		if r.Group == "Tools image" {
-			t.Errorf("the image was checked with Docker down: %+v", r)
-		}
+	if r, _ := find(Run(t.Context(), m.Env()), "is downloaded on first use"); r.Status != OK {
+		t.Errorf("not downloaded: %+v", r)
+	}
+	cache := t.TempDir()
+	os.MkdirAll(filepath.Join(cache, "toolbox", release.Toolbox), 0o755)
+	os.WriteFile(filepath.Join(cache, "toolbox", release.Toolbox, "VERSION"), nil, 0o644)
+	env := m.Env()
+	env.Cache = cache
+	if r, _ := find(Run(t.Context(), env), release.Toolbox+" is downloaded"); r.Status != OK || strings.Contains(r.Text, "first use") {
+		t.Errorf("downloaded: %+v", r)
 	}
 }
 
@@ -284,7 +239,7 @@ func TestProject(t *testing.T) {
 func TestPrintListsAFailureWithoutAFix(t *testing.T) {
 	var out bytes.Buffer
 	failed := Print(&out, []Result{
-		{Group: "Docker", Status: OK, Text: "Docker 29.8.0 is running"},
+		{Group: "Tools", Status: OK, Text: "git version 2.50.1"},
 		{Group: "Project ~/demo", Status: Fail, Text: "network.cidr in stack.yaml: bad prefix"},
 	})
 	todo := out.String()[strings.Index(out.String(), "To do:"):]

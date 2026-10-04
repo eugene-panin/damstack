@@ -472,31 +472,45 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	if err != nil {
 		return nil, "", err
 	}
-	image := m.Image
-	if image == "" {
-		image = release.ImageRef()
-		if m.Requires.Toolbox != "" {
-			if ok, err := manifest.Satisfies(release.ImageTag, m.Requires.Toolbox); err != nil || !ok {
-				return nil, "", fmt.Errorf("the stack needs the tools image %s, this damstack uses %s; update damstack", m.Requires.Toolbox, release.ImageTag)
-			}
-		}
+	tb, cache, err := fetchToolbox(ctx, s, m)
+	if err != nil {
+		return nil, "", err
 	}
 	var stdin io.Reader
 	if s.tty() {
 		stdin = s.in
 	}
 	runner := &toolbox.Runner{
-		Image: image, Stack: dir, Project: p.Dir, Password: passwordPath,
-		PublicKey: strings.TrimSpace(string(public)), UID: os.Getuid(), GID: os.Getgid(),
-		TTY: stdin != nil, Stdin: stdin, Stdout: s.out, Stderr: s.err,
+		Toolbox: tb, Stack: dir, Project: p.Dir, Password: passwordPath, Cache: cache,
+		PublicKey: strings.TrimSpace(string(public)), TTY: stdin != nil, Stdin: stdin, Stdout: s.out, Stderr: s.err,
 	}
 	if err := sshAccess(ctx, runner, key); err != nil {
 		return nil, "", err
 	}
 	return &engine.Engine{
-		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, Key: runner.Key != "", Color: stdin != nil, Out: s.out,
+		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, KeyFile: runner.Key,
+		Color: stdin != nil, Out: s.out,
 		Confirm: func(q string) (bool, error) { return s.prompt.Confirm(q, false) },
 	}, key, nil
+}
+
+// fetchToolbox is the toolbox the stack m runs with, fetched the first
+// time, and the cache it is in.
+func fetchToolbox(ctx context.Context, s *streams, m *manifest.Manifest) (string, string, error) {
+	if m != nil && m.Requires.Toolbox != "" {
+		if ok, err := manifest.Satisfies(release.Toolbox, m.Requires.Toolbox); err != nil || !ok {
+			return "", "", fmt.Errorf("the stack needs the toolbox %s, this damstack has %s; update damstack", m.Requires.Toolbox, release.Toolbox)
+		}
+	}
+	cache, err := config.CacheDir()
+	if err != nil {
+		return "", "", err
+	}
+	if !toolbox.Have(cache, release.Toolbox) {
+		fmt.Fprintf(s.err, "Fetching the toolbox %s, about 90 MB, once.\n", release.Toolbox)
+	}
+	tb, err := toolbox.Fetch(ctx, cache, release.Toolbox, release.ToolboxSHA256)
+	return tb, cache, err
 }
 
 // job is a step to run, of the platform or of an app.
@@ -571,7 +585,7 @@ func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.
 			return nil, err
 		}
 		ae.App = ref.Name
-		if ae.BaseEnv, err = appEnv(p, m, ae.Password); err != nil {
+		if ae.BaseEnv, err = appEnv(p, m, e.Stack, ae.Password); err != nil {
 			return nil, err
 		}
 		for _, step := range target.Steps {
@@ -822,7 +836,7 @@ func devices(w io.Writer, p *project.Project, srv *manifest.Server, help string)
 }
 
 // appEnv is the app_env of a platform, rendered for its project.
-func appEnv(p *project.Project, m *manifest.Manifest, password string) (map[string]string, error) {
+func appEnv(p *project.Project, m *manifest.Manifest, dir, password string) (map[string]string, error) {
 	config, err := p.Config()
 	if err != nil {
 		return nil, err
@@ -831,9 +845,10 @@ func appEnv(p *project.Project, m *manifest.Manifest, password string) (map[stri
 	if err != nil {
 		return nil, err
 	}
+	data := map[string]any{"config": config, "dir": map[string]string{"project": p.Dir, "stack": dir}}
 	env := map[string]string{}
 	for key, text := range m.AppEnv {
-		if env[key], err = manifest.Render("app_env."+key, text, config, secrets); err != nil {
+		if env[key], err = manifest.RenderData("app_env."+key, text, data, secrets); err != nil {
 			return nil, fmt.Errorf("app_env.%s of %s: %w", key, m.Name, err)
 		}
 	}

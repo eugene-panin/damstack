@@ -6,7 +6,7 @@ builds:
     binary: damstack
     env:
       - CGO_ENABLED=0
-    goos: [darwin, linux]
+    goos: [darwin]
     goarch: [amd64, arm64]
     flags:
       - -trimpath
@@ -34,11 +34,10 @@ homebrew_casks:
       name: homebrew-tap
     directory: Casks
     homepage: https://github.com/eugene-panin/damstack
-    description: Set up your own server and run apps on it, from one file you edit, with nothing but Docker installed
+    description: Set up your own server and run apps on it, from one file you edit, with nothing else installed
     license: MIT
     caveats: |
-      damstack runs its tools in Docker: install Docker Desktop, OrbStack or Colima.
-      Then run damstack: it checks this machine and says where to start.
+      Run damstack: it checks this Mac and says where to start.
     hooks:
       post:
         install: |

@@ -1,5 +1,6 @@
-// Package toolbox runs commands in damstack-toolbox, with the stack mounted
-// read-only at /stack and the project at /work.
+// Package toolbox runs commands with damstack-toolbox, unpacked on this Mac:
+// its OpenTofu, Ansible, Conftest and restic, in an environment of its own
+// rather than the user's.
 package toolbox
 
 import (
@@ -10,49 +11,31 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
-const (
-	StackDir     = "/stack"
-	ProjectDir   = "/work"
-	PasswordFile = "/run/damstack/vault/vault-pass"
-	KeyFile      = "/home/damstack/.ssh/damstack-key"
-	AgentSocket  = "/run/damstack/ssh-agent.sock"
-)
-
-// keyScript writes the SSH key from the environment into the container, which
-// goes with it: a key mounted as a single file is root's on some Docker
-// hosts, such as Colima.
-const keyScript = `umask 077
-if [ -n "${DAMSTACK_SSH_KEY_DATA:-}" ]; then
-  mkdir -p "$HOME/.ssh"
-  printf '%s\n' "$DAMSTACK_SSH_KEY_DATA" >"$HOME/.ssh/damstack-key"
-fi
-unset DAMSTACK_SSH_KEY_DATA
-umask 022
-exec "$@"`
+// Passthrough are the variables of the user a command sees: who and where
+// the user is, the terminal, and the proxies the network may need.
+var Passthrough = []string{"HOME", "USER", "LOGNAME", "TMPDIR", "TERM", "COLORTERM",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"}
 
 type Runner struct {
-	Image string
-	// Stack, Project, Password and Key are paths on this machine. Password is
-	// a file named vault-pass, whose directory is mounted; Key, the private
-	// SSH key, may be empty.
-	Stack     string
-	Project   string
-	Password  string
+	// Toolbox is the directory of the toolbox, Stack and Project those of
+	// the stack and the project, Password the file of the vault password.
+	Toolbox  string
+	Stack    string
+	Project  string
+	Password string
+	// Key is the private SSH key, empty when Agent, the socket of an
+	// ssh-agent, holds it.
 	Key       string
+	Agent     string
 	PublicKey string
-	// Agent is the socket of an ssh-agent on the Docker host, used instead of
-	// Key for a key with a passphrase. Docker Desktop gives it to containers
-	// as root's group, so the user of the container joins that group.
-	Agent    string
-	UID, GID int
-	// TTY gives commands a terminal, for colors and prompts.
+	// Cache is where OpenTofu keeps the providers it fetched.
+	Cache string
+	// TTY gives commands the terminal, for colors and prompts.
 	TTY    bool
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -62,7 +45,7 @@ type Runner struct {
 type Cmd struct {
 	Args []string
 	Env  map[string]string
-	// Stdout takes the output instead of the runner's, without a terminal.
+	// Stdout takes the output instead of the runner's.
 	Stdout io.Writer
 	// Quiet keeps the output unless the command fails; Silent keeps it even
 	// then.
@@ -78,107 +61,106 @@ type ExitError struct {
 
 func (e *ExitError) Error() string { return fmt.Sprintf("%s failed with exit code %d", e.Name, e.Code) }
 
-// Env is what every command sees, besides its own.
+// Env is what every command of a stack sees from damstack, besides its own.
 func (r *Runner) Env() map[string]string {
 	env := map[string]string{
-		"DAMSTACK_STACK":               StackDir,
-		"DAMSTACK_PROJECT":             ProjectDir,
-		"DAMSTACK_VAULT_PASSWORD_FILE": PasswordFile,
+		"DAMSTACK_STACK":               r.Stack,
+		"DAMSTACK_PROJECT":             r.Project,
+		"DAMSTACK_VAULT_PASSWORD_FILE": r.Password,
 		"DAMSTACK_SSH_PUBLIC_KEY":      r.PublicKey,
 	}
 	if r.Key != "" {
-		env["DAMSTACK_SSH_KEY"] = KeyFile
-	}
-	if r.Agent != "" {
-		env["SSH_AUTH_SOCK"] = AgentSocket
+		env["DAMSTACK_SSH_KEY"] = r.Key
 	}
 	return env
 }
 
-// Args are the arguments of docker run for c. Values of the environment are
-// not among them, so that secrets do not show in the process list: docker
-// takes them from its own environment, which Run sets.
-func (r *Runner) Args(c Cmd) []string {
-	args := []string{"run", "--rm", "-i"}
-	if r.TTY && c.Stdout == nil && !c.Quiet {
-		args = append(args, "-t")
+// Environ is the whole environment of a command: nothing of the user's but
+// Passthrough, the toolbox first on the PATH, its configurations, what
+// damstack says, and the command's own, in that order of precedence.
+func (r *Runner) Environ(c Cmd) []string {
+	env := map[string]string{}
+	for _, name := range Passthrough {
+		if v, ok := os.LookupEnv(name); ok {
+			env[name] = v
+		}
 	}
-	args = append(args,
-		"--user", strconv.Itoa(r.UID)+":"+strconv.Itoa(r.GID),
-		"-v", r.Stack+":"+StackDir+":ro",
-		"-v", r.Project+":"+ProjectDir,
-		"-v", filepath.Dir(r.Password)+":"+path.Dir(PasswordFile)+":ro",
-	)
+	if env["TMPDIR"] == "" {
+		env["TMPDIR"] = os.TempDir()
+	}
+	env["LANG"] = "en_US.UTF-8"
+	env["PATH"] = filepath.Join(r.Toolbox, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin"
+	env["ANSIBLE_CONFIG"] = filepath.Join(r.Toolbox, "etc", "ansible.cfg")
+	env["ANSIBLE_HOME"] = filepath.Join(r.Project, ".damstack", "work", "ansible")
+	env["TF_CLI_CONFIG_FILE"] = filepath.Join(r.Toolbox, "etc", "tofurc")
+	if r.Cache != "" {
+		env["TF_PLUGIN_CACHE_DIR"] = filepath.Join(r.Cache, "tofu-plugins")
+	}
 	if r.Agent != "" {
-		args = append(args, "--group-add", "0", "-v", r.Agent+":"+AgentSocket)
+		env["SSH_AUTH_SOCK"] = r.Agent
 	}
-	for _, name := range r.names(c) {
-		args = append(args, "-e", name)
+	for k, v := range r.Env() {
+		env[k] = v
 	}
-	if r.Key != "" {
-		args = append(args, "-e", "DAMSTACK_SSH_KEY_DATA")
+	for k, v := range c.Env {
+		env[k] = v
 	}
-	args = append(args, "-w", ProjectDir, r.Image, "sh", "-c", keyScript, "damstack")
-	return append(args, c.Args...)
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	slices.Sort(out)
+	return out
 }
 
-func (r *Runner) names(c Cmd) []string {
-	var names []string
-	for name := range r.Env() {
-		names = append(names, name)
+// Path is the program a command runs: one of the toolbox by its name, else
+// one of the system, or the path given.
+func (r *Runner) Path(name string) (string, error) {
+	if strings.Contains(name, "/") {
+		return name, nil
 	}
-	for name := range c.Env {
-		names = append(names, name)
+	for _, dir := range []string{filepath.Join(r.Toolbox, "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
+		p := filepath.Join(dir, name)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return p, nil
+		}
 	}
-	slices.Sort(names)
-	return slices.Compact(names)
+	return "", fmt.Errorf("%s is neither in the toolbox nor on this Mac", name)
 }
 
 func (r *Runner) Run(ctx context.Context, c Cmd) error {
-	cmd := exec.CommandContext(ctx, "docker", r.Args(c)...)
-	cmd.Env = os.Environ()
-	for name, value := range r.Env() {
-		cmd.Env = append(cmd.Env, name+"="+value)
+	if len(c.Args) == 0 {
+		return errors.New("no command to run")
 	}
-	for name, value := range c.Env {
-		cmd.Env = append(cmd.Env, name+"="+value)
+	program, err := r.Path(c.Args[0])
+	if err != nil {
+		return err
 	}
-	if r.Key != "" {
-		key, err := os.ReadFile(r.Key)
-		if err != nil {
+	if r.Cache != "" {
+		if err := os.MkdirAll(filepath.Join(r.Cache, "tofu-plugins"), 0o755); err != nil {
 			return err
 		}
-		cmd.Env = append(cmd.Env, "DAMSTACK_SSH_KEY_DATA="+strings.TrimSpace(string(key)))
 	}
-	cmd.Stdin = r.Stdin
+	cmd := exec.CommandContext(ctx, program, c.Args[1:]...)
+	cmd.Env = r.Environ(c)
+	cmd.Dir = r.Project
 	var captured bytes.Buffer
 	switch {
 	case c.Quiet:
-		cmd.Stdin = nil
 		cmd.Stdout, cmd.Stderr = &captured, &captured
 	case c.Stdout != nil:
-		cmd.Stdin = nil
 		cmd.Stdout, cmd.Stderr = c.Stdout, r.Stderr
 	default:
+		cmd.Stdin = r.Stdin
 		cmd.Stdout, cmd.Stderr = r.Stdout, r.Stderr
 	}
-	err := cmd.Run()
+	err = cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		if c.Quiet && !c.Silent {
 			r.Stderr.Write(captured.Bytes())
 		}
-		if exit.ExitCode() == 125 {
-			return &ExitError{Name: "docker run of the tools image", Code: 125}
-		}
-		return &ExitError{Name: name(c.Args), Code: exit.ExitCode()}
+		return &ExitError{Name: filepath.Base(c.Args[0]), Code: exit.ExitCode()}
 	}
 	return err
-}
-
-func name(args []string) string {
-	if len(args) == 0 {
-		return "the command"
-	}
-	return args[0][strings.LastIndex(args[0], "/")+1:]
 }

@@ -5,8 +5,11 @@ One program to deploy and run infrastructure stacks. A stack, such as
 Vault and Nomad on one server over WireGuard), is a repository with a
 `damstack.yaml` that says what to ask and which steps to run. damstack fetches
 the stack, keeps the deployment in one directory described by `stack.yaml`,
-and runs the steps with the tools of a small Docker image. You install
-damstack and Docker, nothing else.
+and runs the steps with
+[damstack-toolbox](https://github.com/eugene-panin/damstack-toolbox):
+OpenTofu, Ansible on a Python of its own, Conftest and restic, which damstack
+downloads once and runs apart from anything installed on the Mac. It runs on
+macOS, Apple silicon and Intel; you install damstack, nothing else.
 
 Work in progress: [docs/design.md](docs/design.md) says where it is going.
 
@@ -17,10 +20,8 @@ brew install eugene-panin/tap/damstack
 damstack
 ```
 
-On Linux, take the archive for your machine from the
-[releases](https://github.com/eugene-panin/damstack/releases) and put
-`damstack` on your PATH. damstack needs Docker: Docker Desktop, OrbStack,
-Colima, or Docker Engine on Linux.
+It needs `git`, from the command line tools of Xcode, which Homebrew installs
+too, and the WireGuard app for the private network of a server.
 
 ```bash
 damstack               # on the first run, checks this machine, then shows the commands
@@ -96,5 +97,5 @@ answers and checks the playbooks, OpenTofu and the policies, and
 ```bash
 go test -race ./...
 go build ./cmd/damstack
-test/e2e.sh    # deploys test/demo with the real tools image
+test/e2e.sh    # deploys test/demo with the real toolbox, from a poisoned shell too
 ```

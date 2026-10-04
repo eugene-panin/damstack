@@ -12,7 +12,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -23,7 +22,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
 
-// Runner runs a command in the tools image; toolbox.Runner is one.
+// Runner runs a command with the toolbox; toolbox.Runner is one.
 type Runner interface {
 	Run(ctx context.Context, c toolbox.Cmd) error
 }
@@ -35,8 +34,10 @@ type Engine struct {
 	Project  *project.Project
 	Runner   Runner
 	Password string
-	// Key is whether the runner has an SSH key for the playbooks.
-	Key bool
+	// PasswordFile holds Password, for Ansible; KeyFile is the private SSH
+	// key of the playbooks, empty when an ssh-agent holds it.
+	PasswordFile string
+	KeyFile      string
 	// Color is whether the output goes to a terminal.
 	Color bool
 	// App is the name of the app the manifest is of, empty for the platform:
@@ -57,10 +58,8 @@ type Engine struct {
 // ErrDeclined is returned when the person said no to a confirm.
 var ErrDeclined = errors.New("stopped: you said no")
 
-var (
-	work       = path.Join(toolbox.ProjectDir, project.WorkDir)
-	knownHosts = path.Join(toolbox.ProjectDir, project.KnownHosts)
-)
+func (e *Engine) work() string       { return filepath.Join(e.Project.Dir, project.WorkDir) }
+func (e *Engine) knownHosts() string { return filepath.Join(e.Project.Dir, project.KnownHosts) }
 
 // Run runs one step, or a command with args after its own.
 func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error {
@@ -88,7 +87,7 @@ func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error 
 	default:
 		program := s.Run[0]
 		if strings.Contains(program, "/") {
-			program = path.Join(toolbox.StackDir, program)
+			program = filepath.Join(e.Stack, program)
 		}
 		err = e.Runner.Run(ctx, toolbox.Cmd{Args: append(append([]string{program}, s.Run[1:]...), args...), Env: env})
 	}
@@ -102,7 +101,7 @@ func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error 
 }
 
 func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[string]string, error) {
-	data := map[string]any{"config": config}
+	data := map[string]any{"config": config, "dir": e.Dirs()}
 	if e.App != "" {
 		apps, _ := config["apps"].(map[string]any)
 		data["app"] = apps[e.App]
@@ -124,38 +123,38 @@ func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[strin
 // and work directory, prefixed with the app it is of.
 func (e *Engine) unit(dir string) string {
 	if e.App != "" {
-		return e.App + "-" + path.Base(dir)
+		return e.App + "-" + filepath.Base(dir)
 	}
-	return path.Base(dir)
+	return filepath.Base(dir)
 }
 
 func (e *Engine) ansible(ctx context.Context, a *manifest.Ansible, env map[string]string, args []string) error {
-	env["ANSIBLE_COLLECTIONS_PATH"] = path.Join(work, "collections")
-	env["ANSIBLE_VAULT_PASSWORD_FILE"] = toolbox.PasswordFile
+	env["ANSIBLE_COLLECTIONS_PATH"] = filepath.Join(e.work(), "collections")
+	env["ANSIBLE_VAULT_PASSWORD_FILE"] = e.PasswordFile
 	env["ANSIBLE_SSH_ARGS"] = "-F /dev/null -C -o ControlMaster=auto -o ControlPersist=60s " +
-		"-o UserKnownHostsFile=" + knownHosts + " -o StrictHostKeyChecking=accept-new"
+		"-o UserKnownHostsFile=" + e.knownHosts() + " -o StrictHostKeyChecking=accept-new"
 	if cfg := e.ansibleConfig(a.Playbook); cfg != "" {
-		env["ANSIBLE_CONFIG"] = path.Join(toolbox.StackDir, cfg)
+		env["ANSIBLE_CONFIG"] = filepath.Join(e.Stack, cfg)
 	}
 	if a.Requirements != "" {
 		err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Args: []string{
-			"ansible-galaxy", "collection", "install", "-r", path.Join(toolbox.StackDir, a.Requirements),
-			"-p", path.Join(work, "collections")}})
+			"ansible-galaxy", "collection", "install", "-r", filepath.Join(e.Stack, a.Requirements),
+			"-p", filepath.Join(e.work(), "collections")}})
 		if err != nil {
 			return err
 		}
 	}
 	cmd := []string{"ansible-playbook"}
 	if a.Inventory != "" {
-		cmd = append(cmd, "-i", path.Join(toolbox.StackDir, a.Inventory))
+		cmd = append(cmd, "-i", filepath.Join(e.Stack, a.Inventory))
 	}
-	if _, err := os.Stat(filepath.Join(e.Project.Dir, project.VaultFile)); err == nil {
-		cmd = append(cmd, "-e", "@"+path.Join(toolbox.ProjectDir, project.VaultFile))
+	if vault := filepath.Join(e.Project.Dir, project.VaultFile); exists(vault) {
+		cmd = append(cmd, "-e", "@"+vault)
 	}
-	if e.Key {
-		cmd = append(cmd, "--private-key", toolbox.KeyFile)
+	if e.KeyFile != "" {
+		cmd = append(cmd, "--private-key", e.KeyFile)
 	}
-	cmd = append(cmd, path.Join(toolbox.StackDir, a.Playbook))
+	cmd = append(cmd, filepath.Join(e.Stack, a.Playbook))
 	return e.Runner.Run(ctx, toolbox.Cmd{Args: append(cmd, args...), Env: env})
 }
 
@@ -179,21 +178,21 @@ func (e *Engine) ansibleConfig(playbook string) string {
 // and returns its -chdir and its work directory.
 func (e *Engine) prepareTofu(ctx context.Context, t *manifest.Tofu, env map[string]string) (string, string, error) {
 	name := e.unit(t.Dir)
-	data := path.Join(work, "tofu", name)
+	data := filepath.Join(e.work(), "tofu", name)
 	env["TF_DATA_DIR"] = data
 	env["TF_IN_AUTOMATION"] = "1"
 	env["TF_INPUT"] = "0"
-	env["TF_VAR_project"] = toolbox.ProjectDir
+	env["TF_VAR_project"] = e.Project.Dir
 	if !e.Color {
 		env["TF_CLI_ARGS"] = "-no-color"
 	}
-	chdir := "-chdir=" + path.Join(toolbox.StackDir, t.Dir)
-	for _, dir := range []string{filepath.Join(e.Project.Dir, "state"), e.hostPath(data)} {
+	chdir := "-chdir=" + filepath.Join(e.Stack, t.Dir)
+	for _, dir := range []string{filepath.Join(e.Project.Dir, "state"), data} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", "", err
 		}
 	}
-	err := e.init(ctx, env, chdir, "-backend-config=path="+path.Join(toolbox.ProjectDir, "state", name+".tfstate"))
+	err := e.init(ctx, env, chdir, "-backend-config=path="+filepath.Join(e.Project.Dir, "state", name+".tfstate"))
 	return chdir, data, err
 }
 
@@ -216,7 +215,7 @@ func (e *Engine) Drift(ctx context.Context, s manifest.Step) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	plan := path.Join(data, "drift")
+	plan := filepath.Join(data, "drift")
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "plan", "-input=false", "-detailed-exitcode", "-out=" + plan}})
 	var exit *toolbox.ExitError
 	switch {
@@ -246,7 +245,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 		return e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "output"}, args...)})
 	}
 
-	plan := path.Join(data, "plan")
+	plan := filepath.Join(data, "plan")
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
 		"-detailed-exitcode", "-out=" + plan}, args...)})
 	var exit *toolbox.ExitError
@@ -294,7 +293,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	if err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", plan}}); err != nil {
 		return err
 	}
-	if err := os.Remove(e.hostPath(plan)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := os.Remove(plan); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return e.outputs(ctx, t, env, chdir)
@@ -334,7 +333,7 @@ func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, 
 // showPlan writes a plan as JSON next to it, and returns its path.
 func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, plan string) (string, error) {
 	planJSON := plan + ".json"
-	out, err := os.Create(e.hostPath(planJSON))
+	out, err := os.Create(planJSON)
 	if err != nil {
 		return "", err
 	}
@@ -349,7 +348,7 @@ const onlyOutputs = "Only outputs change"
 
 // counts says in words what a plan changes: 12 to create, 1 to destroy.
 func (e *Engine) counts(planJSON string) (string, error) {
-	data, err := os.ReadFile(e.hostPath(planJSON))
+	data, err := os.ReadFile(planJSON)
 	if err != nil {
 		return "", err
 	}
@@ -418,9 +417,9 @@ func policyError(err error) error {
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // nomadJobs writes the job specs of the nomad_job resources a plan creates or
-// changes, and returns their paths in the tools image.
+// changes, and returns their paths.
 func (e *Engine) nomadJobs(planJSON string) ([]string, error) {
-	data, err := os.ReadFile(e.hostPath(planJSON))
+	data, err := os.ReadFile(planJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -436,11 +435,11 @@ func (e *Engine) nomadJobs(planJSON string) ([]string, error) {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return nil, fmt.Errorf("the plan: %w", err)
 	}
-	dir := path.Join(work, "jobs")
-	if err := os.RemoveAll(e.hostPath(dir)); err != nil {
+	dir := filepath.Join(e.work(), "jobs")
+	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(e.hostPath(dir), 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	var jobs []string
@@ -449,8 +448,8 @@ func (e *Engine) nomadJobs(planJSON string) ([]string, error) {
 		if rc.Type != "nomad_job" || spec == "" {
 			continue
 		}
-		job := path.Join(dir, unsafeName.ReplaceAllString(rc.Address, "_")+".nomad.hcl")
-		if err := os.WriteFile(e.hostPath(job), []byte(spec), 0o644); err != nil {
+		job := filepath.Join(dir, unsafeName.ReplaceAllString(rc.Address, "_")+".nomad.hcl")
+		if err := os.WriteFile(job, []byte(spec), 0o644); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)
@@ -491,8 +490,13 @@ func (e *Engine) keep(k *manifest.Keep) error {
 	return os.Remove(file)
 }
 
-// hostPath is where a path of the tools image under /work is on this machine.
-func (e *Engine) hostPath(p string) string {
-	rel := strings.TrimPrefix(strings.TrimPrefix(p, toolbox.ProjectDir), "/")
-	return filepath.Join(e.Project.Dir, filepath.FromSlash(rel))
+// Dirs are the directories of the project and the stack, which templates
+// see as .dir.project and .dir.stack.
+func (e *Engine) Dirs() map[string]string {
+	return map[string]string{"project": e.Project.Dir, "stack": e.Stack}
+}
+
+func exists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# damstack end to end with the demo stack in test/demo and the real tools
-# image: set up, deploy, deploy again, a policy that denies, a no to apply.
+# damstack end to end with the demo stack in test/demo and the real toolbox:
+# set up, deploy, deploy again from a poisoned shell, a policy that denies, a
+# no to apply, apps, backups and the recovery kit.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -11,6 +12,10 @@ export XDG_CONFIG_HOME=$work/config XDG_CACHE_HOME=$work/cache
 
 damstack=$work/damstack
 (cd "$repo" && go build -o "$damstack" ./cmd/damstack)
+toolbox=$("$damstack" version | sed -n 's/.*toolbox //p')
+shared=$HOME/.cache/damstack/toolbox
+mkdir -p "$shared" "$XDG_CACHE_HOME/damstack"
+ln -s "$shared" "$XDG_CACHE_HOME/damstack/toolbox"
 stack=$repo/test/demo
 project=$work/demo1
 
@@ -36,8 +41,19 @@ grep -q '^Done. demo1 is running.' "$work/out" && grep -qx '  greeting: hello' "
   fail "the vault password is readable by others"
 [[ $("$damstack" output greeting) == '"hello"' ]] || fail "the output command"
 
-step "a second deploy changes nothing"
-deploy </dev/null || { cat "$work/out"; fail "second deploy"; }
+step "a second deploy from a poisoned shell changes nothing"
+poison=$work/poison
+mkdir -p "$poison/bin" "$poison/py/ansible"
+for cmd in tofu conftest ansible-playbook ansible-galaxy python3 restic; do
+  printf '#!/bin/sh\necho "the %s of the machine ran" >&2\nexit 99\n' "$cmd" >"$poison/bin/$cmd"
+  chmod 0755 "$poison/bin/$cmd"
+done
+echo 'raise SystemExit("an ansible of the machine was imported")' >"$poison/py/ansible/__init__.py"
+printf 'provider_installation {\n  network_mirror {\n    url = "https://127.0.0.1:9/"\n  }\n}\n' >"$poison/tofurc"
+env PATH="$poison/bin:$PATH" PYTHONPATH="$poison/py" PYTHONHOME="$poison" TF_VAR_greeting=poisoned \
+  ANSIBLE_CONFIG=/nonexistent/ansible.cfg ANSIBLE_STDOUT_CALLBACK=no_such_callback TF_CLI_CONFIG_FILE="$poison/tofurc" \
+  "$damstack" deploy --verbose </dev/null >"$work/out" 2>&1 || { cat "$work/out"; fail "second deploy"; }
+grep -q 'of the machine ran\|an ansible of the machine' "$work/out" && { cat "$work/out"; fail "a tool of the machine ran"; }
 grep -q 'init: done before' "$work/out" || fail "a once step ran again"
 grep -q 'changed=0' "$work/out" || { cat "$work/out"; fail "the playbook changed something"; }
 grep -q 'Nothing to change' "$work/out" || { cat "$work/out"; fail "OpenTofu had changes"; }
@@ -112,7 +128,7 @@ step "backups: pulled from the server, the old ones dropped, the state shown"
 "$damstack" backup pull >"$work/out" 2>&1 && fail "a pull with no backups went through"
 grep -q 'no backups at .*server-backups yet' "$work/out" || { cat "$work/out"; fail "no reason for a pull with no backups"; }
 grep -q 'Nothing is backed up on this machine yet' <<<"$("$damstack")" || fail "the home screen does not warn of no backups"
-restic=$XDG_CACHE_HOME/damstack/restic/0.19.1/restic
+restic=$XDG_CACHE_HOME/damstack/toolbox/$toolbox/bin/restic
 "$damstack" backup >/dev/null 2>&1 || true
 [[ -x $restic ]] || fail "restic was not fetched"
 export RESTIC_PASSWORD=tok

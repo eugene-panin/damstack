@@ -15,9 +15,25 @@ import (
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
 
+// fakeRunner keeps the commands it is given; it shows the directories of the
+// stack and the project as /stack and /work.
 type fakeRunner struct {
-	cmds  []toolbox.Cmd
-	reply func(c toolbox.Cmd) error
+	cmds    []toolbox.Cmd
+	reply   func(c toolbox.Cmd) error
+	stack   string
+	project string
+}
+
+func (f *fakeRunner) short(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, f.project, "/work"), f.stack, "/stack")
+}
+
+func (f *fakeRunner) env(i int) map[string]string {
+	env := map[string]string{}
+	for k, v := range f.cmds[i].Env {
+		env[k] = f.short(v)
+	}
+	return env
 }
 
 func (f *fakeRunner) Run(_ context.Context, c toolbox.Cmd) error {
@@ -31,7 +47,7 @@ func (f *fakeRunner) Run(_ context.Context, c toolbox.Cmd) error {
 func (f *fakeRunner) lines() []string {
 	var out []string
 	for _, c := range f.cmds {
-		out = append(out, strings.Join(c.Args, " "))
+		out = append(out, f.short(strings.Join(c.Args, " ")))
 	}
 	return out
 }
@@ -58,8 +74,8 @@ func setup(t *testing.T) (*Engine, *fakeRunner) {
 	if err := p.SaveSecrets(password, map[string]any{"token": "t0k"}); err != nil {
 		t.Fatal(err)
 	}
-	r := &fakeRunner{}
-	return &Engine{Stack: stack, Project: p, Runner: r, Password: password, Key: true, Out: &bytes.Buffer{},
+	r := &fakeRunner{stack: stack, project: p.Dir}
+	return &Engine{Stack: stack, Project: p, Runner: r, Password: password, PasswordFile: "/c/vault-pass", KeyFile: "/h/.ssh/id_ed25519", Out: &bytes.Buffer{},
 		Confirm: func(string) (bool, error) { return true, nil }}, r
 }
 
@@ -67,20 +83,20 @@ func TestAnsible(t *testing.T) {
 	e, r := setup(t)
 	step := manifest.Step{
 		Ansible: &manifest.Ansible{Playbook: "ansible/playbooks/site.yml", Inventory: "ansible/inventory", Requirements: "ansible/requirements.yml"},
-		Env:     map[string]string{"NOMAD_ADDR": "https://{{ firstHost .config.network.cidr }}:4646"},
+		Env:     map[string]string{"NOMAD_ADDR": "https://{{ firstHost .config.network.cidr }}:4646", "NOMAD_CACERT": "{{ .dir.project }}/ca.pem"},
 	}
 	if err := e.Run(t.Context(), step, []string{"--check"}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		"ansible-galaxy collection install -r /stack/ansible/requirements.yml -p /work/.damstack/work/collections",
-		"ansible-playbook -i /stack/ansible/inventory -e @/work/vault.yml --private-key /home/damstack/.ssh/damstack-key /stack/ansible/playbooks/site.yml --check",
+		"ansible-playbook -i /stack/ansible/inventory -e @/work/vault.yml --private-key /h/.ssh/id_ed25519 /stack/ansible/playbooks/site.yml --check",
 	}
 	if got := r.lines(); !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	env := r.cmds[1].Env
-	if env["ANSIBLE_CONFIG"] != "/stack/ansible/ansible.cfg" || env["NOMAD_ADDR"] != "https://10.77.0.1:4646" ||
+	env := r.env(1)
+	if env["ANSIBLE_CONFIG"] != "/stack/ansible/ansible.cfg" || env["NOMAD_ADDR"] != "https://10.77.0.1:4646" || env["NOMAD_CACERT"] != "/work/ca.pem" ||
 		!strings.Contains(env["ANSIBLE_SSH_ARGS"], "UserKnownHostsFile=/work/.damstack/known_hosts") || !r.cmds[0].Quiet {
 		t.Errorf("env %v", env)
 	}
@@ -157,7 +173,7 @@ func TestTofuApply(t *testing.T) {
 	if err != nil || string(job) != `job "web" {}` || asked == "" {
 		t.Errorf("job %q, %v; asked %q", job, err, asked)
 	}
-	if env := r.cmds[0].Env; env["TF_DATA_DIR"] != "/work/.damstack/work/tofu/infra" || env["TF_VAR_project"] != "/work" {
+	if env := r.env(0); env["TF_DATA_DIR"] != "/work/.damstack/work/tofu/infra" || env["TF_VAR_project"] != "/work" {
 		t.Errorf("env %v", env)
 	}
 }
@@ -244,7 +260,7 @@ func TestAppTofuKeepsItsOwnStateAndWritesOutputs(t *testing.T) {
 		lines[len(lines)-1] != "tofu -chdir=/stack/infra output -json dns_records" {
 		t.Errorf("got\n%s", strings.Join(lines, "\n"))
 	}
-	if env := r.cmds[0].Env; env["TF_DATA_DIR"] != "/work/.damstack/work/tofu/mail-infra" || env["TF_VAR_hostname"] != "mail.example.org" {
+	if env := r.env(0); env["TF_DATA_DIR"] != "/work/.damstack/work/tofu/mail-infra" || env["TF_VAR_hostname"] != "mail.example.org" {
 		t.Errorf("env %v", env)
 	}
 	if got, err := os.ReadFile(filepath.Join(e.Project.Dir, "dns/mail.json")); err != nil || !strings.Contains(string(got), "mail.example.org") {

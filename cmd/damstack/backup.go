@@ -270,15 +270,11 @@ func loadBackup(ctx context.Context, p *project.Project) (*projectBackup, error)
 }
 
 func (b *projectBackup) repo(ctx context.Context, s *streams) (*backup.Repo, error) {
-	cache, err := config.CacheDir()
+	tb, _, err := fetchToolbox(ctx, s, nil)
 	if err != nil {
 		return nil, err
 	}
-	restic, err := backup.Restic(ctx, cache)
-	if err != nil {
-		return nil, err
-	}
-	return &backup.Repo{Restic: restic, Path: b.plan.To, Password: b.plan.Password, Out: s.out, Err: s.err}, nil
+	return &backup.Repo{Restic: filepath.Join(tb, "bin", "restic"), Path: b.plan.To, Password: b.plan.Password, Out: s.out, Err: s.err}, nil
 }
 
 func backupPull(ctx context.Context, s *streams, p *project.Project, scheduled bool) error {

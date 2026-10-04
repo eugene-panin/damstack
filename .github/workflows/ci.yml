@@ -1,0 +1,37 @@
+---
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", LICENSE]
+  pull_request:
+    paths-ignore: ["**.md", LICENSE]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test and e2e (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: An SSH key, as a person has
+        run: ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
+
+      - name: End to end
+        run: test/e2e.sh </dev/null

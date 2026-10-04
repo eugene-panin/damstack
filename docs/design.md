@@ -5,10 +5,13 @@ screens are the target; `Now` says how far the code is from each.
 
 ## Model
 
-- **damstack** is one program. It checks the machine, keeps a library of
-  stacks, asks the questions of a stack, and runs its steps in
-  damstack-toolbox, a Docker image with Ansible, OpenTofu and Conftest.
-  The person installs Docker and damstack, nothing else.
+- **damstack** is one program, for macOS. It checks the Mac, keeps a library
+  of stacks, asks the questions of a stack, and runs its steps with
+  damstack-toolbox: Ansible on a Python of its own, OpenTofu, Conftest and
+  restic, one archive per kind of Mac that damstack downloads once, checks
+  against the SHA-256 it was built with, and runs in an environment of its
+  own, apart from the user's shell and tools. The person installs damstack,
+  nothing else.
 - **A stack** is a git repository `damstack-<name>` with a `damstack.yaml`:
   its questions, secrets, the template of `stack.yaml`, and its steps. The
   manifest is the contract between the stack and damstack.
@@ -37,10 +40,12 @@ which it allows. damstack earns nothing and offers no hosted service.
 $ damstack
 
 damstack sets up your own server and runs apps on it, from one file you edit.
-You install Docker; damstack brings the rest.
+It runs on this Mac and brings its own tools; you install nothing else.
 
 This machine
-  ok    Docker 29.8 is running: 10 CPUs, 15.6 GB of memory
+  ok    macOS
+  ok    git version 2.50.1 (Apple Git-155)
+  ok    the toolbox 1.1.0 is downloaded on first use, about 90 MB
   ok    SSH key ~/.ssh/id_ed25519
   ok    WireGuard app, for the admin pages of your server
 

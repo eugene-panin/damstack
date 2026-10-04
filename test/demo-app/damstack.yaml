@@ -1,4 +1,4 @@
-apiVersion: damstack/v1
+apiVersion: damstack/v2
 name: hello
 kind: app
 description: An app that proves apps on the demo platform

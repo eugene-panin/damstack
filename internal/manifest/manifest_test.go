@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-const valid = `apiVersion: damstack/v1
+const valid = `apiVersion: damstack/v2
 name: hashistack
 description: Consul, Vault and Nomad on one server, over WireGuard
 requires:
   damstack: ">=0.1.0"
   toolbox: ">=1.0.0, <2.0.0"
-  host: [docker, ssh-key, wireguard]
+  host: [ssh-key, wireguard]
 questions:
   - name: project_name
     prompt: A short name for your setup
@@ -141,12 +141,14 @@ func TestProblems(t *testing.T) {
 		at   string // text of the line the problem is reported on
 	}{
 		{"unknown field", "steps:", "stpes: []\nsteps:", "unknown field stpes", "stpes"},
-		{"newer contract", "damstack/v1", "damstack/v2", "newer than this damstack knows", "apiVersion"},
-		{"not a damstack manifest", "damstack/v1", "v1", "must be damstack/v1", "apiVersion"},
+		{"newer contract", "damstack/v2", "damstack/v3", "newer than this damstack knows", "apiVersion"},
+		{"a stack for Docker", "damstack/v2", "damstack/v1", "take a newer release of the stack", "apiVersion"},
+		{"an image of the stack", "name: hashistack", "name: hashistack\nimage: ghcr.io/x/y:1", "image: is gone", "image:"},
+		{"not a damstack manifest", "damstack/v2", "v2", "must be damstack/v2", "apiVersion"},
 		{"bad name", "name: hashistack", "name: Hashi Stack", "lowercase letters", "name: Hashi"},
 		{"needs a newer damstack", `damstack: ">=0.1.0"`, `damstack: ">=0.9.0"`, "update damstack", `damstack: ">=0.9.0"`},
 		{"bad toolbox constraint", `">=1.0.0, <2.0.0"`, `"latest"`, "not a version constraint", "toolbox"},
-		{"unknown host check", "[docker, ssh-key, wireguard]", "[docker, kubernetes]", `"kubernetes" is not a check`, "host:"},
+		{"unknown host check", "[ssh-key, wireguard]", "[ssh-key, kubernetes]", `"kubernetes" is not a check`, "host:"},
 		{"enum default outside the options", "default: ssh", "default: hetzner", "must be one of the options", "default: hetzner"},
 		{"when on a non-bool question", "when: mail", "when: provider", `"provider" is not a bool question`, "when: provider"},
 		{"when on an option that is not there", "when: mail", "when: provider=hetzner", `"hetzner" is not an option of provider`, "when: provider=hetzner"},
@@ -249,7 +251,7 @@ func TestSatisfies(t *testing.T) {
 	}
 }
 
-const validApp = `apiVersion: damstack/v1
+const validApp = `apiVersion: damstack/v2
 name: mail
 kind: app
 description: Mail on the platform
@@ -322,7 +324,7 @@ func TestAppProblems(t *testing.T) {
 func TestPlatformProblems(t *testing.T) {
 	for _, tc := range []struct{ from, to, want string }{
 		{"steps:\n  - name: provision", "targets:\n  nomad: {steps: []}\nsteps:\n  - name: provision", "are for an app"},
-		{"  host: [docker, ssh-key, wireguard]", "  host: [docker, ssh-key, wireguard]\n  provides: [nomad]", "is for an app"},
+		{"  host: [ssh-key, wireguard]", "  host: [ssh-key, wireguard]\n  provides: [nomad]", "is for an app"},
 	} {
 		_, err := Load(stackDir(t, strings.Replace(valid, tc.from, tc.to, 1)), "0.1.0")
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

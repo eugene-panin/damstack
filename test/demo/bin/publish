@@ -1,4 +1,5 @@
 #!/bin/sh
 set -eu
-if ls /work/dns/*.json >/dev/null 2>&1; then cat /work/dns/*.json >/work/published.txt; else : >/work/published.txt; fi
+cd "$DAMSTACK_PROJECT"
+if ls dns/*.json >/dev/null 2>&1; then cat dns/*.json >published.txt; else : >published.txt; fi
 echo "published the records of the apps"

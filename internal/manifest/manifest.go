@@ -21,12 +21,12 @@ import (
 
 const (
 	File       = "damstack.yaml"
-	APIVersion = "damstack/v1"
+	APIVersion = "damstack/v2"
 )
 
 // HostChecks are the checks of the machine a stack may require; each is one
 // part of damstack doctor.
-var HostChecks = []string{"docker", "ssh-key", "wireguard"}
+var HostChecks = []string{"ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
@@ -56,16 +56,17 @@ type Manifest struct {
 	// AppEnv is the environment of every step of the apps on a platform, as
 	// templates over its stack.yaml and secrets: how they reach what it
 	// provides, such as NOMAD_ADDR and NOMAD_TOKEN.
-	AppEnv    map[string]string `yaml:"app_env"`
-	Requires  Requires          `yaml:"requires"`
-	Image     string            `yaml:"image"`
-	Questions []Question        `yaml:"questions"`
-	Secrets   []Secret          `yaml:"secrets"`
-	Config    string            `yaml:"config"`
-	Server    *Server           `yaml:"server"`
-	Backup    *Backup           `yaml:"backup"`
-	Steps     []Step            `yaml:"steps"`
-	Commands  map[string]Step   `yaml:"commands"`
+	AppEnv   map[string]string `yaml:"app_env"`
+	Requires Requires          `yaml:"requires"`
+	// Image was the Docker image of a stack; it is refused now.
+	Image     string          `yaml:"image"`
+	Questions []Question      `yaml:"questions"`
+	Secrets   []Secret        `yaml:"secrets"`
+	Config    string          `yaml:"config"`
+	Server    *Server         `yaml:"server"`
+	Backup    *Backup         `yaml:"backup"`
+	Steps     []Step          `yaml:"steps"`
+	Commands  map[string]Step `yaml:"commands"`
 	// Targets are the ways an app runs, by what a platform provides: the
 	// first, by name, the platform of the project provides is used.
 	Targets map[string]Target `yaml:"targets"`
@@ -384,10 +385,16 @@ func (c *checker) add(path, format string, args ...any) {
 func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	switch match := apiRe.FindStringSubmatch(m.APIVersion); {
 	case m.APIVersion == APIVersion:
-	case match != nil && match[1] != "1":
+	case m.APIVersion == "damstack/v1":
+		c.add("apiVersion", "damstack/v1 is a stack for damstack 0.1, which ran the tools in Docker; this damstack runs %s: take a newer release of the stack", APIVersion)
+	case match != nil:
 		c.add("apiVersion", "%s is newer than this damstack knows (%s); update damstack", m.APIVersion, APIVersion)
 	default:
 		c.add("apiVersion", "must be %s", APIVersion)
+	}
+
+	if m.Image != "" {
+		c.add("image", "is gone: damstack runs every stack with the tools of its own toolbox, on the Mac")
 	}
 
 	if !nameRe.MatchString(m.Name) {

@@ -1,4 +1,4 @@
-apiVersion: damstack/v1
+apiVersion: damstack/v2
 name: demo
 description: A stack that proves damstack end to end without a server
 provides: [demo]

@@ -39,7 +39,7 @@ func main() {
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	root := &cobra.Command{
 		Use:           "damstack",
-		Short:         "Deploy and run infrastructure stacks from one config file, with nothing but Docker installed",
+		Short:         "Deploy and run infrastructure stacks from one config file, on a Mac, with nothing else installed",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -62,10 +62,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	})
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
-		Short: "Print the version and the tools image it uses",
+		Short: "Print the version and the toolbox it uses",
 		Args:  cobra.NoArgs,
 		Run: func(*cobra.Command, []string) {
-			fmt.Fprintf(stdout, "damstack %s, tools image %s\n", release.Version, release.ImageRef())
+			fmt.Fprintf(stdout, "damstack %s, toolbox %s\n", release.Version, release.Toolbox)
 		},
 	})
 	stack := &cobra.Command{
