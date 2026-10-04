@@ -235,6 +235,16 @@ type State struct {
 	Pulled    time.Time `json:"pulled"`
 	Latest    time.Time `json:"latest"`
 	Snapshots int       `json:"snapshots"`
+	// Kit is when the last recovery kit of the project was made.
+	Kit time.Time `json:"kit"`
+}
+
+// Saw notes the snapshots on this machine.
+func (s *State) Saw(snaps []Snapshot) {
+	s.Snapshots, s.Latest = len(snaps), time.Time{}
+	if len(snaps) > 0 {
+		s.Latest = snaps[len(snaps)-1].Time
+	}
 }
 
 // Stale is the age past which the latest snapshot here is old: the server
@@ -255,15 +265,11 @@ func LoadState(dir string) (State, error) {
 	return s, json.Unmarshal(data, &s)
 }
 
-// SaveState writes the state of the snapshots of the project in dir.
-func SaveState(dir string, pulled time.Time, snaps []Snapshot) (State, error) {
-	s := State{Pulled: pulled, Snapshots: len(snaps)}
-	if len(snaps) > 0 {
-		s.Latest = snaps[len(snaps)-1].Time
-	}
+// SaveState writes the state of the project in dir.
+func SaveState(dir string, s State) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return s, err
+		return err
 	}
-	return s, os.WriteFile(filepath.Join(dir, StateFile), append(data, '\n'), 0o644)
+	return os.WriteFile(filepath.Join(dir, StateFile), append(data, '\n'), 0o644)
 }

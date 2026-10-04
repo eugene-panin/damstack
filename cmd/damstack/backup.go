@@ -15,6 +15,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/backup"
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/kit"
 	"github.com/eugene-panin/damstack/internal/login"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -72,7 +73,164 @@ func backupCommand(s *streams) *cobra.Command {
 			return scheduleBackup(cmd.Context(), s, p, b, true)
 		},
 	})
+	var to string
+	kitCmd := &cobra.Command{
+		Use:   "kit [project]",
+		Short: "Pack the project and its vault password into one encrypted file, to bring it back on another computer",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, err := pickProject(s, firstArg(args))
+			if err != nil {
+				return err
+			}
+			return makeKit(s, p, to)
+		},
+	}
+	kitCmd.Flags().StringVar(&to, "to", "", "the directory to write the kit to, the current one by default")
+	cmd.AddCommand(kitCmd)
+	var into string
+	open := &cobra.Command{
+		Use:   "open <kit>",
+		Short: "Bring a project back on this computer from its recovery kit",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return openKit(cmd.Context(), s, args[0], into)
+		},
+	}
+	open.Flags().StringVar(&into, "dir", "", "where the project goes, ~/.damstack/<project> by default")
+	cmd.AddCommand(open)
 	return cmd
+}
+
+func makeKit(s *streams, p *project.Project, to string) error {
+	password, err := p.Password()
+	if err != nil {
+		return err
+	}
+	if to == "" {
+		if to, err = os.Getwd(); err != nil {
+			return err
+		}
+	}
+	now := time.Now()
+	path := filepath.Join(to, fmt.Sprintf("%s-kit-%s.age", p.Meta.Name, now.Format("2006-01-02")))
+	if _, err := os.Stat(path); err == nil {
+		path = filepath.Join(to, fmt.Sprintf("%s-kit-%s.age", p.Meta.Name, now.Format("2006-01-02-150405")))
+	}
+	tmp, err := os.CreateTemp(to, ".kit-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	passphrase := kit.Passphrase()
+	err = kit.Pack(tmp, p.Dir, password, passphrase)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	st, err := backup.LoadState(p.Dir)
+	if err != nil {
+		return err
+	}
+	st.Kit = now
+	if err := backup.SaveState(p.Dir, st); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.out, "The recovery kit of %s is %s.\n\n", p.Meta.Name, path)
+	fmt.Fprintf(s.out, "Its passphrase, shown only now:\n\n    %s\n\n", passphrase)
+	fmt.Fprintln(s.out, "Write the passphrase down, on paper or in a password manager, and keep the file off this")
+	fmt.Fprintln(s.out, "computer: a USB stick, a cloud drive. With both, damstack backup open brings the project back")
+	fmt.Fprintln(s.out, "on any computer; without damstack, age -d opens the file. Make a new kit after every change")
+	fmt.Fprintln(s.out, "to the project: damstack backup status says when one is due.")
+	return nil
+}
+
+func openKit(ctx context.Context, s *streams, file, into string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	passphrase, err := s.prompt.Secret("The passphrase of the kit")
+	if err != nil {
+		return err
+	}
+	cfg, err := loadConfig(ctx)
+	if err != nil {
+		return err
+	}
+	home, err := config.ProjectsDir()
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(home, fmt.Sprintf(".opening-%d", time.Now().UnixNano()))
+	password, err := kit.Unpack(f, strings.ToUpper(strings.TrimSpace(passphrase)), tmp)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	p, err := project.Open(tmp)
+	if err != nil {
+		return fmt.Errorf("the kit holds no project of damstack: %w", err)
+	}
+	name := p.Meta.Name
+	if existing, ok := cfg.Project(name); ok {
+		return fmt.Errorf("%s is a project on this computer already, in %s; damstack does not write over it", name, existing.Path)
+	}
+	dest := into
+	if dest == "" {
+		dest = filepath.Join(home, name)
+	}
+	if dest, err = filepath.Abs(dest); err != nil {
+		return err
+	}
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("%s is there already; damstack does not write over it", dest)
+	}
+	passPath, err := project.PasswordPath(name)
+	if err != nil {
+		return err
+	}
+	if have, err := os.ReadFile(passPath); err == nil && strings.TrimSpace(string(have)) != password {
+		return fmt.Errorf("another vault password of %s is at %s; move it away first", name, passPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(passPath), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(passPath, []byte(password+"\n"), 0o600); err != nil {
+		return err
+	}
+	cfg.Projects = append(cfg.Projects, config.Project{Name: name, Stack: p.Meta.Stack.Name, Path: dest})
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	fmt.Fprintf(s.out, "%s is back, in %s, with its vault password in %s.\n", name, dest, passPath)
+	fmt.Fprintf(s.out, "damstack status %s shows it; damstack backup pull %s brings its backups to this computer.\n", name, name)
+	return nil
+}
+
+// kitWarning says when a project has no recovery kit, or changed since its
+// last one.
+func kitWarning(p *project.Project, st backup.State) string {
+	switch {
+	case st.Kit.IsZero():
+		return fmt.Sprintf("%s has no recovery kit: without this computer, nothing brings the project back. damstack backup kit %s makes one.", p.Meta.Name, p.Meta.Name)
+	case kit.Changed(p.Dir).After(st.Kit):
+		return fmt.Sprintf("%s changed since its recovery kit of %s: damstack backup kit %s makes a new one; keep it instead of the old.",
+			p.Meta.Name, st.Kit.Local().Format("2006-01-02"), p.Meta.Name)
+	}
+	return ""
 }
 
 // projectBackup is the backup of a project, rendered, with the stack it is of.
@@ -166,8 +324,13 @@ func backupPull(ctx context.Context, s *streams, p *project.Project, scheduled b
 	if err != nil {
 		return fmt.Errorf("the pull failed: %w; nothing on this machine was lost", err)
 	}
-	st, err := backup.SaveState(p.Dir, start, snaps)
+	st, err := backup.LoadState(p.Dir)
 	if err != nil {
+		return err
+	}
+	st.Pulled = start
+	st.Saw(snaps)
+	if err := backup.SaveState(p.Dir, st); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "%s%s\n", stamp(), describeState(st))
@@ -234,7 +397,10 @@ func backupStatus(ctx context.Context, s *streams, p *project.Project) error {
 		return err
 	}
 	fmt.Fprintf(s.out, "The backups of %s: the server makes them, this machine keeps a copy at %s.\n", p.Meta.Name, b.plan.To)
-	st := backup.State{}
+	st, err := backup.LoadState(p.Dir)
+	if err != nil {
+		return err
+	}
 	repo, err := b.repo(ctx, s)
 	if err != nil {
 		return err
@@ -244,10 +410,12 @@ func backupStatus(ctx context.Context, s *streams, p *project.Project) error {
 		if err != nil {
 			return err
 		}
-		prev, _ := backup.LoadState(p.Dir)
-		if st, err = backup.SaveState(p.Dir, prev.Pulled, snaps); err != nil {
+		st.Saw(snaps)
+		if err := backup.SaveState(p.Dir, st); err != nil {
 			return err
 		}
+	} else {
+		st.Saw(nil)
 	}
 	fmt.Fprintln(s.out, describeState(st))
 	if entries, err := p.History(); err == nil {
@@ -269,9 +437,11 @@ func backupStatus(ctx context.Context, s *streams, p *project.Project) error {
 	default:
 		fmt.Fprintf(s.out, "Pulls should run every %s but are not scheduled: damstack backup schedule %s.\n", backup.FormatEvery(b.plan.Every), p.Meta.Name)
 	}
-	if warn := staleWarning(st); warn != "" {
-		fmt.Fprintln(s.out)
-		fmt.Fprintln(s.out, warn)
+	for _, warn := range []string{staleWarning(st), kitWarning(p, st)} {
+		if warn != "" {
+			fmt.Fprintln(s.out)
+			fmt.Fprintln(s.out, warn)
+		}
 	}
 	return nil
 }

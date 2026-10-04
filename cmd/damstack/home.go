@@ -126,13 +126,19 @@ func projects(w io.Writer, cfg *config.Config) {
 		if err != nil {
 			continue
 		}
-		if m, _ := cachedStack(p); m == nil || m.Backup == nil {
-			continue
-		}
 		st, _ := backup.LoadState(p.Dir)
-		if warn := staleWarning(st); warn != "" {
-			fmt.Fprintf(w, "! %s: %s\n", p.Meta.Name, warn)
-			warned = true
+		var warns []string
+		if m, _ := cachedStack(p); m != nil && m.Backup != nil {
+			if warn := staleWarning(st); warn != "" {
+				warns = append(warns, p.Meta.Name+": "+warn)
+			}
+		}
+		warns = append(warns, kitWarning(p, st))
+		for _, warn := range warns {
+			if warn != "" {
+				fmt.Fprintf(w, "! %s\n", warn)
+				warned = true
+			}
 		}
 	}
 	if warned {

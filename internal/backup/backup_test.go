@@ -103,11 +103,13 @@ func TestState(t *testing.T) {
 	}
 	now := time.Now().Round(time.Second)
 	latest := now.Add(-time.Hour)
-	if _, err := SaveState(dir, now, []Snapshot{{Time: latest.Add(-time.Hour)}, {Time: latest}}); err != nil {
+	st := State{Pulled: now, Kit: now}
+	st.Saw([]Snapshot{{Time: latest.Add(-time.Hour)}, {Time: latest}})
+	if err := SaveState(dir, st); err != nil {
 		t.Fatal(err)
 	}
 	s, err := LoadState(dir)
-	if err != nil || !s.Pulled.Equal(now) || !s.Latest.Equal(latest) || s.Snapshots != 2 {
+	if err != nil || !s.Pulled.Equal(now) || !s.Latest.Equal(latest) || s.Snapshots != 2 || !s.Kit.Equal(now) {
 		t.Errorf("got %+v, %v", s, err)
 	}
 }

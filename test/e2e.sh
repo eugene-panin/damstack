@@ -129,6 +129,28 @@ grep -q '^3 snapshots on this machine, the latest from' "$work/out" && grep -q '
 grep -q 'Nothing is backed up' <<<"$("$damstack")" && fail "the home screen still warns"
 rm -f backed-up.txt
 
+step "a recovery kit brings the project back on another computer"
+grep -q 'demo1 has no recovery kit' <<<"$("$damstack")" || fail "the home screen does not ask for a kit"
+"$damstack" backup kit --to "$work" >"$work/out" 2>&1 || { cat "$work/out"; fail "backup kit"; }
+kit=$(ls "$work"/demo1-kit-*.age)
+passphrase=$(grep -Eo '^    [0-9A-Z]{4}(-[0-9A-Z]{4}){4}$' "$work/out" | tr -d ' ')
+[[ -n $passphrase ]] || { cat "$work/out"; fail "no passphrase shown"; }
+grep -q 'tok' "$kit" && fail "the kit is not encrypted"
+grep -q 'recovery kit' <<<"$("$damstack" backup status)" && fail "a kit is asked for right after one was made"
+touch stack.yaml
+grep -q 'demo1 changed since its recovery kit' <<<"$("$damstack" backup status)" || fail "a change to the project does not ask for a new kit"
+other=(env XDG_CONFIG_HOME="$work/config2" DAMSTACK_HOME="$work/home2")
+"${other[@]}" "$damstack" backup open "$kit" <<<"AAAA-AAAA-AAAA-AAAA-AAAA" >"$work/out" 2>&1 && fail "a wrong passphrase opened the kit"
+grep -q 'does not open this kit' "$work/out" || { cat "$work/out"; fail "no reason for a wrong passphrase"; }
+[[ -e $work/home2/demo1 ]] && fail "a wrong passphrase left the project"
+"${other[@]}" "$damstack" backup open "$kit" <<<"$passphrase" >"$work/out" 2>&1 || { cat "$work/out"; fail "backup open"; }
+grep -q "demo1 is back, in $work/home2/demo1" "$work/out" || { cat "$work/out"; fail "backup open says"; }
+[[ $("${other[@]}" "$damstack" token api --print -p demo1) == tok ]] || fail "the vault password did not come back"
+[[ $(cd "$work" && "${other[@]}" "$damstack" output greeting -p demo1) == '"hello"' ]] || fail "the OpenTofu state did not come back"
+[[ -e $work/home2/demo1/.damstack/work/logs ]] && fail "the work directory went into the kit"
+"${other[@]}" "$damstack" backup open "$kit" <<<"$passphrase" >"$work/out" 2>&1 && fail "a kit opened over a project that is there"
+grep -q 'is a project on this computer already' "$work/out" || { cat "$work/out"; fail "no reason for a second open"; }
+
 step "status and history"
 "$damstack" status >"$work/out"
 grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/out" && grep -Eq '^publish +.* ok' "$work/out" ||

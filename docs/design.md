@@ -271,7 +271,13 @@ copies the snapshots to the laptop over SFTP through the tunnel, and forgets
 what `backup.keep` of the stack does not keep; deploy schedules it with
 launchd or systemd as `backup.every` says; `damstack backup status` and the
 home screen warn when the laptop copy is older than two days or missing.
-Restoring is not there yet.
+`damstack backup kit` packs the project and its vault password into one
+file, encrypted with age under a passphrase it shows once; `damstack backup
+open` brings the project back from it on another computer, and the home
+screen asks for a new kit after the project changes. The server copies the
+host volumes by name before restic runs, stopping the jobs with the meta
+`backup = "stop"`, such as the mail server, for the copy. Restoring a server
+is not there yet.
 
 ## Open questions, and the plan for each
 
