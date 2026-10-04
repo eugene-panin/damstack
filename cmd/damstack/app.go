@@ -26,7 +26,7 @@ func appCommand(s *streams) *cobra.Command {
 		Short: "Add apps to the project you are in, and list them",
 	}
 	var from, answers string
-	var yes bool
+	var yes, asJSON bool
 	add := &cobra.Command{
 		Use:   "add <app>",
 		Short: "Add an app: a name damstack stacks lists, owner/name for github.com/owner/damstack-name, or any address",
@@ -46,7 +46,7 @@ func appCommand(s *streams) *cobra.Command {
 	add.Flags().StringVar(&from, "from", "", "add the app in this directory as it is, instead of a release; for writing an app")
 	add.Flags().StringVar(&answers, "answers", "", "a YAML file with answers to the questions, and the secrets the app asks for")
 	add.Flags().BoolVar(&yes, "yes", false, "deploy the project right after, without asking")
-	app.AddCommand(add, &cobra.Command{
+	list := &cobra.Command{
 		Use:   "list",
 		Short: "List the apps of the project you are in",
 		Args:  cobra.NoArgs,
@@ -55,6 +55,13 @@ func appCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if asJSON {
+				apps := make([]stackJSON, 0, len(p.Meta.Apps))
+				for _, a := range p.Meta.Apps {
+					apps = append(apps, newStackJSON(a))
+				}
+				return writeJSON(s.out, apps)
+			}
 			w := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "APP\tRELEASE\tFROM")
 			for _, a := range p.Meta.Apps {
@@ -62,7 +69,9 @@ func appCommand(s *streams) *cobra.Command {
 			}
 			return w.Flush()
 		},
-	})
+	}
+	list.Flags().BoolVar(&asJSON, "json", false, "print the apps as JSON: name, tag, commit, url")
+	app.AddCommand(add, list)
 	return app
 }
 

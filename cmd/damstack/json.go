@@ -5,10 +5,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
-// The --json output of status and history. The field names are an interface
+// The --json output of the commands. The field names are an interface
 // for scripts: add fields, never rename or drop one. They are their own types,
 // so the history file can change without breaking it.
 
@@ -47,6 +49,27 @@ type runJSON struct {
 	Commit   string    `json:"commit"`
 	Damstack string    `json:"damstack"`
 	Error    string    `json:"error"`
+}
+
+// libraryJSON is a stack damstack can deploy, from damstack stacks.
+type libraryJSON struct {
+	Name        string `json:"name"`
+	Kind        string `json:"kind"` // platform or app
+	From        string `json:"from"` // library or added
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Platform    string `json:"platform"` // of an app of the library
+}
+
+func newLibraryJSON(s config.Stack) libraryJSON {
+	j := libraryJSON{Name: s.Name, Kind: "platform", From: "added", URL: s.URL, Description: s.Description, Platform: s.Platform}
+	if s.Builtin {
+		j.From = "library"
+	}
+	if s.Kind == manifest.KindApp {
+		j.Kind = "app"
+	}
+	return j
 }
 
 func newStackJSON(ref project.StackRef) stackJSON {

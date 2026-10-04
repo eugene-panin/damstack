@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
 // writeProject makes a project in a temporary directory with history, one
@@ -69,6 +72,48 @@ func TestHistoryJSON(t *testing.T) {
 	for _, k := range []string{"time", "command", "step", "result", "seconds", "stack", "commit", "damstack", "error"} {
 		if _, ok := runs[0][k]; !ok {
 			t.Errorf("no %s in %v", k, runs[0])
+		}
+	}
+}
+
+func TestAppListJSON(t *testing.T) {
+	t.Chdir(writeProject(t))
+	code, out, _ := runCLI(t, context.Background(), "app", "list", "--json")
+	if code != 0 || strings.TrimSpace(out) != "[]" {
+		t.Errorf("no apps: exit %d, %q", code, out)
+	}
+
+	dir := writeProject(t)
+	meta := filepath.Join(dir, ".damstack", "project.yaml")
+	data, err := os.ReadFile(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, "apps:\n  - name: mail\n    url: https://example.com/damstack-mail\n    tag: v0.3.0\n    commit: def456\n"...)
+	if err := os.WriteFile(meta, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	code, out, _ = runCLI(t, context.Background(), "app", "list", "--json")
+	var apps []stackJSON
+	if err := json.Unmarshal([]byte(out), &apps); code != 0 || err != nil ||
+		len(apps) != 1 || apps[0] != (stackJSON{Name: "mail", Tag: "v0.3.0", Commit: "def456", URL: "https://example.com/damstack-mail"}) {
+		t.Errorf("exit %d, %v: %s", code, err, out)
+	}
+}
+
+func TestLibraryJSON(t *testing.T) {
+	tests := []struct {
+		in   config.Stack
+		want libraryJSON
+	}{
+		{config.Stack{Name: "hashi", URL: "u", Builtin: true}, libraryJSON{Name: "hashi", Kind: "platform", From: "library", URL: "u"}},
+		{config.Stack{Name: "mail", URL: "u", Kind: manifest.KindApp, Platform: "hashi", Builtin: true}, libraryJSON{Name: "mail", Kind: "app", From: "library", URL: "u", Platform: "hashi"}},
+		{config.Stack{Name: "mine", URL: "u"}, libraryJSON{Name: "mine", Kind: "platform", From: "added", URL: "u"}},
+	}
+	for _, tc := range tests {
+		if got := newLibraryJSON(tc.in); got != tc.want {
+			t.Errorf("%s: got %+v, want %+v", tc.in.Name, got, tc.want)
 		}
 	}
 }

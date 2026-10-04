@@ -16,7 +16,8 @@ import (
 )
 
 func stacksCommand(stdout io.Writer) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "stacks",
 		Short: "List the stacks damstack can deploy",
 		Args:  cobra.NoArgs,
@@ -25,21 +26,23 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			stacks := make([]libraryJSON, 0, len(cfg.AllStacks()))
+			for _, s := range cfg.AllStacks() {
+				stacks = append(stacks, newLibraryJSON(s))
+			}
+			if asJSON {
+				return writeJSON(stdout, stacks)
+			}
 			w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tKIND\tFROM\tREPOSITORY")
-			for _, s := range cfg.AllStacks() {
-				from, kind := "added", "platform"
-				if s.Builtin {
-					from = "library"
-				}
-				if s.Kind == manifest.KindApp {
-					kind = "app"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, kind, from, s.URL)
+			for _, s := range stacks {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Kind, s.From, s.URL)
 			}
 			return w.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the stacks as JSON")
+	return cmd
 }
 
 func addCommand(s *streams) *cobra.Command {
