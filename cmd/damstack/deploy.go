@@ -58,12 +58,35 @@ func newStreams(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) 
 			context.AfterFunc(ctx, func() { cr.Cancel() })
 			p.In = bufio.NewReader(cancelled{cr})
 		}
-		p.Hidden = func() (string, error) {
-			b, err := term.ReadPassword(int(f.Fd()))
-			return string(b), err
-		}
+		p.Hidden = func() (string, error) { return readPassword(ctx, int(f.Fd())) }
 	}
 	return &streams{in: stdin, out: stdout, err: stderr, prompt: p}
+}
+
+// readPassword reads a line from the terminal fd without echoing it, and gives
+// up when ctx ends, at the first Ctrl-C. The read itself cannot be stopped, so
+// it is left behind with the terminal put back as it was: damstack ends then.
+func readPassword(ctx context.Context, fd int) (string, error) {
+	state, err := term.GetState(fd)
+	if err != nil {
+		return "", err
+	}
+	type result struct {
+		b   []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		b, err := term.ReadPassword(fd)
+		done <- result{b, err}
+	}()
+	select {
+	case r := <-done:
+		return string(r.b), r.err
+	case <-ctx.Done():
+		_ = term.Restore(fd, state)
+		return "", context.Canceled
+	}
 }
 
 // cancelled reports a read given up at Ctrl-C as context.Canceled, which
