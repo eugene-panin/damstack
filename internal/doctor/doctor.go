@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -327,11 +326,6 @@ func tilde(home, path string) string {
 		return filepath.Join("~", rel)
 	}
 	return path
-}
-
-func atoi(s string) int {
-	n, _ := strconv.Atoi(strings.TrimSpace(s))
-	return n
 }
 
 func firstLine(b []byte) string {

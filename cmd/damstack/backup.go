@@ -361,13 +361,13 @@ func serverSource(ctx context.Context, s *streams, p *project.Project, srv *mani
 	if scheduled {
 		if err := login.SameServer(ctx, knownHosts, public, net.JoinHostPort(address, "22")); err != nil {
 			if errors.Is(err, login.ErrOtherServer) {
-				return backup.Source{}, fmt.Errorf("%w at %s: another server answers there, most likely through the tunnel of another project; next time.", errNoAnswer, address)
+				return backup.Source{}, fmt.Errorf("%w at %s: another server answers there, most likely through the tunnel of another project; the next pull tries again", errNoAnswer, address)
 			}
 			on, known := login.WireGuardOn(ctx)
 			if hint := login.TunnelHint(on, public, known); hint != "" {
-				return backup.Source{}, fmt.Errorf("%w at %s; next time. %s", errNoAnswer, address, hint)
+				return backup.Source{}, fmt.Errorf("%w at %s; the next pull tries again. %s", errNoAnswer, address, hint)
 			}
-			return backup.Source{}, fmt.Errorf("%w at %s; next time.", errNoAnswer, address)
+			return backup.Source{}, fmt.Errorf("%w at %s; the next pull tries again", errNoAnswer, address)
 		}
 	} else if err := waitTunnel(ctx, s, p, srv); err != nil {
 		return backup.Source{}, err
