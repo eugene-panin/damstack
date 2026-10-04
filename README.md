@@ -30,7 +30,7 @@ damstack stacks        # the stacks damstack can deploy
 damstack add owner/name   # github.com/owner/damstack-name, or any git address
 damstack deploy        # asks the questions of a stack, sets up a project, deploys it
 damstack status        # in a project: its stack, and how each step went last
-damstack history       # in a project: everything damstack ran on it
+damstack history       # in a project: everything damstack ran on it; --json for scripts, as status
 damstack app add mail  # in a project: add an app to its platform
 damstack stack lint    # checks the damstack.yaml of a stack
 damstack stack check   # proves a stack without a server

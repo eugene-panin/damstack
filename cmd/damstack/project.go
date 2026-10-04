@@ -29,12 +29,15 @@ import (
 var errNoProject = errors.New("there is no project yet: damstack deploy sets one up")
 
 func statusCommand(s *streams) *cobra.Command {
-	var live bool
+	var live, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "status [project]",
 		Short: "Show a project: its stack and how each step went last; --live checks the server now",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if live && asJSON {
+				return asUsage(cmd, errors.New("invalid argument: --json shows the history, --live checks the server; pass one"))
+			}
 			p, err := pickProject(s, firstArg(args))
 			if err != nil {
 				return err
@@ -46,49 +49,77 @@ func statusCommand(s *streams) *cobra.Command {
 				}
 				return liveCheck(cmd.Context(), s, p, m, dir)
 			}
+			steps, err := lastRuns(p)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return writeJSON(s.out, newStatusJSON(p, steps))
+			}
 			ref := p.Meta.Stack
 			fmt.Fprintf(s.out, "%s, in %s\n", p.Meta.Name, p.Dir)
 			fmt.Fprintf(s.out, "stack %s %s %.12s from %s\n", ref.Name, ref.Tag, ref.Commit, ref.URL)
 			fmt.Fprintf(s.out, "set up %s\n\n", p.Meta.Created.Local().Format(time.DateTime))
-			entries, err := p.History()
-			if err != nil {
-				return err
-			}
-			last := map[string]project.Entry{}
-			var order []string
-			for _, e := range entries {
-				if e.Command != "deploy" && e.Command != "import" {
-					continue
-				}
-				if _, ok := last[e.Step]; !ok {
-					order = append(order, e.Step)
-				}
-				last[e.Step] = e
-			}
-			if m, _ := cachedStack(p); m != nil {
-				order = stepOrder(p, m)
-			}
 			fmt.Fprintln(s.out, "The last run of each step, from the history; damstack status --live checks the server now.")
 			fmt.Fprintln(s.out)
 			w := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "STEP\tLAST RUN\tTHAT RUN\tSTACK THEN")
-			for _, name := range order {
-				e, ok := last[name]
-				if !ok {
-					fmt.Fprintf(w, "%s\t-\tnot run yet\t\n", name)
+			for _, st := range steps {
+				if st.last == nil {
+					fmt.Fprintf(w, "%s\t-\tnot run yet\t\n", st.name)
 					continue
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, e.Time.Local().Format(time.DateTime), e.Result, e.Stack)
+				e := st.last
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", st.name, e.Time.Local().Format(time.DateTime), e.Result, e.Stack)
 			}
 			return w.Flush()
 		},
 	}
 	cmd.Flags().BoolVar(&live, "live", false, "check the server now: playbooks in check mode and OpenTofu plans, changing nothing")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the project and the last run of each step as JSON")
 	return cmd
 }
 
+// stepRun is a step of a project and its last deploy, nil when it never ran.
+type stepRun struct {
+	name string
+	last *project.Entry
+}
+
+// lastRuns are the steps of p in the order they run, with the last deploy of each.
+func lastRuns(p *project.Project) ([]stepRun, error) {
+	entries, err := p.History()
+	if err != nil {
+		return nil, err
+	}
+	last := map[string]project.Entry{}
+	var order []string
+	for _, e := range entries {
+		if e.Command != "deploy" && e.Command != "import" {
+			continue
+		}
+		if _, ok := last[e.Step]; !ok {
+			order = append(order, e.Step)
+		}
+		last[e.Step] = e
+	}
+	if m, _ := cachedStack(p); m != nil {
+		order = stepOrder(p, m)
+	}
+	steps := make([]stepRun, 0, len(order))
+	for _, name := range order {
+		st := stepRun{name: name}
+		if e, ok := last[name]; ok {
+			st.last = &e
+		}
+		steps = append(steps, st)
+	}
+	return steps, nil
+}
+
 func historyCommand(s *streams) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "history [project]",
 		Short: "List everything damstack ran on a project",
 		Args:  cobra.MaximumNArgs(1),
@@ -100,6 +131,13 @@ func historyCommand(s *streams) *cobra.Command {
 			entries, err := p.History()
 			if err != nil {
 				return err
+			}
+			if asJSON {
+				runs := make([]runJSON, 0, len(entries))
+				for _, e := range entries {
+					runs = append(runs, newRunJSON(e))
+				}
+				return writeJSON(s.out, runs)
 			}
 			w := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(w, "TIME\tCOMMAND\tSTEP\tRESULT\tSECONDS\tSTACK\tDAMSTACK")
@@ -117,6 +155,8 @@ func historyCommand(s *streams) *cobra.Command {
 			return w.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print every run as JSON")
+	return cmd
 }
 
 // stepOrder names the steps of a deploy in the order they run, those of an
