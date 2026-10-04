@@ -38,9 +38,11 @@ homebrew_casks:
     license: MIT
     caveats: |
       Run damstack: it checks this Mac and says where to start.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/damstack"]
-          end
+    # The binary is not notarized: without this macOS refuses to run it.
+    # GoReleaser's hooks still write the postflight block Homebrew deprecated.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/damstack"]
+        end
+      end
