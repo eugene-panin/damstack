@@ -63,7 +63,7 @@ func TestInterruptedExits130(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var errOut bytes.Buffer
-	if code := report(ctx, context.Canceled, &errOut); code != exitInterrupt || errOut.Len() > 0 {
+	if code := report(ctx, context.Canceled, &errOut); code != exitInterrupt || errOut.String() != "\n" {
 		t.Errorf("exit %d, err %q", code, errOut.String())
 	}
 }

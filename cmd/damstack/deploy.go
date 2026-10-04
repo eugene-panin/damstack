@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/muesli/cancelreader"
 	"github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -45,18 +47,35 @@ type streams struct {
 }
 
 // newStreams asks its questions on stderr, so they reach the person when the
-// output goes to a file, and only when stdin is a terminal.
-func newStreams(stdin io.Reader, stdout, stderr io.Writer) *streams {
+// output goes to a file, and only when stdin is a terminal. A question waiting
+// for an answer gives up when ctx ends, at the first Ctrl-C.
+func newStreams(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) *streams {
 	p := ask.NewPrompter(stdin, stderr)
 	p.NoTerminal = true
 	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		p.NoTerminal = false
+		if cr, err := cancelreader.NewReader(f); err == nil {
+			context.AfterFunc(ctx, func() { cr.Cancel() })
+			p.In = bufio.NewReader(cancelled{cr})
+		}
 		p.Hidden = func() (string, error) {
 			b, err := term.ReadPassword(int(f.Fd()))
 			return string(b), err
 		}
 	}
 	return &streams{in: stdin, out: stdout, err: stderr, prompt: p}
+}
+
+// cancelled reports a read given up at Ctrl-C as context.Canceled, which
+// damstack ends with quietly, as an interrupted run.
+type cancelled struct{ r io.Reader }
+
+func (c cancelled) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if errors.Is(err, cancelreader.ErrCanceled) {
+		err = context.Canceled
+	}
+	return n, err
 }
 
 // confirm asks a yes or no question, unless --yes answered it already;

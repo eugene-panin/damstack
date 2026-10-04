@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -40,8 +41,8 @@ func main() {
 	os.Exit(code)
 }
 
-// interruptible is cancelled by the first Ctrl-C, which says so; the second
-// quits at once, without waiting for the tools to stop.
+// interruptible is cancelled by the first Ctrl-C; the second quits at once,
+// without waiting for the tools to stop.
 func interruptible(stderr io.Writer) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 2)
@@ -50,8 +51,18 @@ func interruptible(stderr io.Writer) (context.Context, func()) {
 		if _, ok := <-sigs; !ok {
 			return
 		}
-		fmt.Fprintln(stderr, "\ndamstack: stopping; press Ctrl-C again to quit at once")
 		cancel()
+		// A question ends at once; only stopping that takes a while, such as
+		// of a tool, needs saying.
+		select {
+		case _, ok := <-sigs:
+			if ok {
+				os.Exit(exitInterrupt)
+			}
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+		fmt.Fprintln(stderr, "\ndamstack: stopping; press Ctrl-C again to quit at once")
 		if _, ok := <-sigs; ok {
 			os.Exit(exitInterrupt)
 		}
@@ -75,7 +86,9 @@ func report(ctx context.Context, err error, stderr io.Writer) int {
 	case err == nil:
 		return 0
 	case ctx.Err() != nil:
-		if !errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(stderr) // end the line the ^C was typed on
+		} else {
 			fmt.Fprintln(stderr, "damstack:", err)
 		}
 		return exitInterrupt
@@ -146,7 +159,7 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 			return home(cmd.Context(), stdout)
 		},
 	}
-	s := newStreams(stdin, stdout, stderr)
+	s := newStreams(ctx, stdin, stdout, stderr)
 	root.SetArgs(takeProjectFlag(args))
 	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
 	// Declared before cobra adds its own, so --version gets no -v shorthand: -v is --verbose.
