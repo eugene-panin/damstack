@@ -39,7 +39,7 @@ damstack stack check   # proves a stack without a server
 ## A project
 
 `damstack deploy` asks the questions of the stack and sets up a project in
-`~/damstack/<name>`, or where `--dir` says:
+`~/.damstack/<name>`, or where `--dir` says:
 
 - `stack.yaml`: the one file to edit, rendered from the answers;
 - `vault.yml`: the secrets, generated or asked for, encrypted with Ansible
@@ -59,6 +59,11 @@ it changes anything. `damstack deploy` in a project deploys it again.
 
 Inside a project, the commands of its stack are damstack commands too, such as
 `damstack output`.
+
+Without a terminal, in a script or CI, damstack asks nothing: the answers and
+the secrets come from the file `--answers` names, the name of a new project
+from `--name`, and `--yes` goes ahead where it would ask, such as before a step
+marked `confirm`. A question it would need fails at once and says which.
 
 ## Apps
 

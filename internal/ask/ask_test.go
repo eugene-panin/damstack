@@ -140,3 +140,40 @@ func TestChecksAskAgain(t *testing.T) {
 		t.Errorf("a given answer that fails: %v", err)
 	}
 }
+
+// Without a terminal nothing is asked or printed: answers come from the file.
+func TestNoTerminal(t *testing.T) {
+	var out bytes.Buffer
+	p := NewPrompter(strings.NewReader("y\n"), &out)
+	p.NoTerminal = true
+	if _, err := p.Line("Name: "); !errors.Is(err, ErrNoTerminal) {
+		t.Errorf("Line: %v", err)
+	}
+	if _, err := p.Confirm("Go on?", true); !errors.Is(err, ErrNoTerminal) {
+		t.Errorf("Confirm: %v", err)
+	}
+	if out.Len() > 0 {
+		t.Errorf("printed %q", out.String())
+	}
+
+	answers, err := Questions(p, questions, map[string]any{"address": "10.0.0.1"}, nil, nil)
+	if err != nil || answers["address"] != "10.0.0.1" || answers["user"] != "ops" {
+		t.Errorf("given and defaults: %v, %v", answers, err)
+	}
+	if _, err := Questions(p, questions, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "--answers") {
+		t.Errorf("missing answer: %v", err)
+	}
+	if out.Len() > 0 {
+		t.Errorf("questions printed %q", out.String())
+	}
+}
+
+// A secret can still be piped in, read without a prompt.
+func TestNoTerminalSecretFromPipe(t *testing.T) {
+	var out bytes.Buffer
+	p := NewPrompter(strings.NewReader("s3cret\n"), &out)
+	p.NoTerminal = true
+	if got, err := p.Secret("Passphrase"); err != nil || got != "s3cret" || out.Len() > 0 {
+		t.Errorf("got %q, %v, printed %q", got, err, out.String())
+	}
+}

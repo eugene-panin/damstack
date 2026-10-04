@@ -40,17 +40,35 @@ type streams struct {
 	prompt *ask.Prompter
 	// verbose shows the output of the tools instead of keeping it in a log.
 	verbose bool
+	// yes is --yes: go ahead wherever damstack would ask to.
+	yes bool
 }
 
+// newStreams asks its questions on stderr, so they reach the person when the
+// output goes to a file, and only when stdin is a terminal.
 func newStreams(stdin io.Reader, stdout, stderr io.Writer) *streams {
-	p := ask.NewPrompter(stdin, stdout)
+	p := ask.NewPrompter(stdin, stderr)
+	p.NoTerminal = true
 	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		p.NoTerminal = false
 		p.Hidden = func() (string, error) {
 			b, err := term.ReadPassword(int(f.Fd()))
 			return string(b), err
 		}
 	}
 	return &streams{in: stdin, out: stdout, err: stderr, prompt: p}
+}
+
+// confirm asks a yes or no question, unless --yes answered it already;
+// without a terminal to ask in, only --yes goes ahead.
+func (s *streams) confirm(question string, def bool) (bool, error) {
+	if s.yes {
+		return true, nil
+	}
+	if s.prompt.NoTerminal {
+		return false, fmt.Errorf("%q: %w; pass --yes to go ahead", question, ask.ErrNoTerminal)
+	}
+	return s.prompt.Confirm(question, def)
 }
 
 func (s *streams) tty() bool {
@@ -66,6 +84,7 @@ type deployOptions struct {
 	dir     string
 	answers string
 	from    string
+	yes     bool
 }
 
 func deployCommand(s *streams) *cobra.Command {
@@ -82,17 +101,18 @@ func deployCommand(s *streams) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&o.name, "name", "", "the name of the new project")
-	cmd.Flags().StringVar(&o.dir, "dir", "", "where to put the new project, instead of ~/damstack/<name>")
+	cmd.Flags().StringVar(&o.dir, "dir", "", "where to put the new project, instead of ~/.damstack/<name>")
 	cmd.Flags().StringVar(&o.answers, "answers", "", "a YAML file with answers to the questions, and the secrets the stack asks for")
 	cmd.Flags().BoolVarP(&o.verbose, "verbose", "v", false, "show the output of Ansible and OpenTofu, instead of keeping it in a log of the project")
 	cmd.Flags().StringVar(&o.from, "from", "", "deploy the stack in this directory as it is, instead of a release; for writing a stack")
+	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
 	return cmd
 }
 
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
-	s.verbose = o.verbose
+	s.verbose, s.yes = o.verbose, o.yes
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -140,7 +160,10 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	delete(given, "project")
 	for name == "" || !projectNameRe.MatchString(name) || taken(cfg, name) {
 		if name != "" {
-			fmt.Fprintf(s.out, "  %s cannot be the name: 2 to 31 lowercase letters, digits and hyphens, not a project or a stack already\n", name)
+			fmt.Fprintf(s.err, "  %s cannot be the name: 2 to 31 lowercase letters, digits and hyphens, not a project or a stack already\n", name)
+		}
+		if s.prompt.NoTerminal {
+			return fmt.Errorf("the new project needs a name, and %v: pass --name", ask.ErrNoTerminal)
 		}
 		if name, err = s.prompt.Line("A name for this project, such as my-cloud: "); err != nil {
 			return err
@@ -199,9 +222,9 @@ func pickOrNew(s *streams, cfg *config.Config, from string) (*project.Project, e
 		return nil, fmt.Errorf("there are %d projects: name the one to deploy, such as damstack deploy %s, or a stack to set up a new one",
 			len(cfg.Projects), cfg.Projects[0].Name)
 	}
-	fmt.Fprintln(s.out, "Which project?")
+	fmt.Fprintln(s.err, "Which project?")
 	for i, entry := range cfg.Projects {
-		fmt.Fprintf(s.out, "  %d. %s\n", i+1, entry.Name)
+		fmt.Fprintf(s.err, "  %d. %s\n", i+1, entry.Name)
 	}
 	fmt.Fprintf(s.out, "  %d. a new project\n", len(cfg.Projects)+1)
 	for {
@@ -223,6 +246,9 @@ func pickOrNew(s *streams, cfg *config.Config, from string) (*project.Project, e
 func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOptions) (*manifest.Manifest, string, project.StackRef, error) {
 	arg, from := o.stack, o.from
 	if arg == "" && from == "" {
+		if s.prompt.NoTerminal {
+			return nil, "", project.StackRef{}, fmt.Errorf("name the stack to set up, such as damstack deploy hashi, and %v to pick one; damstack stacks lists them", ask.ErrNoTerminal)
+		}
 		var err error
 		if arg, err = pickPlatform(s, cfg); err != nil {
 			return nil, "", project.StackRef{}, err
@@ -290,7 +316,7 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 	ref := project.StackRef{Name: name, URL: url, Tag: r.Tag, Commit: r.Commit}
 	if !library {
 		fmt.Fprintf(s.out, "\n%s is not in the library of damstack. It runs with your SSH key and the secrets of the project.\n", url)
-		ok, err := s.prompt.Confirm("Use it only if you trust the people who wrote it. Go on?", false)
+		ok, err := s.confirm("Use it only if you trust the people who wrote it. Go on?", false)
 		if err != nil {
 			return nil, "", project.StackRef{}, err
 		}
@@ -306,17 +332,17 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 // or a stack of one's own.
 func pickPlatform(s *streams, cfg *config.Config) (string, error) {
 	var names []string
-	fmt.Fprintln(s.out, "Where your project starts from:")
-	fmt.Fprintln(s.out)
+	fmt.Fprintln(s.err, "Where your project starts from:")
+	fmt.Fprintln(s.err)
 	for _, st := range cfg.AllStacks() {
 		if st.Kind == manifest.KindApp {
 			continue
 		}
 		names = append(names, st.Name)
-		fmt.Fprintf(s.out, "  %d. %-8s %s\n", len(names), st.Name, st.Description)
+		fmt.Fprintf(s.err, "  %d. %-8s %s\n", len(names), st.Name, st.Description)
 	}
 	own := len(names) + 1
-	fmt.Fprintf(s.out, "  %d. your own: owner/name, a git address, or a directory\n\n", own)
+	fmt.Fprintf(s.err, "  %d. your own: owner/name, a git address, or a directory\n\n", own)
 	for {
 		answer, err := s.prompt.Line("Which? [1] ")
 		if err != nil {
@@ -332,7 +358,7 @@ func pickPlatform(s *streams, cfg *config.Config) (string, error) {
 		case slices.Contains(names, answer):
 			return answer, nil
 		}
-		fmt.Fprintf(s.out, "  answer a number from 1 to %d\n", own)
+		fmt.Fprintf(s.err, "  answer a number from 1 to %d\n", own)
 	}
 }
 
@@ -372,7 +398,7 @@ func review(s *streams, m *manifest.Manifest, name, path string) func(map[string
 			fmt.Fprintf(tw, "  %s\t%s\n", line.Label, value)
 		}
 		tw.Flush()
-		ok, err := s.prompt.Confirm("Set it up?", true)
+		ok, err := s.confirm("Set it up?", true)
 		if err != nil {
 			return err
 		}
@@ -490,7 +516,7 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	return &engine.Engine{
 		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, KeyFile: runner.Key,
 		Color: stdin != nil, Out: s.out,
-		Confirm: func(q string) (bool, error) { return s.prompt.Confirm(q, false) },
+		Confirm: func(q string) (bool, error) { return s.confirm(q, false) },
 	}, key, nil
 }
 

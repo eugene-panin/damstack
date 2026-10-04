@@ -26,6 +26,7 @@ func appCommand(s *streams) *cobra.Command {
 		Short: "Add apps to the project you are in, and list them",
 	}
 	var from, answers string
+	var yes bool
 	add := &cobra.Command{
 		Use:   "add <app>",
 		Short: "Add an app: a name damstack stacks lists, owner/name for github.com/owner/damstack-name, or any address",
@@ -38,11 +39,13 @@ func appCommand(s *streams) *cobra.Command {
 			if len(args) == 1 {
 				arg = args[0]
 			}
+			s.yes = yes
 			return addApp(cmd.Context(), s, arg, from, answers)
 		},
 	}
 	add.Flags().StringVar(&from, "from", "", "add the app in this directory as it is, instead of a release; for writing an app")
 	add.Flags().StringVar(&answers, "answers", "", "a YAML file with answers to the questions, and the secrets the app asks for")
+	add.Flags().BoolVar(&yes, "yes", false, "deploy the project right after, without asking")
 	app.AddCommand(add, &cobra.Command{
 		Use:   "list",
 		Short: "List the apps of the project you are in",
@@ -106,9 +109,12 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string) error {
 		return err
 	}
 	fmt.Fprintf(s.out, "\nAdded %s to %s: its settings are under apps.%s in stack.yaml.\n\n", am.Name, p.Meta.Name, am.Name)
-	ok, err := s.prompt.Confirm("Deploy it now?", true)
-	if err != nil {
-		return err
+	// Without a terminal and --yes, adding is all that was asked for.
+	ok := s.yes
+	if !ok && !s.prompt.NoTerminal {
+		if ok, err = s.prompt.Confirm("Deploy it now?", true); err != nil {
+			return err
+		}
 	}
 	if !ok {
 		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", p.Dir)

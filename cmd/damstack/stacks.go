@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -43,7 +42,7 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 	}
 }
 
-func addCommand(stdin io.Reader, stdout io.Writer) *cobra.Command {
+func addCommand(s *streams) *cobra.Command {
 	var name string
 	var yes bool
 	cmd := &cobra.Command{
@@ -51,7 +50,8 @@ func addCommand(stdin io.Reader, stdout io.Writer) *cobra.Command {
 		Short: "Add a stack from its git repository: owner/name for github.com/owner/damstack-name, or any address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return addStack(cmd.Context(), stdin, stdout, args[0], name, yes)
+			s.yes = yes
+			return addStack(cmd.Context(), s, args[0], name)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name to keep the stack under, instead of the one its damstack.yaml gives")
@@ -59,7 +59,7 @@ func addCommand(stdin io.Reader, stdout io.Writer) *cobra.Command {
 	return cmd
 }
 
-func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name string, yes bool) error {
+func addStack(ctx context.Context, s *streams, raw, name string) error {
 	url, err := stack.NormalizeURL(raw)
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Looking at %s\n", url)
+	fmt.Fprintf(s.out, "Looking at %s\n", url)
 	r, err := stack.Latest(ctx, url)
 	if err != nil {
 		return err
@@ -85,15 +85,19 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 		name = m.Name
 	}
 
-	fmt.Fprintf(stdout, "\n%s %s, commit %.12s\n  %s\n", m.Name, r.Tag, r.Commit, m.Description)
+	fmt.Fprintf(s.out, "\n%s %s, commit %.12s\n  %s\n", m.Name, r.Tag, r.Commit, m.Description)
 	if len(m.Requires.Host) > 0 {
-		fmt.Fprintf(stdout, "  needs on this machine: %s\n", strings.Join(m.Requires.Host, ", "))
+		fmt.Fprintf(s.out, "  needs on this machine: %s\n", strings.Join(m.Requires.Host, ", "))
 	}
-	fmt.Fprintf(stdout, "  steps: %s\n", stepNames(m))
-	fmt.Fprintln(stdout, "\nA stack runs with your SSH key and the secrets of the projects you deploy with it.")
-	fmt.Fprintln(stdout, "Add only a stack you trust, from people you trust.")
+	fmt.Fprintf(s.out, "  steps: %s\n", stepNames(m))
+	fmt.Fprintln(s.out, "\nA stack runs with your SSH key and the secrets of the projects you deploy with it.")
+	fmt.Fprintln(s.out, "Add only a stack you trust, from people you trust.")
 
-	if !yes && !confirm(stdin, stdout, fmt.Sprintf("Add it as %s?", name)) {
+	ok, err := s.confirm(fmt.Sprintf("Add it as %s?", name), false)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		return fmt.Errorf("not added")
 	}
 	cfg, err := loadConfig(ctx)
@@ -109,17 +113,17 @@ func addStack(ctx context.Context, stdin io.Reader, stdout io.Writer, raw, name 
 		return err
 	}
 	if !added {
-		fmt.Fprintf(stdout, "%s is already added.\n", name)
+		fmt.Fprintf(s.out, "%s is already added.\n", name)
 		return nil
 	}
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 	if m.IsApp() {
-		fmt.Fprintf(stdout, "Added %s. damstack app add %s adds it to the project you are in.\n", name, name)
+		fmt.Fprintf(s.out, "Added %s. damstack app add %s adds it to the project you are in.\n", name, name)
 		return nil
 	}
-	fmt.Fprintf(stdout, "Added %s. damstack deploy %s sets up a project on it.\n", name, name)
+	fmt.Fprintf(s.out, "Added %s. damstack deploy %s sets up a project on it.\n", name, name)
 	return nil
 }
 
@@ -132,11 +136,4 @@ func stepNames(m *manifest.Manifest) string {
 		}
 	}
 	return strings.Join(names, ", ")
-}
-
-func confirm(stdin io.Reader, stdout io.Writer, question string) bool {
-	fmt.Fprintf(stdout, "%s [y/N] ", question)
-	answer, _ := bufio.NewReader(stdin).ReadString('\n')
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer == "y" || answer == "yes"
 }

@@ -19,11 +19,19 @@ import (
 // ErrNoInput is returned when the input ends before a question is answered.
 var ErrNoInput = errors.New("the input ended before every question was answered")
 
+// ErrNoTerminal is returned for a question when there is no terminal to ask in.
+var ErrNoTerminal = errors.New("there is no terminal to ask in")
+
 type Prompter struct {
 	In  *bufio.Reader
 	Out io.Writer
 	// Hidden reads a line without echoing it, for secrets; nil reads from In.
 	Hidden func() (string, error)
+	// NoTerminal is set when In is not a terminal: nothing is asked, so a
+	// script never waits on a question it cannot see. Line and Confirm fail
+	// with ErrNoTerminal, Questions takes only given answers and defaults,
+	// and Secret reads a line from In without a prompt, so a secret can be piped.
+	NoTerminal bool
 }
 
 func NewPrompter(in io.Reader, out io.Writer) *Prompter {
@@ -31,6 +39,9 @@ func NewPrompter(in io.Reader, out io.Writer) *Prompter {
 }
 
 func (p *Prompter) Line(prompt string) (string, error) {
+	if p.NoTerminal {
+		return "", fmt.Errorf("%w: %s", ErrNoTerminal, strings.TrimSuffix(strings.TrimSpace(prompt), ":"))
+	}
 	fmt.Fprint(p.Out, prompt)
 	s, err := p.In.ReadString('\n')
 	if errors.Is(err, io.EOF) && s == "" {
@@ -67,7 +78,9 @@ func (p *Prompter) Confirm(question string, def bool) (bool, error) {
 // Secret asks for a value that is not shown as it is typed, until one is given.
 func (p *Prompter) Secret(prompt string) (string, error) {
 	for {
-		fmt.Fprint(p.Out, prompt+": ")
+		if !p.NoTerminal {
+			fmt.Fprint(p.Out, prompt+": ")
+		}
 		var s string
 		var err error
 		if p.Hidden != nil {
@@ -127,10 +140,13 @@ func Questions(p *Prompter, qs []manifest.Question, given map[string]any, funcs 
 			answers[q.Name] = a
 			continue
 		}
-		if p == nil || q.Advanced {
+		if p == nil || p.NoTerminal || q.Advanced {
 			if q.Default == nil && q.Type == "bool" {
 				answers[q.Name] = false
 				continue
+			}
+			if q.Default == nil && p != nil && p.NoTerminal {
+				return nil, fmt.Errorf("%s: no answer given, and %v: put it in the file of --answers", q.Name, ErrNoTerminal)
 			}
 			if q.Default == nil {
 				return nil, fmt.Errorf("%s: no answer given", q.Name)

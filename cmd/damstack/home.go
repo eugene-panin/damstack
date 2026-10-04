@@ -83,7 +83,7 @@ func platforms(w io.Writer, cfg *config.Config) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Start with")
 	fmt.Fprintf(w, "  damstack deploy %s\n", start)
-	fmt.Fprintln(w, "  It asks a few questions and sets up a project in ~/damstack/<name>.")
+	fmt.Fprintln(w, "  It asks a few questions and sets up a project in ~/.damstack/<name>.")
 	fmt.Fprintln(w, "  You need: a server with Ubuntu 24.04 and its root password, and a domain.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "damstack help lists every command.")

@@ -53,9 +53,9 @@ func pickProject(s *streams, name string) (*project.Project, error) {
 		return nil, fmt.Errorf("there are %d projects: name one, such as damstack status %s, or make one current with damstack use",
 			len(cfg.Projects), cfg.Projects[0].Name)
 	}
-	fmt.Fprintln(s.out, "Which project?")
+	fmt.Fprintln(s.err, "Which project?")
 	for i, entry := range cfg.Projects {
-		fmt.Fprintf(s.out, "  %d. %s\n", i+1, entry.Name)
+		fmt.Fprintf(s.err, "  %d. %s\n", i+1, entry.Name)
 	}
 	for {
 		answer, err := s.prompt.Line("Which? ")

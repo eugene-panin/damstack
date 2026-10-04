@@ -142,6 +142,8 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 			secrets[s.Name] = text
 		case placeholders:
 			secrets[s.Name] = "placeholder-" + s.Name
+		case p != nil && p.NoTerminal:
+			return nil, nil, nil, fmt.Errorf("secret %s: not given, and %v: put it in the file of --answers", s.Name, ask.ErrNoTerminal)
 		case p != nil:
 			if !heading {
 				fmt.Fprintln(p.Out, "\n── Secrets, not shown as you type them")

@@ -22,7 +22,7 @@ screens are the target; `Now` says how far the code is from each.
   what a platform provides and has one target per kind of platform.
 - **Building blocks** are Ansible collections and OpenTofu modules in their
   own repositories. A stack assembles them, ours or anyone's.
-- **A project** is a directory, `~/damstack/<name>`: `stack.yaml`, the one
+- **A project** is a directory, `~/.damstack/<name>`: `stack.yaml`, the one
   file to edit, `vault.yml` with the secrets, OpenTofu state, and in
   `.damstack/` the releases deployed and the history. The vault password is
   outside it, in `~/.config/damstack/projects/<name>/vault-pass`.
@@ -55,7 +55,7 @@ Platforms
 
 Start with
   damstack deploy hashi
-  It asks a few questions and sets up a project in ~/damstack/<name>.
+  It asks a few questions and sets up a project in ~/.damstack/<name>.
   You need: a server with Ubuntu 24.04 and its root password, and a domain.
 
 damstack help lists every command.
@@ -99,7 +99,7 @@ Your email, for Let's Encrypt about the certificates: me@example.com
 Devices that may open the admin pages [laptop]: laptop, phone
 
 Summary
-  project   ~/damstack/my-cloud
+  project   ~/.damstack/my-cloud
   server    203.0.113.10, you log in as ops afterwards
   admin     consul., nomad., vault.admin.example.com
 Set it up? [Y/n]
@@ -109,7 +109,7 @@ Set it up? [Y/n]
 2/5  Securing the server (1 min)             ok  root and passwords are off
 3/5  Consul, Vault, Nomad, WireGuard (6 min) ok
      ─ Your devices join the private network ─
-     laptop: import ~/damstack/my-cloud/clients/laptop.conf into WireGuard, turn it on
+     laptop: import ~/.damstack/my-cloud/clients/laptop.conf into WireGuard, turn it on
      phone:  scan this code in the WireGuard app  [QR]
      Press Enter when the laptop is on…      ok  the server answers through WireGuard
 4/5  Traefik and the admin pages (1 min)     12 things to create. Go? [Y/n]  ok

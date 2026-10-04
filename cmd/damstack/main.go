@@ -108,7 +108,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return checkStack(cmd.Context(), s, dir)
 		},
 	})
-	root.AddCommand(stack, stacksCommand(stdout), addCommand(stdin, stdout), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s), useCommand(s), editCommand(s), backupCommand(s))
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(s), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s), useCommand(s), editCommand(s), backupCommand(s))
 	root.InitDefaultCompletionCmd()
 	root.AddCommand(stackCommands(s, func(name string) bool {
 		c, _, err := root.Find([]string{name})
