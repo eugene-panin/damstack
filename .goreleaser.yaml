@@ -34,7 +34,7 @@ homebrew_casks:
       name: homebrew-tap
     directory: Casks
     homepage: https://github.com/eugene-panin/damstack
-    description: Set up your own server and run apps on it, from one file you edit, with nothing else installed
+    description: Set up your own server and run apps on it from one file you edit
     license: MIT
     caveats: |
       Run damstack: it checks this Mac and says where to start.
