@@ -46,6 +46,12 @@ server:
   first_user: root
   ops_user: "{{ .config.server.ops_user }}"
   tunnel: "{{ firstHost .config.network.cidr }}"
+  wireguard:
+    secret: wireguard
+    devices: network.clients
+    network: "{{ .config.network.cidr }}"
+    endpoint: "{{ .config.server.address }}:51820"
+    apply: output
 backup:
   from: "{{ .config.backup.server }}"
   to: ~/Backups/{{ .config.name }}
@@ -179,6 +185,8 @@ func TestProblems(t *testing.T) {
 		{"server without first user", "  first_user: root\n", "", "server.first_user: is required", "server:"},
 		{"server template that does not parse", "{{ .config.server.address }}", "{{ .config.server.address", "unclosed action", "  address:"},
 		{"tunnel step without a tunnel", "  tunnel: \"{{ firstHost .config.network.cidr }}\"\n", "", "needs server.tunnel", "    tunnel: true"},
+		{"wireguard without an apply", "    apply: output\n", "", "server.wireguard.apply: is required", "  wireguard:"},
+		{"wireguard applied by no command", "    apply: output", "    apply: tunnel", `"tunnel" is not a command`, "    apply: tunnel"},
 		{"backup without a password", "  password: '{{ secret \"backup_password\" }}'\n", "", "backup.password: is required", "backup:"},
 		{"backup keeping an unknown count", "weekly: \"{{", "fortnightly: \"{{", "not a count restic keeps", "  keep:"},
 		{"backup template that does not parse", "to: ~/Backups/{{ .config.name }}", "to: ~/Backups/{{ .config.name", "unclosed action", "  to:"},

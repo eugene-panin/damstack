@@ -31,7 +31,7 @@ var HostChecks = []string{"ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "upgrade", "use", "version"}
+var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "tunnel", "upgrade", "use", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
@@ -169,6 +169,22 @@ type Server struct {
 	// QR codes.
 	TunnelHelp    string `yaml:"tunnel_help"`
 	TunnelConfigs string `yaml:"tunnel_configs"`
+	// WireGuard is the private network whose keys damstack keeps.
+	WireGuard *WireGuard `yaml:"wireguard"`
+}
+
+// WireGuard is how damstack keeps the keys of the private network of a
+// server: in the secret Secret, for the devices listed at Devices, a dotted
+// path in stack.yaml, on Network, the server at Endpoint, both templates over
+// stack.yaml. Apply is the command that sets the keys on the server, over its
+// public address; Interface is its name there, wg0 by default.
+type WireGuard struct {
+	Secret    string `yaml:"secret"`
+	Devices   string `yaml:"devices"`
+	Network   string `yaml:"network"`
+	Endpoint  string `yaml:"endpoint"`
+	Apply     string `yaml:"apply"`
+	Interface string `yaml:"interface"`
 }
 
 // Backup is where the server keeps its restic backups, and where damstack
@@ -462,6 +478,23 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		for field, text := range map[string]string{"address": m.Server.Address, "first_user": m.Server.FirstUser,
 			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel, "tunnel_help": m.Server.TunnelHelp} {
 			c.checkTemplate("server."+field, text)
+		}
+		if w := m.Server.WireGuard; w != nil {
+			for field, text := range map[string]string{"secret": w.Secret, "devices": w.Devices, "network": w.Network, "endpoint": w.Endpoint, "apply": w.Apply} {
+				if text == "" {
+					c.add("server.wireguard."+field, "is required")
+				}
+			}
+			c.checkTemplate("server.wireguard.network", w.Network)
+			c.checkTemplate("server.wireguard.endpoint", w.Endpoint)
+			if w.Apply != "" {
+				if _, ok := m.Commands[w.Apply]; !ok {
+					c.add("server.wireguard.apply", "%q is not a command of the stack", w.Apply)
+				}
+			}
+			if m.Server.TunnelConfigs != "" {
+				c.add("server.tunnel_configs", "goes with server.wireguard: damstack makes the configurations of the devices itself")
+			}
 		}
 	}
 

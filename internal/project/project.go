@@ -402,3 +402,83 @@ func joinComments(a, b string) string {
 	}
 	return a + "\n" + b
 }
+
+// List is the list of names at a dotted path of stack.yaml, such as
+// network.clients.
+func List(config map[string]any, path string) ([]string, error) {
+	var v any = config
+	for _, key := range strings.Split(path, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("%s is not in stack.yaml", path)
+		}
+		v = m[key]
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s in stack.yaml is not a list", path)
+	}
+	names := make([]string, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s in stack.yaml holds %v, not a name", path, item)
+		}
+		names[i] = s
+	}
+	return names, nil
+}
+
+// SetList writes the list of names at a dotted path of stack.yaml, keeping
+// the rest of the file, its comments too, as it is.
+func (p *Project) SetList(path string, names []string) error {
+	file := filepath.Join(p.Dir, ConfigFile)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("%s is empty", file)
+	}
+	node := doc.Content[0]
+	for _, key := range strings.Split(path, ".") {
+		var next *yaml.Node
+		if node.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				if node.Content[i].Value == key {
+					next = node.Content[i+1]
+				}
+			}
+		}
+		if next == nil {
+			return fmt.Errorf("%s is not in stack.yaml", path)
+		}
+		node = next
+	}
+	if node.Kind != yaml.SequenceNode {
+		return fmt.Errorf("%s in stack.yaml is not a list", path)
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	if node.Style&yaml.FlowStyle != 0 {
+		line := lines[node.Line-1]
+		start := node.Column - 1
+		end := strings.Index(line[start:], "]")
+		if end < 0 {
+			return fmt.Errorf("%s in stack.yaml spans lines; edit it by hand", path)
+		}
+		lines[node.Line-1] = line[:start] + "[" + strings.Join(names, ", ") + "]" + line[start+end+1:]
+	} else {
+		first, last := node.Content[0], node.Content[len(node.Content)-1]
+		indent := strings.Repeat(" ", first.Column-3)
+		var block []string
+		for _, name := range names {
+			block = append(block, indent+"- "+name+"\n")
+		}
+		lines = append(lines[:first.Line-1], append(block, lines[last.Line:]...)...)
+	}
+	return writeFile(file, []byte(strings.Join(lines, "")), 0o644)
+}

@@ -600,6 +600,10 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
+	keys, err := ensureKeys(p, m, dir, e.Password)
+	if err != nil {
+		return err
+	}
 	jobs, err := buildJobs(ctx, s, p, m, e)
 	if err != nil {
 		return err
@@ -611,6 +615,19 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	}
 	fmt.Fprintf(s.out, "\nDone. %s is running.\n", p.Meta.Name)
 	done(s.out, p, m, "")
+	if keys.Any() {
+		fmt.Fprintln(s.out, "\nNew WireGuard keys: each device needs its new configuration, and the old one no longer works.")
+		names := keys.Added
+		if keys.Server {
+			t, err := newTunnel(s, p, m, dir)
+			if err == nil {
+				names = t.names
+			}
+		}
+		for _, name := range names {
+			fmt.Fprintf(s.out, "  damstack tunnel show %s    (--qr for a phone)\n", name)
+		}
+	}
 	for _, ref := range p.Meta.Apps {
 		if am, _ := cachedRef(ref); am != nil && len(am.Done) > 0 {
 			fmt.Fprintf(s.out, "%s:\n", ref.Name)
@@ -879,6 +896,19 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 // to import on this computer, and a QR code for each other one.
 func devices(w io.Writer, p *project.Project, srv *manifest.Server, help string) {
 	fmt.Fprintln(w, "\n── Your devices join the private network")
+	if srv.WireGuard != nil {
+		config, _ := p.Config()
+		names, _ := project.List(config, srv.WireGuard.Devices)
+		for i, name := range names {
+			if i == 0 {
+				fmt.Fprintf(w, "This Mac: damstack tunnel show %s puts it into the WireGuard app; turn it on.\n", name)
+				continue
+			}
+			fmt.Fprintf(w, "%s: damstack tunnel show %s --qr shows a QR code to scan in its WireGuard app.\n", name, name)
+		}
+		fmt.Fprintln(w)
+		return
+	}
 	var configs []string
 	if srv.TunnelConfigs != "" {
 		configs, _ = filepath.Glob(filepath.Join(p.Dir, srv.TunnelConfigs))

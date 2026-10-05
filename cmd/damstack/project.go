@@ -372,6 +372,9 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		if err != nil {
 			return err
 		}
+		if _, err := ensureKeys(p, m, dir, password); err != nil {
+			return err
+		}
 	}
 	tb, cache, err := fetchToolbox(ctx, s, m)
 	if err != nil {
