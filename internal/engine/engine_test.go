@@ -159,7 +159,7 @@ func TestTofuApply(t *testing.T) {
 	}
 	data := " --no-color --policy /stack/policy --data /work/stack.yaml --data /stack/policy/data"
 	want := []string{
-		"tofu -chdir=/stack/infra init -input=false -lockfile=readonly -backend-config=path=/work/state/infra.tfstate",
+		"tofu -chdir=/stack/infra init -input=false -reconfigure -lockfile=readonly -backend-config=path=/work/state/infra.tfstate",
 		"tofu -chdir=/stack/infra plan -input=false -detailed-exitcode -out=/work/.damstack/work/tofu/infra/plan",
 		"tofu -chdir=/stack/infra show -json /work/.damstack/work/tofu/infra/plan",
 		"conftest test" + data + " --namespace terraform /work/.damstack/work/tofu/infra/plan.json",
@@ -256,7 +256,7 @@ func TestAppTofuKeepsItsOwnStateAndWritesOutputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := r.lines()
-	if lines[0] != "tofu -chdir=/stack/infra init -input=false -lockfile=readonly -backend-config=path=/work/state/mail-infra.tfstate" ||
+	if lines[0] != "tofu -chdir=/stack/infra init -input=false -reconfigure -lockfile=readonly -backend-config=path=/work/state/mail-infra.tfstate" ||
 		lines[len(lines)-1] != "tofu -chdir=/stack/infra output -json dns_records" {
 		t.Errorf("got\n%s", strings.Join(lines, "\n"))
 	}

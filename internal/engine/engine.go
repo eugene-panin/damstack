@@ -320,7 +320,7 @@ func (e *Engine) outputs(ctx context.Context, t *manifest.Tofu, env map[string]s
 // init runs tofu init, twice when the first fails: it fetches modules and
 // providers from registries, which fail now and then.
 func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, args ...string) error {
-	cmd := append([]string{"tofu", chdir, "init", "-input=false", "-lockfile=readonly"}, args...)
+	cmd := append([]string{"tofu", chdir, "init", "-input=false", "-reconfigure", "-lockfile=readonly"}, args...)
 	if e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Silent: true, Args: cmd}) == nil {
 		return nil
 	}
