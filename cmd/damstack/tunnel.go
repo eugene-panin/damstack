@@ -346,6 +346,15 @@ func (t *tunnel) show(ctx context.Context, name string, qr, print bool) error {
 	}
 	fmt.Fprintf(t.s.out, "The WireGuard app imports the tunnel %s: allow it, then turn the tunnel on.\n", t.p.Meta.Name)
 	fmt.Fprintln(t.s.out, "If a tunnel of that name is there already, remove it in the app first: the old keys no longer work.")
+	if !t.imported(ctx, 15*time.Second) {
+		copy := exec.CommandContext(ctx, "pbcopy")
+		copy.Stdin = strings.NewReader(conf)
+		if err := copy.Run(); err != nil {
+			return fmt.Errorf("the WireGuard app did not take the tunnel, and the clipboard does not either: %w; damstack tunnel show %s --print prints it", err, name)
+		}
+		fmt.Fprintf(t.s.out, "\nThe app did not take it. The configuration is on the clipboard instead: in the WireGuard app, click +,\n"+
+			"then Add Empty Tunnel, select all in the text, paste, name it %s, and save. Then clear the clipboard: it holds the private key.\n", t.p.Meta.Name)
+	}
 	if !t.s.tty() {
 		time.Sleep(5 * time.Second)
 		return nil
@@ -354,6 +363,26 @@ func (t *tunnel) show(ctx context.Context, name string, qr, print bool) error {
 		return err
 	}
 	return t.waitHandshake(ctx, name)
+}
+
+// imported is whether the WireGuard app holds a tunnel named after the
+// project, or does so within wait.
+func (t *tunnel) imported(ctx context.Context, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		out, _ := exec.CommandContext(ctx, "scutil", "--nc", "list").Output()
+		if strings.Contains(string(out), `"`+t.p.Meta.Name+`"`) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // waitHandshake waits for the server to hear from the device with its
