@@ -52,6 +52,9 @@ server:
     network: "{{ .config.network.cidr }}"
     endpoint: "{{ .config.server.address }}:51820"
     apply: output
+  ssh_key:
+    secret: ssh_project_key
+    apply: output
 backup:
   from: "{{ .config.backup.server }}"
   to: ~/Backups/{{ .config.name }}
@@ -187,6 +190,7 @@ func TestProblems(t *testing.T) {
 		{"tunnel step without a tunnel", "  tunnel: \"{{ firstHost .config.network.cidr }}\"\n", "", "needs server.tunnel", "    tunnel: true"},
 		{"wireguard without an apply", "    apply: output\n", "", "server.wireguard.apply: is required", "  wireguard:"},
 		{"wireguard applied by no command", "    apply: output", "    apply: tunnel", `"tunnel" is not a command`, "    apply: tunnel"},
+		{"ssh key applied by no command", "  ssh_key:\n    secret: ssh_project_key\n    apply: output", "  ssh_key:\n    secret: ssh_project_key\n    apply: access", `"access" is not a command`, "    apply: access"},
 		{"backup without a password", "  password: '{{ secret \"backup_password\" }}'\n", "", "backup.password: is required", "backup:"},
 		{"backup keeping an unknown count", "weekly: \"{{", "fortnightly: \"{{", "not a count restic keeps", "  keep:"},
 		{"backup template that does not parse", "to: ~/Backups/{{ .config.name }}", "to: ~/Backups/{{ .config.name", "unclosed action", "  to:"},

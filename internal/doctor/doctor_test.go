@@ -142,11 +142,6 @@ func TestProblems(t *testing.T) {
 			text:   "github.com, where the toolbox is, does not answer", status: Fail, fix: "internet connection",
 		},
 		{
-			name:   "no ssh key",
-			break_: func(m *machine) { delete(m.paths, "/home/u/.ssh/id_ed25519.pub") },
-			text:   "no SSH key", status: Fail, fix: "ssh-keygen -t ed25519",
-		},
-		{
 			name:   "public key without its private half",
 			break_: func(m *machine) { delete(m.paths, "/home/u/.ssh/id_ed25519") },
 			text:   "only the public half of the key is here", status: Fail, fix: "copy the private key back",

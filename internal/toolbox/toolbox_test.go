@@ -19,11 +19,12 @@ func TestEnvironTakesNothingOfTheUserButThePassthrough(t *testing.T) {
 	t.Setenv("NOMAD_TOKEN", "poison")
 	t.Setenv("PATH", "/poison/bin:/usr/bin")
 	t.Setenv("HTTPS_PROXY", "http://proxy:3128")
+	t.Setenv("TMPDIR", "/short")
 	r := &Runner{Toolbox: "/tb", Stack: "/s", Project: "/p", Password: "/c/vault-pass", Key: "/h/.ssh/id_ed25519", Cache: "/cache"}
 	env := strings.Join(r.Environ(Cmd{Env: map[string]string{"ANSIBLE_CONFIG": "/s/ansible.cfg", "TF_VAR_x": "1"}}), "\n")
 	for _, want := range []string{"PATH=/tb/bin:/usr/bin:/bin:/usr/sbin:/sbin", "ANSIBLE_CONFIG=/s/ansible.cfg", "TF_VAR_x=1",
 		"TF_CLI_CONFIG_FILE=/tb/etc/tofurc", "TF_PLUGIN_CACHE_DIR=/cache/tofu-plugins", "ANSIBLE_HOME=/p/.damstack/work/ansible",
-		"DAMSTACK_PROJECT=/p", "DAMSTACK_SSH_KEY=/h/.ssh/id_ed25519", "HTTPS_PROXY=http://proxy:3128", "LANG=en_US.UTF-8"} {
+		"DAMSTACK_PROJECT=/p", "DAMSTACK_SSH_KEY=/h/.ssh/id_ed25519", "ANSIBLE_SSH_CONTROL_PATH_DIR=/short/damstack-cp", "HTTPS_PROXY=http://proxy:3128", "LANG=en_US.UTF-8"} {
 		if !strings.Contains(env, want+"\n") && !strings.HasSuffix(env, want) {
 			t.Errorf("no %s in\n%s", want, env)
 		}

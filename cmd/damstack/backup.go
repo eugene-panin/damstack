@@ -372,7 +372,12 @@ func serverSource(ctx context.Context, s *streams, p *project.Project, srv *mani
 	} else if err := waitTunnel(ctx, s, p, srv); err != nil {
 		return backup.Source{}, err
 	}
-	key, err := sshKey()
+	m, _ := cachedStack(p)
+	password, err := p.Password()
+	if err != nil {
+		return backup.Source{}, err
+	}
+	key, err := keyFor(p, m, password)
 	if err != nil {
 		return backup.Source{}, err
 	}

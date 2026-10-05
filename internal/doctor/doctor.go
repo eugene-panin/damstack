@@ -171,8 +171,7 @@ func checkSSH(ctx context.Context, env Env) []Result {
 		}
 	}
 	if key == "" {
-		results = append(results, Result{group, Fail, "no SSH key in ~/.ssh",
-			"create one: ssh-keygen -t ed25519, and press Enter at every question"})
+		results = append(results, Result{group, OK, "no key in ~/.ssh: every project logs in to its server with a key of its own", ""})
 	} else {
 		results = append(results, Result{group, OK, "key " + tilde(env.Home, key), ""})
 	}

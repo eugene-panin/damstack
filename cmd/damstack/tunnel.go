@@ -159,6 +159,9 @@ func newTunnel(s *streams, p *project.Project, m *manifest.Manifest, dir string)
 // ensureKeys gives the devices of a project the keys they lack, before a
 // deploy or a check of its stack.
 func ensureKeys(p *project.Project, m *manifest.Manifest, dir, password string) (wg.Change, error) {
+	if _, err := ensureSSHKey(p, m, password); err != nil {
+		return wg.Change{}, err
+	}
 	if m.Server == nil || m.Server.WireGuard == nil {
 		return wg.Change{}, nil
 	}
@@ -380,7 +383,7 @@ func (t *tunnel) waitHandshake(ctx context.Context, name string) error {
 // handshakes are the latest handshakes the server had, by public key, read
 // over its public address.
 func (t *tunnel) handshakes(ctx context.Context) (map[string]time.Time, error) {
-	key, err := sshKey()
+	key, err := keyFor(t.p, t.m, t.password)
 	if err != nil {
 		return nil, err
 	}

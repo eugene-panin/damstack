@@ -532,7 +532,7 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	if err != nil {
 		return nil, "", err
 	}
-	key, err := sshKey()
+	key, err := keyFor(p, m, password)
 	if err != nil {
 		return nil, "", err
 	}
@@ -591,6 +591,13 @@ type job struct {
 // runSteps deploys a project: the steps of its platform, then those of each
 // app, then the platform's steps that come after the apps.
 func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
+	password, err := p.Password()
+	if err != nil {
+		return err
+	}
+	if _, err := ensureSSHKey(p, m, password); err != nil {
+		return err
+	}
 	e, key, err := newEngine(ctx, s, p, m, dir)
 	if err != nil {
 		return err

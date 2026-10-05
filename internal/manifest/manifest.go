@@ -31,7 +31,7 @@ var HostChecks = []string{"ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "stack", "stacks", "status", "token", "tunnel", "upgrade", "use", "version"}
+var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "ssh", "stack", "stacks", "status", "token", "tunnel", "upgrade", "use", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
@@ -171,6 +171,14 @@ type Server struct {
 	TunnelConfigs string `yaml:"tunnel_configs"`
 	// WireGuard is the private network whose keys damstack keeps.
 	WireGuard *WireGuard `yaml:"wireguard"`
+	// SSHKey is the SSH key of the project, kept in the secret Secret and
+	// authorized on the server by the command Apply.
+	SSHKey *SSHKey `yaml:"ssh_key"`
+}
+
+type SSHKey struct {
+	Secret string `yaml:"secret"`
+	Apply  string `yaml:"apply"`
 }
 
 // WireGuard is how damstack keeps the keys of the private network of a
@@ -494,6 +502,16 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			}
 			if m.Server.TunnelConfigs != "" {
 				c.add("server.tunnel_configs", "goes with server.wireguard: damstack makes the configurations of the devices itself")
+			}
+		}
+		if k := m.Server.SSHKey; k != nil {
+			for field, text := range map[string]string{"secret": k.Secret, "apply": k.Apply} {
+				if text == "" {
+					c.add("server.ssh_key."+field, "is required")
+				}
+			}
+			if _, ok := m.Commands[k.Apply]; k.Apply != "" && !ok {
+				c.add("server.ssh_key.apply", "%q is not a command of the stack", k.Apply)
 			}
 		}
 	}

@@ -92,6 +92,8 @@ func (r *Runner) Environ(c Cmd) []string {
 	env["PATH"] = filepath.Join(r.Toolbox, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin"
 	env["ANSIBLE_CONFIG"] = filepath.Join(r.Toolbox, "etc", "ansible.cfg")
 	env["ANSIBLE_HOME"] = filepath.Join(r.Project, ".damstack", "work", "ansible")
+	// The sockets of ssh's ControlMaster must fit in 104 bytes on macOS.
+	env["ANSIBLE_SSH_CONTROL_PATH_DIR"] = filepath.Join(env["TMPDIR"], "damstack-cp")
 	env["TF_CLI_CONFIG_FILE"] = filepath.Join(r.Toolbox, "etc", "tofurc")
 	if r.Cache != "" {
 		env["TF_PLUGIN_CACHE_DIR"] = filepath.Join(r.Cache, "tofu-plugins")
