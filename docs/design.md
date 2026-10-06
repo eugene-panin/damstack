@@ -349,16 +349,16 @@ in the template. Test when it comes: three GCP servers.
 
 | Repository | What | Published |
 |---|---|---|
-| damstack | the program | GitHub release 0.1.0, `brew install eugene-panin/tap/damstack` |
+| damstack | the program | GitHub release 0.6.0, `brew install eugene-panin/tap/damstack` |
 | damstack-library | the platforms and apps damstack offers | GitHub |
 | homebrew-tap | the cask of damstack, written by GoReleaser | GitHub |
-| damstack-toolbox | the image steps run in | ghcr.io, 1.0.0 |
-| damstack-hashi | the platform | GitHub, v0.2.0 |
-| damstack-mail | the mail app | GitHub, v0.2.0 |
-| ansible-collection-base | WireGuard, firewall, Docker, backup | Galaxy 0.5.0 |
-| ansible-collection-hashistack | Consul, Vault with auto-unseal, Nomad | Galaxy 0.7.0 |
-| terraform-nomad-hashistack | Traefik, workload identity, DNS on Cloudflare | registry 0.8.0 |
-| terraform-nomad-stalwart | Stalwart on Nomad | registry 0.1.0 |
+| damstack-toolbox | the tools steps run with, for the Mac | GitHub release 1.1.0 |
+| damstack-hashi | the platform | GitHub, v0.9.0 |
+| damstack-mail | the mail app | GitHub, v0.4.0 |
+| ansible-collection-base | WireGuard, firewall, Docker, backup, time | Galaxy 0.7.0 |
+| ansible-collection-hashistack | Consul, Vault with auto-unseal, Nomad | Galaxy 0.7.1 |
+| terraform-nomad-hashistack | Traefik, workload identity, DNS on Cloudflare | git tag v0.9.0 |
+| terraform-nomad-stalwart | Stalwart on Nomad | git tag v0.3.1 |
 
 Tested end to end on a GCP server from scratch: a platform, the mail app, a
 change of the admin domain, a reboot that unsealed Vault by itself, and a
