@@ -177,4 +177,17 @@ grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/ou
 [[ $(grep -c ' deploy ' "$work/out") -ge 12 ]] || fail "history is short"
 grep -q ' failed ' "$work/out" || { cat "$work/out"; fail "history lost the failed apply"; }
 
+step "rename: the project answers to its new name, with its password, state and history"
+"$damstack" rename demo1 hashi >"$work/out" 2>&1 && fail "a project took the name of a stack"
+"$damstack" rename demo1 demo3 >"$work/out" 2>&1 || { cat "$work/out"; fail "rename"; }
+grep -q "demo1 is now demo3, in $project" "$work/out" || { cat "$work/out"; fail "rename says"; }
+[[ $("$damstack" token api --print -p demo3) == tok ]] || fail "the vault password did not follow the name"
+[[ -e $XDG_CONFIG_HOME/damstack/projects/demo1 ]] && fail "the old vault password directory was left"
+"$damstack" status -p demo1 >"$work/out" 2>&1 && fail "the old name still works"
+"$damstack" history -p demo3 >"$work/out"
+grep -q ' deploy ' "$work/out" || { cat "$work/out"; fail "the history did not follow the name"; }
+"${other[@]}" "$damstack" rename demo1 demo4 >"$work/out" 2>&1 || { cat "$work/out"; fail "rename in the default place"; }
+[[ -e $work/home2/demo1 ]] && fail "the directory in the default place kept the old name"
+[[ $(cd "$work" && "${other[@]}" "$damstack" output greeting -p demo4) == '"hello"' ]] || fail "the OpenTofu state did not follow the directory"
+
 printf '\nall end to end scenarios passed\n'
