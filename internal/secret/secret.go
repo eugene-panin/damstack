@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
@@ -55,6 +56,25 @@ func random(n int) []byte {
 	return b
 }
 
+// Permitted are the only names a generated CA can sign for: those of the
+// agents of a platform, on its private network. A Mac that trusts the CA
+// trusts it for nothing else, whoever holds its key.
+var Permitted = struct {
+	DNS []string
+	IPs []*net.IPNet
+}{
+	DNS: []string{"consul", "nomad", "localhost"},
+	IPs: []*net.IPNet{
+		{IP: net.IPv4(10, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},
+		{IP: net.IPv4(127, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},
+	},
+}
+
+// Constrained is whether a CA certificate signs for Permitted only.
+func Constrained(cert *x509.Certificate) bool {
+	return cert.PermittedDNSDomainsCritical && len(cert.PermittedDNSDomains) > 0 && len(cert.PermittedIPRanges) > 0
+}
+
 func ca(commonName string) (Generated, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -79,6 +99,10 @@ func ca(commonName string) (Generated, error) {
 		BasicConstraintsValid: true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		SubjectKeyId:          subjectKeyID[:],
+
+		PermittedDNSDomainsCritical: true,
+		PermittedDNSDomains:         Permitted.DNS,
+		PermittedIPRanges:           Permitted.IPs,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {

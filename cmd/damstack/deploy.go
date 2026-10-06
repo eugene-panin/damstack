@@ -641,6 +641,7 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			done(s.out, p, am, ref.Name)
 		}
 	}
+	trustNotice(ctx, s, p, m)
 	if m.Backup == nil {
 		return nil
 	}

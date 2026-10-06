@@ -226,7 +226,7 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 			return checkStack(cmd.Context(), s, dir)
 		},
 	})
-	root.AddCommand(stack, stacksCommand(stdout), addCommand(s), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s), useCommand(s), editCommand(s), backupCommand(s), tunnelCommand(s), sshCommand(s), secretCommand(s))
+	root.AddCommand(stack, stacksCommand(stdout), addCommand(s), deployCommand(s), statusCommand(s), historyCommand(s), appCommand(s), tokenCommand(s), useCommand(s), editCommand(s), backupCommand(s), tunnelCommand(s), sshCommand(s), secretCommand(s), trustCommand(s))
 	root.InitDefaultCompletionCmd()
 	root.AddCommand(stackCommands(s, func(name string) bool {
 		c, _, err := root.Find([]string{name})
