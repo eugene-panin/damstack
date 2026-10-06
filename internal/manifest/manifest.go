@@ -31,7 +31,7 @@ var HostChecks = []string{"ssh-key", "wireguard"}
 
 // Builtin are the commands of damstack itself; a stack command may not take
 // their names.
-var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "ssh", "stack", "stacks", "status", "token", "tunnel", "upgrade", "use", "version"}
+var Builtin = []string{"add", "app", "apply", "backup", "completion", "deploy", "doctor", "edit", "help", "history", "remove", "secret", "ssh", "stack", "stacks", "status", "token", "tunnel", "upgrade", "use", "version"}
 
 type Manifest struct {
 	APIVersion  string `yaml:"apiVersion"`
@@ -151,6 +151,9 @@ type Secret struct {
 	// key is the secret.
 	Cert   string      `yaml:"cert"`
 	Checks []CheckSpec `yaml:"checks"`
+	// Rotate says a generated secret may be made anew with damstack secret
+	// rotate: the next deploy puts the new one in place everywhere.
+	Rotate bool `yaml:"rotate"`
 }
 
 // Server is how damstack reaches the server of a project, as templates over
@@ -729,6 +732,9 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		}
 		if s.Bytes < 0 || s.Bytes > 1024 {
 			c.add(path+".bytes", "must be between 1 and 1024")
+		}
+		if s.Rotate && s.Generate == "" {
+			c.add(path+".rotate", "is for a generated secret: damstack cannot make an asked one anew")
 		}
 		if s.Cert != "" && (s.Generate != "ca" || !filepath.IsLocal(s.Cert)) {
 			c.add(path+".cert", "is for a generated ca only, a path inside the project")
