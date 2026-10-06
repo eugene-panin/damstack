@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,6 +65,22 @@ func TestInterruptedExits130(t *testing.T) {
 	cancel()
 	var errOut bytes.Buffer
 	if code := report(ctx, context.Canceled, &errOut); code != exitInterrupt || errOut.String() != "\n" {
+		t.Errorf("exit %d, err %q", code, errOut.String())
+	}
+}
+
+func TestSSHTakesOneProjectBeforeTheCommand(t *testing.T) {
+	if code, _, errOut := runCLI(t, context.Background(), "ssh", "a", "b"); code != exitUsage {
+		t.Errorf("ssh a b: exit %d, err %q", code, errOut)
+	}
+	if code, _, errOut := runCLI(t, context.Background(), "ssh", "a", "--", "uptime", "-p"); code == exitUsage {
+		t.Errorf("ssh a -- uptime -p: exit %d, err %q", code, errOut)
+	}
+}
+
+func TestCommandElsewhereExitsWithItsStatus(t *testing.T) {
+	var errOut bytes.Buffer
+	if code := report(context.Background(), fmt.Errorf("ssh: %w", exitStatus(3)), &errOut); code != 3 || errOut.Len() != 0 {
 		t.Errorf("exit %d, err %q", code, errOut.String())
 	}
 }

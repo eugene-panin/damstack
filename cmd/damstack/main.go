@@ -70,6 +70,12 @@ func interruptible(stderr io.Writer) (context.Context, func()) {
 	return ctx, func() { signal.Stop(sigs); close(sigs); cancel() }
 }
 
+// exitStatus is the status a command run elsewhere, such as on the server,
+// exited with; damstack exits with it, having said nothing more.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
 // usageError is a malformed command line, with what to read about it.
 type usageError struct {
 	err  error
@@ -98,6 +104,10 @@ func report(ctx context.Context, err error, stderr io.Writer) int {
 		return exitUsage
 	case errors.Is(err, errProblems):
 		return exitFailure
+	}
+	var status exitStatus
+	if errors.As(err, &status) {
+		return int(status)
 	}
 	fmt.Fprintln(stderr, "damstack:", err)
 	return exitFailure

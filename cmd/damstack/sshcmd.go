@@ -68,11 +68,16 @@ func ensureSSHKey(p *project.Project, m *manifest.Manifest, password string) (bo
 
 func sshCommand(s *streams) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ssh [project]",
-		Short: "Open a shell on the server of a project, as its ops user, over its public address",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "ssh [project] [-- command]",
+		Short: "Open a shell on the server of a project, as its ops user, over its public address, or run a command there",
+		Example: "  damstack ssh ovh\n" +
+			"  damstack ssh ovh -- timedatectl status",
+		Args: func(cmd *cobra.Command, args []string) error {
+			return cobra.MaximumNArgs(1)(cmd, beforeDash(cmd, args))
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := pickProject(s, firstArg(args))
+			remote := args[len(beforeDash(cmd, args)):]
+			p, err := pickProject(s, firstArg(beforeDash(cmd, args)))
 			if err != nil {
 				return err
 			}
@@ -94,13 +99,19 @@ func sshCommand(s *streams) *cobra.Command {
 			}
 			ssh := exec.CommandContext(cmd.Context(), "ssh", "-F", "/dev/null", "-o", "UserKnownHostsFile="+filepath.Join(p.Dir, project.KnownHosts),
 				"-o", "StrictHostKeyChecking=accept-new", "-i", key, user+"@"+address)
+			if len(remote) > 0 {
+				ssh.Args = append(append(ssh.Args, "--"), remote...)
+			}
 			ssh.Stdin, ssh.Stdout, ssh.Stderr = os.Stdin, os.Stdout, os.Stderr
 			err = ssh.Run()
 			var exit *exec.ExitError
-			if errors.As(err, &exit) {
-				return nil
+			switch {
+			case !errors.As(err, &exit):
+				return err
+			case len(remote) > 0:
+				return exitStatus(exit.ExitCode())
 			}
-			return err
+			return nil
 		},
 	}
 	rotate := &cobra.Command{
@@ -118,6 +129,14 @@ func sshCommand(s *streams) *cobra.Command {
 	rotate.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
 	cmd.AddCommand(rotate)
 	return cmd
+}
+
+// beforeDash is the arguments of cmd before --, all of them without it.
+func beforeDash(cmd *cobra.Command, args []string) []string {
+	if n := cmd.ArgsLenAtDash(); n >= 0 {
+		return args[:n]
+	}
+	return args
 }
 
 func serverLogin(p *project.Project, m *manifest.Manifest) (string, string, error) {
