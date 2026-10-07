@@ -127,6 +127,8 @@ grep -Eq '^apply +differs: 1 to change' "$work/out" && grep -q 'step(s) differ f
 mv stack.yaml.bak stack.yaml
 
 step "backups: pulled from the server, the old ones dropped, the state shown"
+"$damstack" restore --yes >"$work/out" 2>&1 && fail "a restore with no backups went through"
+grep -q 'no backups of demo1 are on this machine' "$work/out" || { cat "$work/out"; fail "no reason for a restore with no backups"; }
 "$damstack" backup pull >"$work/out" 2>&1 && fail "a pull with no backups went through"
 grep -q 'no backups at .*server-backups yet' "$work/out" || { cat "$work/out"; fail "no reason for a pull with no backups"; }
 grep -q 'Nothing is backed up on this machine yet' <<<"$("$damstack")" || fail "the home screen does not warn of no backups"
@@ -146,6 +148,21 @@ grep -q '^3 snapshots on this machine, the latest from' "$work/out" && grep -q '
   grep -q 'Pulls run only by hand' "$work/out" || { cat "$work/out"; fail "backup status says"; }
 grep -q 'Nothing is backed up' <<<"$("$damstack")" && fail "the home screen still warns"
 rm -f backed-up.txt
+
+step "restore: every step again, once ones too, and the restore steps with the latest snapshot"
+"$damstack" restore >"$work/out" 2>&1 </dev/null && fail "a restore went ahead without --yes"
+"$damstack" restore --yes >"$work/out" 2>&1 </dev/null || { cat "$work/out"; fail "restore"; }
+grep -q 'demo1 is back from the backup of' "$work/out" || { cat "$work/out"; fail "restore says"; }
+[[ $(cat restored.txt) == 5 ]] || fail "the restore step did not get the latest snapshot"
+[[ -e .damstack/work/restore ]] && fail "the snapshot was left on this machine"
+"$damstack" history >"$work/out"
+grep -q ' restore .*restore-data' "$work/out" || { cat "$work/out"; fail "the history has no restore"; }
+grep -q ' restore .*init' "$work/out" || { cat "$work/out"; fail "the once step did not run again"; }
+rm -f restored.txt
+"$damstack" deploy --verbose --yes >"$work/out" 2>&1 </dev/null || { cat "$work/out"; fail "a deploy after the restore"; }
+grep -q 'restored the data' "$work/out" && fail "a deploy ran the restore step"
+[[ -e restored.txt ]] && fail "a deploy restored"
+grep -q 'init: done before' "$work/out" || fail "after the restore, the once step runs again"
 
 step "a recovery kit brings the project back on another computer"
 grep -q 'demo1 has no recovery kit' <<<"$("$damstack")" || fail "the home screen does not ask for a kit"

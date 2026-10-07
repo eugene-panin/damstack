@@ -84,3 +84,9 @@ func (r *Repo) Snapshots(ctx context.Context) ([]Snapshot, error) {
 	slices.SortFunc(snaps, func(a, b Snapshot) int { return a.Time.Compare(b.Time) })
 	return snaps, nil
 }
+
+// Dump writes the snapshot id to w as a tar archive, which keeps the owners
+// and modes of the files.
+func (r *Repo) Dump(ctx context.Context, id string, w io.Writer) error {
+	return r.run(ctx, w, "dump", "--archive", "tar", id, "/")
+}

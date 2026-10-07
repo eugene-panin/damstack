@@ -178,7 +178,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		if err != nil {
 			return err
 		}
-		return runSteps(ctx, s, p, m, dir)
+		return runSteps(ctx, s, p, m, dir, "")
 	}
 
 	m, dir, ref, err := chooseStack(ctx, s, cfg, o)
@@ -236,7 +236,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	fmt.Fprintf(s.out, "\nSet up %s in %s: stack.yaml is the one file to edit.\n"+
 		"The secrets are in vault.yml, encrypted; its password is %s.\n"+
 		"Keep a copy of the password somewhere safe, such as a password manager: nothing restores without it.\n", name, path, pass)
-	return runSteps(ctx, s, p, m, dir)
+	return runSteps(ctx, s, p, m, dir, "")
 }
 
 // taken is whether a name is a project already, or a stack, which deploy
@@ -590,7 +590,10 @@ type job struct {
 
 // runSteps deploys a project: the steps of its platform, then those of each
 // app, then the platform's steps that come after the apps.
-func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
+// runSteps deploys a project; with restore, the snapshot of a backup, it sets
+// up a new server from it, running the steps that run once and those of a
+// restore too.
+func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, restore string) error {
 	password, err := p.Password()
 	if err != nil {
 		return err
@@ -611,12 +614,20 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	if err != nil {
 		return err
 	}
-	jobs, err := buildJobs(ctx, s, p, m, e)
+	jobs, err := buildJobs(ctx, s, p, m, e, restore != "")
 	if err != nil {
 		return err
 	}
+	for _, j := range jobs {
+		if restore != "" {
+			if j.e.BaseEnv == nil {
+				j.e.BaseEnv = map[string]string{}
+			}
+			j.e.BaseEnv["DAMSTACK_RESTORE"] = restore
+		}
+	}
 	for i, j := range jobs {
-		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server); err != nil {
+		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
 			return err
 		}
 	}
@@ -654,10 +665,14 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 }
 
 // buildJobs lists the steps of a deploy in their order: the platform's, every
-// app's, then the platform's that come after the apps.
-func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, e *engine.Engine) ([]job, error) {
+// app's, then the platform's that come after the apps; those of a restore only
+// with restore.
+func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, e *engine.Engine, restore bool) ([]job, error) {
 	var jobs, after []job
 	for _, step := range m.Steps {
+		if step.Restore && !restore {
+			continue
+		}
 		if step.AfterApps {
 			after = append(after, job{e, step.Name, step})
 		} else {
@@ -682,6 +697,9 @@ func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.
 			return nil, err
 		}
 		for _, step := range target.Steps {
+			if step.Restore && !restore {
+				continue
+			}
 			jobs = append(jobs, job{ae, ref.Name + "/" + step.Name, step})
 		}
 	}
@@ -708,7 +726,7 @@ func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
 	}
 }
 
-func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server) error {
+func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server, restore bool) error {
 	title := j.step.Title
 	if title == "" {
 		title = j.name
@@ -716,7 +734,7 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 	if strings.Contains(j.name, "/") && j.step.Title != "" {
 		title = j.name[:strings.Index(j.name, "/")] + ": " + title
 	}
-	if j.step.Once {
+	if j.step.Once && !restore {
 		done, err := p.Done(j.name)
 		if err != nil {
 			return err
@@ -746,9 +764,13 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 		}
 		defer restore()
 	}
+	command := "deploy"
+	if restore {
+		command = "restore"
+	}
 	start := time.Now()
 	err := j.e.Run(ctx, j.step, nil)
-	if rerr := record(p, "deploy", j.name, start, err); rerr != nil && err == nil {
+	if rerr := record(p, command, j.name, start, err); rerr != nil && err == nil {
 		err = rerr
 	}
 	if errors.Is(err, engine.ErrDeclined) {
@@ -759,7 +781,7 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 			tail(s.out, log, 30)
 			fmt.Fprintf(s.out, "  The whole output is in %s\n", log)
 		}
-		return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack deploy again in %s", j.name, err, p.Dir)
+		return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack %s again in %s", j.name, err, command, p.Dir)
 	}
 	fmt.Fprintf(s.out, "     ok, %s\n", time.Since(start).Round(time.Second))
 	return nil

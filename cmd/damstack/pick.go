@@ -183,7 +183,7 @@ func editCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runSteps(cmd.Context(), s, p, m, dir)
+			return runSteps(cmd.Context(), s, p, m, dir, "")
 		},
 	}
 }

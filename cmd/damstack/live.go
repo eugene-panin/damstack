@@ -21,7 +21,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	if err != nil {
 		return err
 	}
-	jobs, err := buildJobs(ctx, s, p, m, e)
+	jobs, err := buildJobs(ctx, s, p, m, e, false)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+test -f "$DAMSTACK_RESTORE"
+file=$(tar -tf "$DAMSTACK_RESTORE" | grep 'backed-up\.txt$')
+tar -xOf "$DAMSTACK_RESTORE" "$file" >"$DAMSTACK_PROJECT/restored.txt"
+echo "restored the data from the backup"

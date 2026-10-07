@@ -66,6 +66,10 @@ steps:
   - name: publish
     run: [bin/publish]
     after_apps: true
+  - name: restore-data
+    run: [bin/restore]
+    restore: true
+    after_apps: true
 commands:
   output:
     tofu: {dir: infra, action: output}

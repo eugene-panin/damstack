@@ -296,7 +296,7 @@ func (p *Project) Done(step string) (bool, error) {
 		return false, err
 	}
 	for _, e := range entries {
-		if (e.Command == "deploy" || e.Command == "import") && e.Step == step && e.Result == OK {
+		if (e.Command == "deploy" || e.Command == "import" || e.Command == "restore") && e.Step == step && e.Result == OK {
 			return true, nil
 		}
 	}

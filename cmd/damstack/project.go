@@ -164,9 +164,11 @@ func historyCommand(s *streams) *cobra.Command {
 func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 	var before, after []string
 	for _, step := range m.Steps {
-		if step.AfterApps {
+		switch {
+		case step.Restore:
+		case step.AfterApps:
 			after = append(after, step.Name)
-		} else {
+		default:
 			before = append(before, step.Name)
 		}
 	}
@@ -177,7 +179,9 @@ func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 		}
 		if _, t, ok := am.Target(m.Provides); ok {
 			for _, step := range t.Steps {
-				before = append(before, ref.Name+"/"+step.Name)
+				if !step.Restore {
+					before = append(before, ref.Name+"/"+step.Name)
+				}
 			}
 		}
 	}

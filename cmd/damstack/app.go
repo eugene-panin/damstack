@@ -129,7 +129,7 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string) error {
 		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", p.Dir)
 		return nil
 	}
-	return runSteps(ctx, s, p, pm, pdir)
+	return runSteps(ctx, s, p, pm, pdir, "")
 }
 
 // findApp fetches an app by what a person names it: a stack damstack knows,

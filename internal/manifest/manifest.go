@@ -263,6 +263,9 @@ type Step struct {
 	// AfterApps runs a step of a platform after the steps of its apps, such
 	// as the one that publishes the DNS records of all of them.
 	AfterApps bool `yaml:"after_apps"`
+	// Restore is a step only damstack restore runs, such as the one that puts
+	// the data of the apps back from the backup.
+	Restore bool `yaml:"restore"`
 }
 
 type Ansible struct {
