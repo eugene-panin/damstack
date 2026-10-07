@@ -283,6 +283,12 @@ screen asks for a new kit after the project changes. The server copies the
 host volumes by name before restic runs, stopping the jobs with the meta
 `backup = "stop"`, such as the mail server, for the copy. Restoring a server
 is not there yet.
+`damstack restore` sets up a new server from the latest snapshot on the
+laptop: it runs every step, the ones that run once too, and the steps marked
+`restore: true`, with the snapshot as a tar in `DAMSTACK_RESTORE`; the stack
+says what to put back. hashi restores Consul and Vault from their snapshots
+and the host volumes by name, and is tested so on a GCP server, a new disk
+and a reboot.
 
 ## Open questions, and the plan for each
 
@@ -349,14 +355,14 @@ in the template. Test when it comes: three GCP servers.
 
 | Repository | What | Published |
 |---|---|---|
-| damstack | the program | GitHub release 0.6.0, `brew install eugene-panin/tap/damstack` |
+| damstack | the program | GitHub release 0.8.0, `brew install eugene-panin/tap/damstack` |
 | damstack-library | the platforms and apps damstack offers | GitHub |
 | homebrew-tap | the cask of damstack, written by GoReleaser | GitHub |
 | damstack-toolbox | the tools steps run with, for the Mac | GitHub release 1.1.0 |
-| damstack-hashi | the platform | GitHub, v0.9.0 |
+| damstack-hashi | the platform | GitHub, v0.10.0 |
 | damstack-mail | the mail app | GitHub, v0.4.0 |
 | ansible-collection-base | WireGuard, firewall, Docker, backup, time | Galaxy 0.7.0 |
-| ansible-collection-hashistack | Consul, Vault with auto-unseal, Nomad | Galaxy 0.7.1 |
+| ansible-collection-hashistack | Consul, Vault with auto-unseal and restore, Nomad | Galaxy 0.8.0 |
 | terraform-nomad-hashistack | Traefik, workload identity, DNS on Cloudflare | git tag v0.9.0 |
 | terraform-nomad-stalwart | Stalwart on Nomad | git tag v0.3.1 |
 
