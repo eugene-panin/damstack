@@ -1,17 +1,32 @@
 # damstack
 
-One program to deploy and run infrastructure stacks. A stack, such as
-[hashi](https://github.com/eugene-panin/damstack-hashi) (Consul,
-Vault and Nomad on one server over WireGuard), is a repository with a
-`damstack.yaml` that says what to ask and which steps to run. damstack fetches
-the stack, keeps the deployment in one directory described by `stack.yaml`,
-and runs the steps with
-[damstack-toolbox](https://github.com/eugene-panin/damstack-toolbox):
-OpenTofu, Ansible on a Python of its own, Conftest and restic, which damstack
-downloads once and runs apart from anything installed on the Mac. It runs on
-macOS, Apple silicon and Intel; you install damstack, nothing else.
+English | [Русский](README.ru.md) | [Español](README.es.md)
 
-Work in progress: [docs/design.md](docs/design.md) says where it is going.
+Your own server, set up and kept running from your Mac with one program.
+
+You rent a server, answer a few questions, and damstack turns it into a
+private platform: locked down to your key, reachable through your own
+WireGuard network, with Nomad, Consul and Vault to run apps, certificates
+from Let's Encrypt, and nightly backups copied to your Mac. Then you add apps
+to it, such as your own mail server, with one command each.
+
+You need to know nothing about servers. damstack asks what it needs, says
+what it does, and checks that the server stays the way you set it up.
+
+## What you need
+
+- A Mac, Apple silicon or Intel, with [Homebrew](https://brew.sh).
+- The [WireGuard app](https://apps.apple.com/app/wireguard/id1451685025), for
+  the private network between your devices and the server.
+- A server with Ubuntu 24.04, from any provider: its IP address and the root
+  password the provider gives you. 2 CPUs, 4 GB of memory and 20 GB of disk
+  are enough.
+- A domain whose DNS is on [Cloudflare](https://www.cloudflare.com), and an
+  API token there that may edit the DNS of that domain. Other DNS providers
+  work too, by the name [lego](https://go-acme.github.io/lego/dns/) gives
+  them.
+- For mail: a provider that lets the server send on port 25. Many block it
+  until you ask.
 
 ## Install
 
@@ -20,99 +35,144 @@ brew install eugene-panin/tap/damstack
 damstack
 ```
 
-It needs `git`, from the command line tools of Xcode, which Homebrew installs
-too, and the WireGuard app for the private network of a server.
+The first run checks your Mac and says what is missing and how to get it.
+damstack downloads the tools it runs, OpenTofu, Ansible and restic, once, and
+keeps them apart from anything else on your Mac. No Docker is needed.
+
+## Your first server
 
 ```bash
-damstack               # on the first run, checks this machine, then shows the commands
-damstack doctor        # checks this machine, and says how to get what it lacks
-damstack stacks        # the stacks damstack can deploy
-damstack add owner/name   # github.com/owner/damstack-name, or any git address
-damstack deploy        # asks the questions of a stack, sets up a project, deploys it
-damstack status        # in a project: its stack, and how each step went last
-damstack history       # in a project: everything damstack ran on it; --json for scripts, as status
-damstack app add mail  # in a project: add an app to its platform
-damstack stack lint    # checks the damstack.yaml of a stack
-damstack stack check   # proves a stack without a server
+damstack deploy hashi
 ```
 
-To remove it, `brew uninstall damstack`, then what it keeps on this Mac:
+damstack asks for the address of the server, the domain of the admin pages
+(such as `admin.example.com`), your email for Let's Encrypt, the Cloudflare
+token, and the devices that may reach the server, such as `laptop` and
+`phone`. Then, once, the root password of the server, to put your SSH key
+there; it is not kept.
 
-- `~/.config/damstack`: the vault password of each project. Without it the
-  secrets of a project cannot be read, so keep it, or a recovery kit from
-  `damstack backup kit`, as long as a server of the project runs;
-- `~/.damstack`: the projects themselves, unless `--dir` put them elsewhere;
-- `~/.cache/damstack`: the toolbox and the stacks, safe to delete;
-- the backup pulls `damstack backup schedule` set up:
-  `launchctl bootout gui/$(id -u)/dev.damstack.backup.<project>`, then delete
-  `~/Library/LaunchAgents/dev.damstack.backup.<project>.plist` and
-  `~/Library/Logs/damstack`.
+Then it runs, in about ten minutes:
 
-## A project
+1. **Securing the server**: a user of your own, logins with your key only,
+   root and passwords off, a firewall, automatic security updates.
+2. **The platform**: the WireGuard network, Consul, Vault and Nomad, Docker,
+   a synchronized clock, and the nightly backup.
+3. **Traefik and the admin pages**: a certificate for `*.<your domain>`,
+   pages that open only through WireGuard.
+4. **DNS records**, published for you.
 
-`damstack deploy` asks the questions of the stack and sets up a project in
-`~/.damstack/<name>`, or where `--dir` says:
+Halfway, it stops to bring your Mac into the private network:
 
-- `stack.yaml`: the one file to edit, rendered from the answers;
-- `vault.yml`: the secrets, generated or asked for, encrypted with Ansible
-  Vault; the password is in `~/.config/damstack/projects/<name>/vault-pass`,
-  outside the project, so the project can go to git;
-- files the stack generates, such as a CA certificate, and `state/`, the
-  OpenTofu state;
-- `.damstack/`: the stack release the project is deployed with, the history,
-  and `work/`, what runs leave, not kept in git.
+```bash
+damstack tunnel show laptop
+```
 
-Then it runs the steps of the stack in damstack-toolbox, with the stack
-mounted read-only at `/stack` and the project at `/work`. Before the first
-step it makes sure your SSH key logs in to the server, and if it does not,
-puts it there with `ssh-copy-id` and the password your provider gave. A step
-marked `once` runs until it succeeds once; a step marked `confirm` asks before
-it changes anything. `damstack deploy` in a project deploys it again.
+puts the configuration into the WireGuard app; on a phone,
+`damstack tunnel show phone --qr` shows a code to scan.
 
-Inside a project, the commands of its stack are damstack commands too, such as
-`damstack output`.
+At the end it lists the admin pages, `nomad.`, `vault.` and
+`consul.<your domain>`, and how to get their tokens:
 
-Without a terminal, in a script or CI, damstack asks nothing: the answers and
-the secrets come from the file `--answers` names, the name of a new project
-from `--name`, and `--yes` goes ahead where it would ask, such as before a step
-marked `confirm`. A question it would need fails at once and says which.
+```bash
+damstack token nomad
+```
+
+`damstack trust` makes your Mac trust the certificates of the private
+network, so that the servers also open on their own addresses.
 
 ## Apps
 
-A stack is a platform, such as hashi, or an app that runs on one, such as
-mail. `damstack app add <app>` in a project asks the app's questions, puts its
-settings under `apps.<app>` of the same `stack.yaml`, and its secrets in the
-same `vault.yml`. `damstack deploy` then runs the steps of the platform, those
-of every app, and last the platform's steps marked `after_apps`, such as the
-one that publishes the DNS records the apps left in `dns/`. Each app keeps its
-own OpenTofu state, and its commands are `damstack <app> <command>`.
+```bash
+damstack app add mail
+damstack deploy
+```
 
-A platform says what it `provides`, such as `nomad` and `vault-kv`, and in
-`app_env` how its apps reach that. An app `requires` some of it, and has one
-way to run, a target, per kind of platform: the first target the platform
-provides is used, so an app runs on every platform of that kind, and another
-kind only needs another target.
+asks what the app needs and runs it on your server. Today the library has one
+app: **mail**, your own mail server with [Stalwart](https://stalw.art):
+mailboxes for every domain, DKIM, MTA-STS, IMAP and SMTP with certificates,
+and the DNS records mail clients find their settings from.
+`damstack mail output passwords` shows the passwords of the mailboxes.
 
-## Writing a stack
+Apps run in containers on Nomad, each with only the rights it needs.
 
-A stack lives in a git repository named `damstack-<name>`, where `<name>` is
-the `name` in its `damstack.yaml`, such as `damstack-hashi` for `hashi`; then
-`damstack add owner/<name>` finds it on GitHub. Releases are tags such as
-`v0.1.0`.
+## Every day
 
-`damstack.yaml` declares the questions, the secrets, the template of
-`stack.yaml`, and the steps, each one of an Ansible playbook, an OpenTofu
-directory with its policies, or a program of the stack. `damstack stack lint`
-checks it, `damstack stack check` sets up a project from the stack's test
-answers and checks the playbooks, OpenTofu and the policies, and
-`damstack deploy --from <dir>` deploys the stack as it is in a directory.
-`test/demo` is a small platform that uses every kind of step, and
-`test/demo-app` an app on it.
+| You want to | Run |
+| --- | --- |
+| See the projects and what needs attention | `damstack` |
+| Check that the server is as you set it up | `damstack status --live` |
+| Change a setting | `damstack edit`, then `damstack deploy` |
+| Deploy again, changing only what differs | `damstack deploy` |
+| Add or remove a device of the private network | `damstack tunnel add phone`, `damstack tunnel remove phone` |
+| Give a device or the server new keys | `damstack tunnel rotate phone` |
+| Open a shell on the server, or run a command there | `damstack ssh`, `damstack ssh -- uptime` |
+| See everything damstack ran | `damstack history` |
+| Rename a project on your Mac | `damstack rename old new` |
 
-## Development
+With several projects, name the one you mean, as in `damstack status ovh`,
+or make one current with `damstack use ovh`.
+
+## Backups
+
+The server backs up every night: the data of Consul, Vault and Nomad, and the
+data of every app. damstack copies the backups to your Mac every hour while
+it is on; `damstack backup status` shows them, and the home screen warns
+when they get old.
+
+Everything that brings a project back lives on your Mac. Make a **recovery
+kit**, one encrypted file with the project and its password, and keep it
+somewhere else, such as cloud storage, with its passphrase in your password
+manager:
 
 ```bash
-go test -race ./...
-go build ./cmd/damstack
-test/e2e.sh    # deploys test/demo with the real toolbox, from a poisoned shell too
+damstack backup kit
 ```
+
+On another Mac, `damstack backup open <kit>` brings the project back.
+
+## When the server is lost
+
+Rent a new server, give its address to the project, and restore:
+
+```bash
+damstack edit          # the new address under server
+damstack restore
+```
+
+damstack sets the new server up as it did the first one, then puts back
+Consul, Vault and the data of every app from the latest backup on your Mac.
+Your keys, tokens, mailboxes and mail are as they were.
+
+## Where things are
+
+A project is a directory, `~/.damstack/<name>`:
+
+- `stack.yaml`, the one file to edit; `damstack edit` opens it and checks it;
+- `vault.yml`, the secrets, encrypted; the password to it is in
+  `~/.config/damstack/projects/<name>`, outside the project;
+- the state of the platform and the history of what ran.
+
+To remove damstack: stop the hourly copy of each project with
+`launchctl bootout gui/$(id -u)/dev.damstack.backup.<name>` and delete
+`~/Library/LaunchAgents/dev.damstack.backup.<name>.plist`; then
+`brew uninstall damstack`, and delete `~/.damstack`, `~/.config/damstack` and
+`~/.cache/damstack`. Keep the first two, or a recovery kit, as long as a
+server of yours runs: without them nothing can manage it.
+
+## Limits today
+
+- macOS only, and one server per project.
+- One app in the library: mail.
+- New releases of a platform or an app are taken by hand; there is no
+  `damstack upgrade` yet.
+- Tested on OVH and Google Cloud.
+
+## More
+
+- [docs/stacks.md](docs/stacks.md): how a stack is written, and how to
+  develop damstack.
+- [docs/design.md](docs/design.md): where damstack is going.
+- The platform: [damstack-hashi](https://github.com/eugene-panin/damstack-hashi);
+  the mail app: [damstack-mail](https://github.com/eugene-panin/damstack-mail).
+
+MIT license.
