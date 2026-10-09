@@ -27,6 +27,7 @@ func appCommand(s *streams) *cobra.Command {
 	}
 	var from, answers string
 	var yes, asJSON bool
+	appsOnly := true
 	add := &cobra.Command{
 		Use:   "add <app>",
 		Short: "Add an app: a name damstack stacks lists, owner/name for github.com/owner/damstack-name, or any address",
@@ -40,12 +41,13 @@ func appCommand(s *streams) *cobra.Command {
 				arg = args[0]
 			}
 			s.yes = yes
-			return addApp(cmd.Context(), s, arg, from, answers)
+			return addApp(cmd.Context(), s, arg, from, answers, appsOnly)
 		},
 	}
 	add.Flags().StringVar(&from, "from", "", "add the app in this directory as it is, instead of a release; for writing an app")
 	add.Flags().StringVar(&answers, "answers", "", "a YAML file with answers to the questions, and the secrets the app asks for")
 	add.Flags().BoolVar(&yes, "yes", false, "deploy the project right after, without asking")
+	add.Flags().BoolVar(&appsOnly, "apps-only", true, "on the deploy right after, skip the platform's Ansible steps (the platform is already up); --apps-only=false re-converges it too")
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List the apps of the project you are in",
@@ -75,7 +77,7 @@ func appCommand(s *streams) *cobra.Command {
 	return app
 }
 
-func addApp(ctx context.Context, s *streams, arg, from, answers string) error {
+func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly bool) error {
 	p, err := pickProject(s, "")
 	if err != nil {
 		return err
@@ -129,7 +131,7 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string) error {
 		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", p.Dir)
 		return nil
 	}
-	return runSteps(ctx, s, p, pm, pdir, "")
+	return runSteps(ctx, s, p, pm, pdir, "", appsOnly)
 }
 
 // findApp fetches an app by what a person names it: a stack damstack knows,

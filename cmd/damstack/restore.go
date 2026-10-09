@@ -102,7 +102,7 @@ func restore(ctx context.Context, s *streams, p *project.Project) error {
 	if err := os.Rename(known, known+".old"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := runSteps(ctx, s, p, m, dir, tar); err != nil {
+	if err := runSteps(ctx, s, p, m, dir, tar, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "\n%s is back from the backup of %s.\n", p.Meta.Name, when)

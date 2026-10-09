@@ -120,13 +120,14 @@ func (s *streams) tty() bool {
 }
 
 type deployOptions struct {
-	verbose bool
-	stack   string
-	name    string
-	dir     string
-	answers string
-	from    string
-	yes     bool
+	verbose  bool
+	stack    string
+	name     string
+	dir      string
+	answers  string
+	from     string
+	yes      bool
+	appsOnly bool
 }
 
 func deployCommand(s *streams) *cobra.Command {
@@ -148,6 +149,7 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().BoolVarP(&o.verbose, "verbose", "v", false, "show the output of Ansible and OpenTofu, instead of keeping it in a log of the project")
 	cmd.Flags().StringVar(&o.from, "from", "", "deploy the stack in this directory as it is, instead of a release; for writing a stack")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
+	cmd.Flags().BoolVar(&o.appsOnly, "apps-only", false, "deploy only the apps, skipping the platform's Ansible steps (bootstrap, provision); for when the platform is already up and unchanged")
 	return cmd
 }
 
@@ -178,7 +180,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		if err != nil {
 			return err
 		}
-		return runSteps(ctx, s, p, m, dir, "")
+		return runSteps(ctx, s, p, m, dir, "", o.appsOnly)
 	}
 
 	m, dir, ref, err := chooseStack(ctx, s, cfg, o)
@@ -236,7 +238,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	fmt.Fprintf(s.out, "\nSet up %s in %s: stack.yaml is the one file to edit.\n"+
 		"The secrets are in vault.yml, encrypted; its password is %s.\n"+
 		"Keep a copy of the password somewhere safe, such as a password manager: nothing restores without it.\n", name, path, pass)
-	return runSteps(ctx, s, p, m, dir, "")
+	return runSteps(ctx, s, p, m, dir, "", false)
 }
 
 // taken is whether a name is a project already, or a stack, which deploy
@@ -593,7 +595,7 @@ type job struct {
 // runSteps deploys a project; with restore, the snapshot of a backup, it sets
 // up a new server from it, running the steps that run once and those of a
 // restore too.
-func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, restore string) error {
+func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, restore string, appsOnly bool) error {
 	password, err := p.Password()
 	if err != nil {
 		return err
@@ -614,7 +616,7 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	if err != nil {
 		return err
 	}
-	jobs, err := buildJobs(ctx, s, p, m, e, restore != "")
+	jobs, err := buildJobs(ctx, s, p, m, e, restore != "", appsOnly)
 	if err != nil {
 		return err
 	}
@@ -667,10 +669,16 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 // buildJobs lists the steps of a deploy in their order: the platform's, every
 // app's, then the platform's that come after the apps; those of a restore only
 // with restore.
-func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, e *engine.Engine, restore bool) ([]job, error) {
+func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, e *engine.Engine, restore, appsOnly bool) ([]job, error) {
 	var jobs, after []job
 	for _, step := range m.Steps {
 		if step.Restore && !restore {
+			continue
+		}
+		// --apps-only skips the platform's Ansible steps (bootstrap, provision):
+		// the slow convergence of a platform that is already up. Its OpenTofu
+		// steps (Traefik, and the after-apps DNS publish) still run.
+		if appsOnly && step.Ansible != nil {
 			continue
 		}
 		if step.AfterApps {
