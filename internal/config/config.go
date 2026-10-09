@@ -51,6 +51,10 @@ var Builtin = []Stack{
 		Description: "Nomad, Consul and Vault on one server, admin pages behind WireGuard"},
 	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "your own mail server, by Stalwart"},
+	{Name: "odoo", URL: "https://github.com/eugene-panin/damstack-odoo", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "Odoo ERP with its PostgreSQL and the Newo addons"},
+	{Name: "postgres", URL: "https://github.com/eugene-panin/damstack-postgres", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "a shared PostgreSQL other apps use in postgres.mode external"},
 }
 
 // Dir is $XDG_CONFIG_HOME/damstack, or ~/.config/damstack, on every system.

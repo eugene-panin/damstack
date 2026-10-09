@@ -34,7 +34,7 @@ func TestAddStackSaveAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := again.AllStacks()
-	if len(all) != 3 || all[0].Name != "hashi" || all[1].Name != "mail" || !all[1].Builtin || all[2].Name != "demo" || all[2].Builtin {
+	if len(all) != 5 || all[0].Name != "hashi" || all[1].Name != "mail" || !all[1].Builtin || all[2].Name != "odoo" || !all[2].Builtin || all[3].Name != "postgres" || !all[3].Builtin || all[4].Name != "demo" || all[4].Builtin {
 		t.Errorf("got %+v", all)
 	}
 	data, _ := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "damstack", "config.yaml"))
