@@ -52,7 +52,7 @@ var Builtin = []Stack{
 	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "your own mail server, by Stalwart"},
 	{Name: "odoo", URL: "https://github.com/eugene-panin/damstack-odoo", Kind: "app", Platform: "hashi", Builtin: true,
-		Description: "Odoo ERP with its PostgreSQL and the Newo addons"},
+		Description: "Odoo ERP with its PostgreSQL and your addons"},
 	{Name: "postgres", URL: "https://github.com/eugene-panin/damstack-postgres", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared PostgreSQL other apps use in postgres.mode external"},
 	{Name: "nats", URL: "https://github.com/eugene-panin/damstack-nats", Kind: "app", Platform: "hashi", Builtin: true,
