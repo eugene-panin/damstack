@@ -55,6 +55,16 @@ var Builtin = []Stack{
 		Description: "Odoo ERP with its PostgreSQL and the Newo addons"},
 	{Name: "postgres", URL: "https://github.com/eugene-panin/damstack-postgres", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared PostgreSQL other apps use in postgres.mode external"},
+	{Name: "nats", URL: "https://github.com/eugene-panin/damstack-nats", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "a shared NATS (JetStream) bus other apps publish and subscribe on"},
+	{Name: "seaweedfs", URL: "https://github.com/eugene-panin/damstack-seaweedfs", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "a shared SeaweedFS object lake with an S3 API"},
+	{Name: "loki", URL: "https://github.com/eugene-panin/damstack-loki", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "a shared Loki log store"},
+	{Name: "mimir", URL: "https://github.com/eugene-panin/damstack-mimir", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "a shared Mimir metric store"},
+	{Name: "grafana", URL: "https://github.com/eugene-panin/damstack-grafana", Kind: "app", Platform: "hashi", Builtin: true,
+		Description: "Grafana for the platform, with Mimir and Loki data sources"},
 }
 
 // Dir is $XDG_CONFIG_HOME/damstack, or ~/.config/damstack, on every system.
