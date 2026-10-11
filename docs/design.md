@@ -290,6 +290,30 @@ says what to put back. hashi restores Consul and Vault from their snapshots
 and the host volumes by name, and is tested so on a GCP server, a new disk
 and a reboot.
 
+## Several people on one project
+
+A project whose platform has a Consul is shared on it once its first deploy
+succeeds: the OpenTofu state of every step goes to Consul's KV store
+(`damstack/<project>/state/<unit>`), and `shared: true` is set in the
+project's `.damstack/project.yaml`. From then on:
+
+- a command that changes the project (deploy, app add, provision, an apply)
+  takes the project's lock first: a Consul session of 30 s, renewed while the
+  command runs, so a holder that is gone frees it within the TTL. Those who ask
+  while it is held wait in turn, oldest first, and see who holds it;
+- before every step the lock is checked, and a lost one stops the command
+  there;
+- a step's state is pulled from the platform before it runs and pushed back,
+  compare-and-set, after an apply; a push that fails leaves the local state
+  marked as newer, and no pull overwrites it;
+- a command that only reads (plan, output, status --live) takes the
+  platform's state without the lock, or the one on this machine, said so,
+  when the platform does not answer;
+- `--break-glass` changes the project without the lock, from the state on this
+  machine: only to repair the platform itself. A restore never locks.
+
+The state on this machine stays as the cache of the platform's.
+
 ## Open questions, and the plan for each
 
 **Removing an app or a project.** `damstack app remove mail` shows what goes
