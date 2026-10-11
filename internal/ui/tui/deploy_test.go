@@ -198,3 +198,66 @@ func TestAppsAreAListEachWhereItIs(t *testing.T) {
 	checkShape(t, frame, 100, 30)
 	golden(t, "deploy-apps-100x30", frame)
 }
+
+// finishedDeploy is the end of a deploy that went well, the addresses checked.
+func finishedDeploy(width, height int) *Deploy {
+	m := midDeploy(width, height)
+	send := func(e event.Event) { m.Update(eventMsg{e}) }
+	took := []time.Duration{48 * time.Second, 5*time.Minute + 2*time.Second, 51 * time.Second}
+	for i, s := range m.run.Steps {
+		d := 14 * time.Second
+		if i < len(took) {
+			d = took[i]
+		}
+		send(event.StepStarted{Step: s.Step})
+		send(event.StepDone{Step: s.Step, Took: d})
+	}
+	send(event.RunDone{
+		Links: []event.Link{
+			{URL: "https://nomad.twinmind.damstack.dev", Admin: true, Token: "nomad"},
+			{URL: "https://vault.twinmind.damstack.dev", Admin: true, Token: "vault"},
+			{URL: "https://consul.twinmind.damstack.dev", Admin: true, Token: "consul"},
+			{URL: "https://grafana.twinmind.damstack.dev", Admin: true},
+			{URL: "https://odoo-demo.twinmind.pro"},
+			{URL: "https://sauron.twinmind.pro"},
+		},
+		Next: []event.NextStep{{Command: "damstack tunnel show laptop", Why: "the WireGuard config, as a QR code too"},
+			{Command: "damstack backup status", Why: "what is backed up, and where"}},
+	})
+	m.now = start.Add(8*time.Minute + 47*time.Second)
+	m.Update(finishMsg{})
+	for _, l := range m.summary.Links {
+		status := "200"
+		if strings.Contains(l.URL, "sauron") {
+			status = "no DNS record"
+		}
+		m.Update(checkedMsg{l.URL, status})
+	}
+	return m
+}
+
+func TestTheDoneScreenStaysWithTheAddressesChecked(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {100, 30}, {140, 40}} {
+		w, h := size[0], size[1]
+		frame := finishedDeploy(w, h).Frame()
+		checkShape(t, frame, w, h)
+		golden(t, fmt.Sprintf("done-%dx%d", w, h), frame)
+	}
+}
+
+func TestTheDoneScreensKeys(t *testing.T) {
+	var opened, copied string
+	m := finishedDeploy(100, 30)
+	m.actions = Actions{Open: func(u string) error { opened = u; return nil }, CopyToken: func(n string) error { copied = n; return nil }}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.Update(cmd())
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	m.Update(cmd())
+	if opened != "https://vault.twinmind.damstack.dev" || copied != "vault" || !strings.Contains(m.flash, "vault token") {
+		t.Errorf("opened %q, copied %q, flash %q", opened, copied, m.flash)
+	}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); cmd == nil {
+		t.Error("q must close the done screen")
+	}
+}

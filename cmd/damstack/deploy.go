@@ -636,7 +636,7 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		}
 	}
 	var keys wg.Change
-	err = onScreen(ctx, s, p, func(ctx context.Context, stop *atomic.Bool) error {
+	err = onScreen(ctx, s, p, m, func(ctx context.Context, stop *atomic.Bool) error {
 		var err error
 		// A restore sets up a new server from a backup, the platform's state
 		// with it: there is no platform to lock yet.
@@ -681,8 +681,11 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			}
 		}
 		if restore == "" {
-			return publish(ctx, s, p, m, dir, e.Password)
+			if err := publish(ctx, s, p, m, dir, e.Password); err != nil {
+				return err
+			}
 		}
+		s.events.Emit(runDone(p, m))
 		return nil
 	})
 	if err != nil {
@@ -771,22 +774,32 @@ func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.
 
 // done says what a stack serves, from its done lines.
 func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
+	for _, line := range doneLines(p, m, app) {
+		fmt.Fprintf(w, "  %s\n", line)
+	}
+}
+
+// doneLines are the done lines of a stack, rendered; app names the app they
+// are of, empty for the platform.
+func doneLines(p *project.Project, m *manifest.Manifest, app string) []string {
 	config, err := p.Config()
 	if err != nil {
-		return
+		return nil
 	}
 	data := map[string]any{"config": config}
 	if app != "" {
 		apps, _ := config["apps"].(map[string]any)
 		data["app"] = apps[app]
 	}
+	var lines []string
 	for i, text := range m.Done {
 		line, err := manifest.RenderData(fmt.Sprintf("done[%d]", i), text, data, nil)
 		if err != nil || strings.TrimSpace(line) == "" {
 			continue
 		}
-		fmt.Fprintf(w, "  %s\n", line)
+		lines = append(lines, line)
 	}
+	return lines
 }
 
 // title is what a step is called for people: an app's step after its app.

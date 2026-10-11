@@ -67,6 +67,14 @@ type Actions struct {
 	// SSH is the command that opens a shell on the server, run with the
 	// screen set aside.
 	SSH func() *exec.Cmd
+	// Open opens an address in the browser; Check says whether it answers
+	// (its HTTP status, or why not); CopyToken puts the token of that name in
+	// the clipboard; QR is the command that shows the WireGuard configuration
+	// as a QR code.
+	Open      func(url string) error
+	Check     func(url string) string
+	CopyToken func(name string) error
+	QR        func() *exec.Cmd
 }
 
 // Deploy is the deploy screen (design: 2 · Deploy progress): the steps on the
@@ -98,6 +106,13 @@ type Deploy struct {
 	finished bool
 	err      error
 	failure  *event.StepFailed
+
+	// The done screen: what the run set up, how each address answers, the
+	// one chosen, and a word on what a key just did.
+	summary *event.RunDone
+	checks  map[string]string
+	cursor  int
+	flash   string
 }
 
 // NewDeploy is the deploy screen, its keys doing actions.
@@ -144,10 +159,23 @@ func (m *Deploy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirm = &msg
 	case finishMsg:
 		m.finished, m.err = true, msg.err
-		if msg.err == nil {
+		switch {
+		case msg.err == nil && m.summary != nil:
+			return m, m.checkLinks()
+		case msg.err == nil:
 			return m, tea.Tick(800*time.Millisecond, func(time.Time) tea.Msg { return tea.QuitMsg{} })
 		}
+	case checkedMsg:
+		if m.checks == nil {
+			m.checks = map[string]string{}
+		}
+		m.checks[msg.url] = msg.status
+	case flashMsg:
+		m.flash = string(msg)
 	case tea.KeyPressMsg:
+		if m.done() {
+			return m, m.doneKey(msg.String())
+		}
 		return m, m.key(msg.String())
 	}
 	return m, nil
@@ -255,6 +283,8 @@ func (m *Deploy) apply(e event.Event) {
 		m.notes = append(m.notes, e.Text)
 	case event.Heading:
 		m.notes = append(m.notes, e.Text)
+	case event.RunDone:
+		m.summary = &e
 	}
 }
 
@@ -313,6 +343,9 @@ func (m *Deploy) View() tea.View {
 // exactly width cells.
 func (m *Deploy) Frame() string {
 	w, h := m.width, m.height
+	if m.done() && w >= minWidth && h >= minHeight {
+		return m.doneFrame()
+	}
 	if w < minWidth || h < minHeight {
 		msg := fmt.Sprintf("damstack needs a window of %d×%d at least; this one is %d×%d.", minWidth, minHeight, w, h)
 		rows := make([]string, h)

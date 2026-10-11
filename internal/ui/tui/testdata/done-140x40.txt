@@ -1,0 +1,40 @@
+  ✓ twinmind is up  hashi v0.21.0 · 8 apps healthy                                                                               took 8:47  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  steps  ✓ bootstrap 0:48  ✓ provision 5:02  ✓ apply 0:51  ✓ apps 1:52  ✓ dns 0:14                                                          
+                                                                                                                                            
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ Admin pages  through WireGuard: turn the tunnel on first                                                                             │  
+  │ › https://nomad.twinmind.damstack.dev                                                                                    200   token │  
+  │   https://vault.twinmind.damstack.dev                                                                                    200   token │  
+  │   https://consul.twinmind.damstack.dev                                                                                   200   token │  
+  │   https://grafana.twinmind.damstack.dev                                                                                  200         │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                            
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ Apps                                                                                                                                 │  
+  │   https://odoo-demo.twinmind.pro                                                                                         200         │  
+  │   https://sauron.twinmind.pro                                                                                  no DNS record         │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                            
+  Next                                                                                                                                      
+    › damstack tunnel show laptop     the WireGuard config, as a QR code too                                                                
+      damstack backup status          what is backed up, and where                                                                          
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↵  open in browser    t  copy token    w  WireGuard QR    q  quit                                                                        

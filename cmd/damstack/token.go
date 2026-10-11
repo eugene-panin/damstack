@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/project"
 )
 
 func tokenCommand(s *streams) *cobra.Command {
@@ -31,21 +34,12 @@ func tokenCommand(s *streams) *cobra.Command {
 				fmt.Fprintf(s.out, "Tokens of %s: %s. damstack token <name> copies one.\n", p.Meta.Name, strings.Join(names, ", "))
 				return nil
 			}
-			secret, ok := m.Tokens[args[0]]
-			if !ok {
+			if _, ok := m.Tokens[args[0]]; !ok {
 				return fmt.Errorf("no token %s; there are %s", args[0], strings.Join(names, ", "))
 			}
-			password, err := p.Password()
+			value, err := projectToken(p, m, args[0])
 			if err != nil {
 				return err
-			}
-			secrets, err := p.Secrets(password)
-			if err != nil {
-				return err
-			}
-			value, ok := secrets[secret].(string)
-			if !ok || value == "" {
-				return fmt.Errorf("the project has no %s token yet; damstack deploy makes it", args[0])
 			}
 			if !show {
 				if err := copyText(value); err == nil {
@@ -81,4 +75,26 @@ func copyText(text string) error {
 func hasCommand(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
+}
+
+// projectToken is the value of the token name of a project's stack, from its
+// secrets.
+func projectToken(p *project.Project, m *manifest.Manifest, name string) (string, error) {
+	secret, ok := m.Tokens[name]
+	if !ok {
+		return "", fmt.Errorf("the stack of %s gives no token %s", p.Meta.Name, name)
+	}
+	password, err := p.Password()
+	if err != nil {
+		return "", err
+	}
+	secrets, err := p.Secrets(password)
+	if err != nil {
+		return "", err
+	}
+	value, ok := secrets[secret].(string)
+	if !ok || value == "" {
+		return "", fmt.Errorf("the project has no %s token yet; damstack deploy makes it", name)
+	}
+	return value, nil
 }

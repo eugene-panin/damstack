@@ -147,3 +147,26 @@ type Task struct {
 }
 
 func (Task) event() {}
+
+// RunDone: a run ended well. Links are the addresses what it set up serves;
+// Next the commands worth running after it.
+type RunDone struct {
+	Links []Link
+	Next  []NextStep
+}
+
+// Link is an address a project serves. Admin is an admin page, reached through
+// the private network; Token names the token that signs in to it, if any.
+type Link struct {
+	URL   string
+	Admin bool
+	Token string
+}
+
+// NextStep is a command worth running next, and why.
+type NextStep struct {
+	Command string
+	Why     string
+}
+
+func (RunDone) event() {}
