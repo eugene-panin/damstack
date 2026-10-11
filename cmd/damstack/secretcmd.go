@@ -248,9 +248,13 @@ func secretListCommand(s *streams) *cobra.Command {
 			for _, a := range askedSecrets(p) {
 				state := "set"
 				if v, _ := secrets[a.spec.Name].(string); v == "" {
-					state = "not set"
-					if a.spec.Optional {
-						state += " (optional)"
+					switch {
+					case a.spec.When != "":
+						state = "only if " + a.spec.When
+					case a.spec.Optional:
+						state = "not set (optional)"
+					default:
+						state = "not set"
 					}
 				}
 				by := "the platform"
