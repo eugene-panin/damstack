@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/toolbox"
@@ -52,7 +52,8 @@ type Engine struct {
 	Brief bool
 	// Confirm asks before a step marked confirm changes anything.
 	Confirm func(question string) (bool, error)
-	Out     io.Writer
+	// Events gets what the engine says while it works; nil drops it.
+	Events event.Sink
 	// State, when set, is where the OpenTofu state of the steps is shared
 	// (the platform): it is pulled into the project's state file before a step
 	// and pushed back after an apply. Nil keeps the state in the project only.
@@ -274,7 +275,7 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	switch {
 	case err == nil:
 		if t.Action == "apply" {
-			fmt.Fprintln(e.Out, "Nothing to change.")
+			e.note("Nothing to change.", false)
 			return e.outputs(ctx, t, env, chdir)
 		}
 		return nil
@@ -353,7 +354,7 @@ func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, 
 	if e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Silent: true, Args: cmd}) == nil {
 		return nil
 	}
-	fmt.Fprintln(e.Out, "OpenTofu could not fetch its modules or providers; trying once more.")
+	e.note("OpenTofu could not fetch its modules or providers; trying once more.", false)
 	return e.Runner.Run(ctx, toolbox.Cmd{Env: env, Quiet: true, Args: cmd})
 }
 
@@ -416,7 +417,7 @@ func (e *Engine) counts(planJSON string) (string, error) {
 
 func (e *Engine) policy(ctx context.Context, t *manifest.Tofu, env map[string]string, chdir, planJSON string) error {
 	flags := e.policyFlags(t.Policy)
-	fmt.Fprintln(e.Out, "\nChecking the plan against the policies of the stack.")
+	e.note("Checking the plan against the policies of the stack.", true)
 	cmd := append(append([]string{"conftest", "test"}, flags...), "--namespace", "terraform", planJSON)
 	if err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: cmd}); err != nil {
 		return policyError(err)
@@ -515,7 +516,7 @@ func (e *Engine) keep(k *manifest.Keep) error {
 	if err := e.Project.SaveSecrets(e.Password, secrets); err != nil {
 		return err
 	}
-	fmt.Fprintf(e.Out, "Moved %s into %s.\n", k.File, project.VaultFile)
+	e.note(fmt.Sprintf("Moved %s into %s.", k.File, project.VaultFile), false)
 	return os.Remove(file)
 }
 
@@ -528,4 +529,14 @@ func (e *Engine) Dirs() map[string]string {
 func exists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func (e *Engine) emit(ev event.Event) {
+	if e.Events != nil {
+		e.Events.Emit(ev)
+	}
+}
+
+func (e *Engine) note(text string, apart bool) {
+	e.emit(event.Note{Text: text, Break: apart})
 }

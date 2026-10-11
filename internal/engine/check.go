@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/toolbox"
@@ -102,5 +103,5 @@ func (e *Engine) policyFlags(p *manifest.Policy) []string {
 }
 
 func (e *Engine) say(format string, args ...any) {
-	fmt.Fprintf(e.Out, "\n== "+format+"\n", args...)
+	e.emit(event.Heading{Text: fmt.Sprintf(format, args...)})
 }

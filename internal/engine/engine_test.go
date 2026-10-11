@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/toolbox"
@@ -75,7 +75,7 @@ func setup(t *testing.T) (*Engine, *fakeRunner) {
 		t.Fatal(err)
 	}
 	r := &fakeRunner{stack: stack, project: p.Dir}
-	return &Engine{Stack: stack, Project: p, Runner: r, Password: password, PasswordFile: "/c/vault-pass", KeyFile: "/h/.ssh/id_ed25519", Out: &bytes.Buffer{},
+	return &Engine{Stack: stack, Project: p, Runner: r, Password: password, PasswordFile: "/c/vault-pass", KeyFile: "/h/.ssh/id_ed25519", Events: &recorder{},
 		Confirm: func(string) (bool, error) { return true, nil }}, r
 }
 
@@ -384,5 +384,31 @@ func TestAFailedApplyStillPushesWhatItChanged(t *testing.T) {
 	r.reply = planReply(2)
 	if err := e.Run(t.Context(), tofuStep("apply"), nil); err == nil || !strings.Contains(err.Error(), "writing the state to the platform") {
 		t.Fatalf("a failed push must fail the step, got %v", err)
+	}
+}
+
+// recorder keeps the events an engine emits.
+type recorder struct{ events []event.Event }
+
+func (r *recorder) Emit(e event.Event) { r.events = append(r.events, e) }
+
+func TestTheEngineSaysWhatItDoesAsEvents(t *testing.T) {
+	e, r := setup(t)
+	r.reply = planReply(0)
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); err != nil {
+		t.Fatal(err)
+	}
+	got := e.Events.(*recorder).events
+	if !slices.Contains(got, event.Event(event.Note{Text: "Nothing to change."})) {
+		t.Errorf("got %#v", got)
+	}
+
+	r.reply = planReply(2)
+	e.Events = &recorder{}
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.Events.(*recorder).events; !slices.Contains(got, event.Event(event.Note{Text: "Checking the plan against the policies of the stack.", Break: true})) {
+		t.Errorf("got %#v", got)
 	}
 }

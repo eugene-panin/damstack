@@ -26,6 +26,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
 	"github.com/eugene-panin/damstack/internal/engine"
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/login"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -33,6 +34,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/toolbox"
+	"github.com/eugene-panin/damstack/internal/ui/plain"
 )
 
 type streams struct {
@@ -44,6 +46,9 @@ type streams struct {
 	verbose bool
 	// yes is --yes: go ahead wherever damstack would ask to.
 	yes bool
+	// events gets what damstack says while it works: plain lines here, the
+	// TUI later.
+	events event.Sink
 	// breakGlass is --break-glass: change a shared project without its lock,
 	// from the state on this machine, for when the platform itself is down.
 	breakGlass bool
@@ -63,7 +68,7 @@ func newStreams(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) 
 		}
 		p.Hidden = func() (string, error) { return readPassword(ctx, int(f.Fd())) }
 	}
-	return &streams{in: stdin, out: stdout, err: stderr, prompt: p}
+	return &streams{in: stdin, out: stdout, err: stderr, prompt: p, events: plain.New(stdout)}
 }
 
 // readPassword reads a line from the terminal fd without echoing it, and gives
@@ -564,7 +569,7 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	}
 	return &engine.Engine{
 		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, KeyFile: runner.Key,
-		Color: stdin != nil, Out: s.out,
+		Color: stdin != nil, Events: s.events,
 		Confirm: func(q string) (bool, error) { return s.confirm(q, false) },
 	}, key, nil
 }
@@ -765,21 +770,18 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 	if strings.Contains(j.name, "/") && j.step.Title != "" {
 		title = j.name[:strings.Index(j.name, "/")] + ": " + title
 	}
+	step := event.Step{N: n, Total: total, Name: j.name, Title: title}
 	if j.step.Once && !restore {
 		done, err := p.Done(j.name)
 		if err != nil {
 			return err
 		}
 		if done {
-			fmt.Fprintf(s.out, "\n%d/%d  %s: done before, runs once\n", n, total, title)
+			s.events.Emit(event.StepSkipped{Step: step, Reason: "done before, runs once"})
 			return nil
 		}
 	}
-	takes := ""
-	if j.step.Takes != "" {
-		takes = " (" + j.step.Takes + ")"
-	}
-	fmt.Fprintf(s.out, "\n%d/%d  %s%s\n", n, total, title, takes)
+	s.events.Emit(event.StepStarted{Step: step, Takes: j.step.Takes})
 	if j.step.Tunnel && srv != nil {
 		if err := waitTunnel(ctx, s, p, srv); err != nil {
 			return err
@@ -808,13 +810,14 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 		return fmt.Errorf("%s: %w; run damstack deploy again when you want it", j.name, err)
 	}
 	if err != nil {
+		failed := event.StepFailed{Step: step, Err: err}
 		if log != "" {
-			tail(s.out, log, 30)
-			fmt.Fprintf(s.out, "  The whole output is in %s\n", log)
+			failed.Log, failed.Tail = log, lastLines(log, 30)
 		}
+		s.events.Emit(failed)
 		return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack %s again in %s", j.name, err, command, p.Dir)
 	}
-	fmt.Fprintf(s.out, "     ok, %s\n", time.Since(start).Round(time.Second))
+	s.events.Emit(event.StepDone{Step: step, Took: time.Since(start)})
 	return nil
 }
 
@@ -844,19 +847,17 @@ func logTo(p *project.Project, j job) (string, func(), error) {
 	}, nil
 }
 
-// tail writes the last lines of a log, indented.
-func tail(w io.Writer, path string, lines int) {
+// lastLines are the last n lines of a log; none when it cannot be read.
+func lastLines(path string, n int) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return nil
 	}
 	all := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(all) > lines {
-		all = all[len(all)-lines:]
+	if len(all) > n {
+		all = all[len(all)-n:]
 	}
-	for _, line := range all {
-		fmt.Fprintf(w, "  | %s\n", line)
-	}
+	return all
 }
 
 func ensureLogin(ctx context.Context, s *streams, e *engine.Engine, key string) error {

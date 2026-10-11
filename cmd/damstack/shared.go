@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/remote"
@@ -69,16 +70,11 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 		}
 	}
 	held, err := r.Lock(ctx, me(action), func(w remote.Waiting) {
-		switch {
-		case w.Holder != nil && w.Position <= 1:
-			fmt.Fprintf(s.out, "Waiting: %s. You are next.\n", w.Holder)
-		case w.Holder != nil:
-			fmt.Fprintf(s.out, "Waiting: %s. %d ahead of you.\n", w.Holder, w.Position)
-		case w.Position > 1:
-			fmt.Fprintf(s.out, "Waiting for %d ahead of you.\n", w.Position)
+		waiting := event.Waiting{Ahead: w.Position}
+		if w.Holder != nil {
+			waiting.Holder = w.Holder.String()
 		}
-		// No holder and next in line: the lock was just freed, and is taken
-		// in a moment; nothing worth saying.
+		s.events.Emit(waiting)
 	})
 	if errors.Is(err, remote.ErrUnreachable) {
 		return nil, fmt.Errorf("%w, and %s is shared there: nothing was changed. Bring the platform back, "+
@@ -184,7 +180,7 @@ func publish(ctx context.Context, s *streams, p *project.Project, m *manifest.Ma
 	if err := p.SaveMeta(); err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "\nThe state of %d steps is now kept on the platform. From now on a change to %s waits its "+
-		"turn: one person at a time, the others queue.\n", len(files), p.Meta.Name)
+	s.events.Emit(event.Note{Break: true, Text: fmt.Sprintf("The state of %d steps is now kept on the platform. "+
+		"From now on a change to %s waits its turn: one person at a time, the others queue.", len(files), p.Meta.Name)})
 	return nil
 }

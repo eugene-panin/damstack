@@ -402,7 +402,7 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		Toolbox: tb, Stack: dir, Project: p.Dir, Password: passwordPath, Cache: cache,
 		PublicKey: "ssh-ed25519 AAAA damstack-check", Stdout: s.out, Stderr: s.err,
 	}
-	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Out: s.out}
+	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Events: s.events}
 	if m.IsApp() {
 		e.App = m.Name
 	}
