@@ -316,3 +316,50 @@ func TestTheReasonIsInTheToolsOwnWords(t *testing.T) {
 		}
 	}
 }
+
+func planning(width, height int) (*Deploy, chan event.Approval) {
+	m := midDeploy(width, height)
+	sauron := m.run.Steps[10].Step
+	m.Update(eventMsg{event.StepStarted{Step: sauron, Kind: "tofu", What: "infra"}})
+	answer := make(chan event.Approval, 1)
+	var restarts []event.Restart
+	for _, g := range []string{"console", "fetcher", "ingest", "enrich", "incidents", "transcriber", "ui-feed"} {
+		restarts = append(restarts, event.Restart{Addr: "module.sauron.nomad_job.sauron", Job: "sauron", Group: g,
+			Fields: []string{"Service/ConsulConnect/SidecarService/ConsulProxy/LocalServicePort"}})
+	}
+	m.Update(approveMsg{answer: answer, plan: event.Plan{
+		Question: "2 to change. Go?", Update: 2, Policies: true,
+		Changes:  []event.Change{{Addr: "module.sauron.nomad_job.sauron", Action: "update"}, {Addr: "module.sauron.nomad_job.databases", Action: "update"}},
+		Restarts: restarts,
+	}})
+	return m, answer
+}
+
+func TestThePlanScreenAtTheSizesItIsMadeFor(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {100, 30}, {140, 40}} {
+		w, h := size[0], size[1]
+		m, _ := planning(w, h)
+		frame := m.Frame()
+		checkShape(t, frame, w, h)
+		golden(t, fmt.Sprintf("plan-%dx%d", w, h), frame)
+	}
+}
+
+func TestAPlanIsAnsweredWithItsChoice(t *testing.T) {
+	m, answer := planning(100, 30)
+	m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if a := <-answer; !a.Apply || !a.Restart || m.planning() {
+		t.Errorf("a must apply and restart, the default: %+v", a)
+	}
+	m, answer = planning(100, 30)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if a := <-answer; !a.Apply || a.Restart {
+		t.Errorf("leave them, then a, must apply without restarts: %+v", a)
+	}
+	m, answer = planning(100, 30)
+	m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	if a := <-answer; a.Apply {
+		t.Errorf("n must not apply: %+v", a)
+	}
+}

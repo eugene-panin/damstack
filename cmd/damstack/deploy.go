@@ -55,6 +55,8 @@ type streams struct {
 	plain bool
 	// ask, when set, asks yes-or-no questions instead of the prompt: the TUI.
 	ask func(question string) (bool, error)
+	// planner, when set, asks whether to apply a plan: the TUI's plan screen.
+	planner func(event.Plan) (event.Approval, error)
 	// breakGlass is --break-glass: change a shared project without its lock,
 	// from the state on this machine, for when the platform itself is down.
 	breakGlass bool
@@ -583,7 +585,7 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 		Color: stdin != nil,
 		// Through s at each call: the TUI may take the events over after the engine is made.
 		Events:  event.SinkFunc(func(ev event.Event) { s.events.Emit(ev) }),
-		Confirm: func(q string) (bool, error) { return s.confirm(q, false) },
+		Approve: s.approve,
 	}, key, nil
 }
 

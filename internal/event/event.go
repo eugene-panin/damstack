@@ -170,3 +170,39 @@ type NextStep struct {
 }
 
 func (RunDone) event() {}
+
+// Plan is a step's plan as it waits to be approved: not an event, the
+// question of an Approve.
+type Plan struct {
+	// Question is what plain lines ask, such as "1 to create, 2 to change. Go?".
+	Question                        string
+	Create, Update, Replace, Delete int
+	Changes                         []Change
+	// Policies says the plan passed the stack's policies.
+	Policies bool
+	// Restarts are the groups Nomad would change in place in a way their
+	// running allocations do not take: they need new ones.
+	Restarts []Restart
+}
+
+// Change is a resource a plan changes: create, update, replace or delete.
+type Change struct {
+	Addr   string
+	Action string
+}
+
+// Restart is a group of a Nomad job whose allocations need replacing for a
+// change to take effect, and what changes.
+type Restart struct {
+	// Addr is the resource of the plan that submits the job.
+	Addr       string
+	Job, Group string
+	Fields     []string
+}
+
+// Approval answers a Plan: whether to apply it, and whether to replace the
+// allocations it changes in place, after.
+type Approval struct {
+	Apply   bool
+	Restart bool
+}

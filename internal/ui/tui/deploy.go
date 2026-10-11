@@ -113,10 +113,16 @@ type Deploy struct {
 	// one chosen, and a word on what a key just did.
 	summary *event.RunDone
 	// retry: the person asked, on the failure screen, to run again.
-	retry  bool
-	checks map[string]string
-	cursor int
-	flash  string
+	retry bool
+
+	// The plan screen: the plan waiting, the choice made, and what is shown.
+	approve    *approveMsg
+	choice     int
+	showFields bool
+	expand     bool
+	checks     map[string]string
+	cursor     int
+	flash      string
 }
 
 // NewDeploy is the deploy screen, its keys doing actions.
@@ -161,6 +167,8 @@ func (m *Deploy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apply(msg.Event)
 	case confirmMsg:
 		m.confirm = &msg
+	case approveMsg:
+		m.approve, m.choice, m.showFields, m.expand = &msg, 0, false, false
 	case finishMsg:
 		m.finished, m.err = true, msg.err
 		switch {
@@ -178,6 +186,8 @@ func (m *Deploy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash = string(msg)
 	case tea.KeyPressMsg:
 		switch {
+		case m.planning():
+			return m, m.planKey(msg.String())
 		case m.done():
 			return m, m.doneKey(msg.String())
 		case m.failedScreen():
@@ -352,6 +362,8 @@ func (m *Deploy) Frame() string {
 	w, h := m.width, m.height
 	if w >= minWidth && h >= minHeight {
 		switch {
+		case m.planning():
+			return m.planFrame()
 		case m.done():
 			return m.doneFrame()
 		case m.failedScreen():

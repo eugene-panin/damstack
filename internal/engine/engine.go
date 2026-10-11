@@ -57,8 +57,9 @@ type Engine struct {
 	// Brief is whether the output of the tools goes to a log rather than the
 	// terminal: a change is then confirmed by its counts.
 	Brief bool
-	// Confirm asks before a step marked confirm changes anything.
-	Confirm func(question string) (bool, error)
+	// Approve asks whether to apply a plan: before a step marked confirm
+	// changes anything, and before any whose plan needs allocations replaced.
+	Approve func(event.Plan) (event.Approval, error)
 	// Events gets what the engine says while it works; nil drops it.
 	Events event.Sink
 	// State, when set, is where the OpenTofu state of the steps is shared
@@ -377,20 +378,18 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	if t.Action != "apply" {
 		return nil
 	}
-	if s.Confirm {
-		question := "Apply the changes above?"
-		if e.Brief {
-			counts, err := e.counts(planJSON)
-			if err != nil {
-				return err
-			}
-			question = counts + ". Go?"
-		}
-		ok, err := e.Confirm(question)
-		if err != nil {
+	pl, err := e.planOf(ctx, env, planJSON, t.Policy != nil)
+	if err != nil {
+		return err
+	}
+	// A step marked confirm asks; any step asks when its plan needs
+	// allocations replaced, as Nomad would not.
+	approval := event.Approval{Apply: true}
+	if s.Confirm || len(pl.Restarts) > 0 {
+		if approval, err = e.Approve(pl); err != nil {
 			return err
 		}
-		if !ok {
+		if !approval.Apply {
 			return ErrDeclined
 		}
 	}
@@ -420,6 +419,11 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	}
 	if err := e.waitJobs(ctx, env, jobs); err != nil {
 		return err
+	}
+	if approval.Restart {
+		if err := e.restart(ctx, env, pl.Restarts); err != nil {
+			return err
+		}
 	}
 	return e.outputs(ctx, t, env, chdir)
 }
@@ -734,4 +738,111 @@ func (e *Engine) applyProgress(total int, jobs *[]string) func(io.Writer) io.Wri
 			e.emit(t)
 		})
 	}
+}
+
+// planOf is a plan as it is approved: what it changes, the question plain
+// lines ask, and the Nomad groups it would change in place in a way that
+// needs new allocations.
+func (e *Engine) planOf(ctx context.Context, env map[string]string, planJSON string, policies bool) (event.Plan, error) {
+	rcs, err := resourceChanges(planJSON)
+	if err != nil {
+		return event.Plan{}, err
+	}
+	pl := event.Plan{Policies: policies, Question: "Apply the changes above?"}
+	for _, rc := range rcs {
+		pl.Changes = append(pl.Changes, event.Change{Addr: rc.addr, Action: rc.action})
+		switch rc.action {
+		case "create":
+			pl.Create++
+		case "update":
+			pl.Update++
+		case "replace":
+			pl.Replace++
+		case "delete":
+			pl.Delete++
+		}
+	}
+	if e.Brief {
+		counts, err := e.counts(planJSON)
+		if err != nil {
+			return pl, err
+		}
+		pl.Question = counts + ". Go?"
+	}
+	pl.Restarts = e.restartsOf(ctx, env, planJSON, rcs)
+	return pl, nil
+}
+
+// restartsOf asks Nomad, changing nothing, which groups of the jobs a plan
+// updates would be changed in place in a way that needs new allocations. Not
+// knowing is no reason to stop: it says so and goes on.
+func (e *Engine) restartsOf(ctx context.Context, env map[string]string, planJSON string, rcs []resourceChange) []event.Restart {
+	updated := map[string]bool{}
+	for _, rc := range rcs {
+		if rc.action == "update" && strings.Contains(rc.addr, "nomad_job.") {
+			updated[rc.addr] = true
+		}
+	}
+	if len(updated) == 0 {
+		return nil
+	}
+	nomad, err := nomadwatch.FromEnv(env)
+	if err != nil || nomad == nil {
+		return nil
+	}
+	data, err := os.ReadFile(planJSON)
+	if err != nil {
+		return nil
+	}
+	var plan struct {
+		ResourceChanges []struct {
+			Address string `json:"address"`
+			Change  struct {
+				After map[string]any `json:"after"`
+			} `json:"change"`
+		} `json:"resource_changes"`
+	}
+	if json.Unmarshal(data, &plan) != nil {
+		return nil
+	}
+	var out []event.Restart
+	for _, rc := range plan.ResourceChanges {
+		spec, _ := rc.Change.After["jobspec"].(string)
+		if !updated[rc.Address] || spec == "" {
+			continue
+		}
+		groups, err := nomad.Plan(ctx, spec)
+		if err != nil {
+			e.note(fmt.Sprintf("Nomad could not plan %s, so whether it needs new allocations is not known: %v", rc.Address, err), false)
+			continue
+		}
+		for _, g := range groups {
+			out = append(out, event.Restart{Addr: rc.Address, Job: g.Job, Group: g.Group, Fields: g.Fields})
+		}
+	}
+	return out
+}
+
+// restart replaces the allocations of the groups a plan changed in place, one
+// group and one allocation at a time, reporting each group as a Task.
+func (e *Engine) restart(ctx context.Context, env map[string]string, restarts []event.Restart) error {
+	nomad, err := nomadwatch.FromEnv(env)
+	if err != nil || nomad == nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, JobsTimeout)
+	defer cancel()
+	for i, r := range restarts {
+		name := "restart " + r.Job + "/" + r.Group
+		err := nomad.Restart(ctx, r.Job, r.Group, func(p nomadwatch.Progress) {
+			e.emit(event.Task{Name: name, Status: event.TaskRunning, Done: i, Total: len(restarts),
+				Detail: fmt.Sprintf("%d of %d replaced", p.Healthy, p.Desired)})
+		})
+		if err != nil {
+			e.emit(event.Task{Name: name, Status: event.TaskFailed, Done: i + 1, Total: len(restarts)})
+			return err
+		}
+		e.emit(event.Task{Name: name, Status: event.TaskChanged, Done: i + 1, Total: len(restarts), Detail: "replaced"})
+	}
+	return nil
 }

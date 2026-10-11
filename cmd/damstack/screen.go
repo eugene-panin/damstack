@@ -83,7 +83,7 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 	screen := tui.NewProgram(model, s.in, s.out)
 
 	saved := *s
-	s.events, s.ask = screen, screen.Confirm
+	s.events, s.ask, s.planner = screen, screen.Confirm, screen.Approve
 	s.out, s.err = screen.Writer(), screen.Writer()
 	defer func() { *s = saved }()
 
@@ -199,4 +199,33 @@ func firstDevice(p *project.Project) string {
 		}
 	}
 	return "laptop"
+}
+
+// approve asks whether to apply a plan: on the screen when it is up, else as
+// lines, the plan's question and, when it needs allocations replaced, a second
+// one. --yes says yes to both.
+func (s *streams) approve(p event.Plan) (event.Approval, error) {
+	if s.yes {
+		return event.Approval{Apply: true, Restart: true}, nil
+	}
+	if s.planner != nil {
+		return s.planner(p)
+	}
+	ok, err := s.confirm(p.Question, false)
+	if err != nil || !ok {
+		return event.Approval{}, err
+	}
+	a := event.Approval{Apply: true}
+	if len(p.Restarts) > 0 {
+		groups := make([]string, len(p.Restarts))
+		for i, r := range p.Restarts {
+			groups[i] = r.Job + "/" + r.Group
+		}
+		s.events.Emit(event.Note{Break: true, Text: "Nomad changes " + strings.Join(groups, ", ") + " in place: " +
+			"running allocations keep their old network and sidecar, so the change takes effect only in new ones."})
+		if a.Restart, err = s.confirm("Replace those allocations after the apply, one at a time?", true); err != nil {
+			return event.Approval{}, err
+		}
+	}
+	return a, nil
 }

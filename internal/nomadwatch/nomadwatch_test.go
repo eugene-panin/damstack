@@ -153,3 +153,71 @@ func TestAgainstARealNomad(t *testing.T) {
 		t.Logf("%s: %d/%d, %s", id, last.Healthy, last.Desired, last.Detail)
 	}
 }
+
+// TestPlanAgainstARealNomad asks a real Nomad for the plan of a job whose
+// sidecar changes: DAMSTACK_TEST_NOMAD_PLAN names a file with its HCL.
+func TestPlanAgainstARealNomad(t *testing.T) {
+	addr, file := os.Getenv("DAMSTACK_TEST_NOMAD_ADDR"), os.Getenv("DAMSTACK_TEST_NOMAD_PLAN")
+	if addr == "" || file == "" {
+		t.Skip("set DAMSTACK_TEST_NOMAD_ADDR and DAMSTACK_TEST_NOMAD_PLAN to run against a real Nomad")
+	}
+	c, err := FromEnv(map[string]string{"NOMAD_ADDR": addr, "NOMAD_CACERT": os.Getenv("DAMSTACK_TEST_NOMAD_CACERT"),
+		"NOMAD_TOKEN": os.Getenv("DAMSTACK_TEST_NOMAD_TOKEN")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hcl, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Plan(context.Background(), string(hcl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%+v", got)
+	if len(got) == 0 {
+		t.Error("a changed sidecar must need new allocations")
+	}
+}
+
+func TestARestartReplacesOneAllocationAtATime(t *testing.T) {
+	var mu sync.Mutex
+	stopped := []string{}
+	allocs := []map[string]any{
+		{"ID": "a1", "TaskGroup": "fetcher", "JobVersion": 3, "ClientStatus": "running"},
+		{"ID": "a2", "TaskGroup": "fetcher", "JobVersion": 3, "ClientStatus": "running"},
+		{"ID": "b1", "TaskGroup": "console", "JobVersion": 3, "ClientStatus": "running"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.URL.Path == "/v1/jobs":
+			w.Write([]byte(`[{"ID":"sauron","Namespace":"default"}]`))
+		case strings.HasSuffix(r.URL.Path, "/stop"):
+			id := strings.Split(r.URL.Path, "/")[3]
+			stopped = append(stopped, id)
+			for _, a := range allocs {
+				if a["ID"] == id {
+					a["ClientStatus"] = "complete"
+				}
+			}
+			// Nomad places a replacement, which comes up.
+			allocs = append(allocs, map[string]any{"ID": id + "-new", "TaskGroup": "fetcher", "JobVersion": 3, "ClientStatus": "running",
+				"TaskStates": map[string]any{"fetcher": map[string]any{"State": "running"}, "seeds": map[string]any{"State": "dead"}}})
+			w.Write([]byte(`{}`))
+		case strings.HasSuffix(r.URL.Path, "/allocations"):
+			json.NewEncoder(w).Encode(allocs)
+		default:
+			w.Write([]byte(`{"ID":"sauron","Namespace":"default","Type":"service","Version":3}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{Addr: srv.URL, HTTP: srv.Client(), Poll: time.Millisecond}
+	if err := c.Restart(context.Background(), "sauron", "fetcher", func(Progress) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stopped) != 2 || stopped[0] != "a1" || stopped[1] != "a2" {
+		t.Errorf("both fetcher allocations, one after the other, and nothing else: %v", stopped)
+	}
+}

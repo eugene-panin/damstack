@@ -1,0 +1,40 @@
+  sauron: Sauron  step 11 of 12 · tofu infra                                                                               waiting for you  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  +0 to add   ~2 to change   −0 to destroy                                                                                      ✓ policies  
+                                                                                                                                            
+  ~ module.sauron.nomad_job.sauron                                                                                                  update  
+      ↻ needs new allocations: console, fetcher, ingest, enrich, incidents, transcriber, ui-feed                                            
+  ~ module.sauron.nomad_job.databases                                                                                               update  
+                                                                                                                                            
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │ !  Nomad applies this change in place.                                                                                               │  
+  │    Running allocations keep their old network and Envoy settings,                                                                    │  
+  │    so the change takes effect only after they restart.                                                                               │  
+  │                                                                                                                                      │  
+  │  › restart 7 groups after apply   one allocation at a time                                                                           │  
+  │    leave them   they take it when they next restart                                                                                  │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+  full plan: damstack plan -p twinmind                                                                                                      
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   a  apply    v  view diff    space  expand    ↑↓  choose    n  no, stop here                                                              

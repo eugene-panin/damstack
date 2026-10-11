@@ -75,3 +75,15 @@ func (w *noteWriter) Write(b []byte) (int, error) {
 		w.buf = w.buf[i+1:]
 	}
 }
+
+// Approve shows a plan on the screen and waits for the person to approve it.
+func (p *Program) Approve(plan event.Plan) (event.Approval, error) {
+	answer := make(chan event.Approval, 1)
+	p.p.Send(approveMsg{plan: plan, answer: answer})
+	select {
+	case a := <-answer:
+		return a, nil
+	case <-p.done:
+		return event.Approval{}, ErrClosed
+	}
+}

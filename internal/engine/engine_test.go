@@ -81,7 +81,7 @@ func setup(t *testing.T) (*Engine, *fakeRunner) {
 	}
 	r := &fakeRunner{stack: stack, project: p.Dir}
 	return &Engine{Stack: stack, Project: p, Runner: r, Password: password, PasswordFile: "/c/vault-pass", KeyFile: "/h/.ssh/id_ed25519", Events: &recorder{},
-		Confirm: func(string) (bool, error) { return true, nil }}, r
+		Approve: func(event.Plan) (event.Approval, error) { return event.Approval{Apply: true}, nil }}, r
 }
 
 func TestAnsible(t *testing.T) {
@@ -159,7 +159,10 @@ func TestTofuApply(t *testing.T) {
 	e, r := setup(t)
 	r.reply = planReply(2)
 	var asked string
-	e.Confirm = func(q string) (bool, error) { asked = q; return true, nil }
+	e.Approve = func(p event.Plan) (event.Approval, error) {
+		asked = p.Question
+		return event.Approval{Apply: true}, nil
+	}
 	if err := e.Run(t.Context(), tofuStep("apply"), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +190,7 @@ func TestTofuApply(t *testing.T) {
 func TestTofuApplyDeclined(t *testing.T) {
 	e, r := setup(t)
 	r.reply = planReply(2)
-	e.Confirm = func(string) (bool, error) { return false, nil }
+	e.Approve = func(event.Plan) (event.Approval, error) { return event.Approval{}, nil }
 	if err := e.Run(t.Context(), tofuStep("apply"), nil); !errors.Is(err, ErrDeclined) {
 		t.Errorf("got %v", err)
 	}
@@ -319,7 +322,7 @@ func TestBriefConfirmsByCounts(t *testing.T) {
 		return nil
 	}
 	var asked string
-	e.Confirm = func(q string) (bool, error) { asked = q; return false, nil }
+	e.Approve = func(p event.Plan) (event.Approval, error) { asked = p.Question; return event.Approval{}, nil }
 	step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"}, Confirm: true}
 	if err := e.Run(t.Context(), step, nil); !errors.Is(err, ErrDeclined) {
 		t.Fatal(err)
@@ -573,5 +576,40 @@ func TestAnApplyWaitsForTheJobsItSubmittedToComeUp(t *testing.T) {
 		if want := map[bool]event.TaskStatus{true: event.TaskOK, false: event.TaskFailed}[tc.ok]; last.Status != want {
 			t.Errorf("deployment %s: the job's last task is %+v", tc.status, last)
 		}
+	}
+}
+
+func TestAPlanThatNomadWouldApplyInPlaceAsksToRestart(t *testing.T) {
+	nomad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/jobs/parse":
+			w.Write([]byte(`{"ID":"web","Namespace":"default"}`))
+		case strings.HasSuffix(r.URL.Path, "/plan"):
+			w.Write([]byte(`{"Annotations":{"DesiredTGUpdates":{"web":{"InPlaceUpdate":1}}},
+"Diff":{"TaskGroups":[{"Name":"web","Type":"Edited","Objects":[{"Type":"Edited","Name":"Service","Objects":[
+ {"Type":"Edited","Name":"ConsulConnect","Fields":[{"Type":"Edited","Name":"LocalServicePort"}]}]}]}]}}`))
+		}
+	}))
+	defer nomad.Close()
+	e, r := setup(t)
+	r.reply = func(c toolbox.Cmd) error {
+		switch {
+		case slices.Contains(c.Args, "plan"):
+			return &toolbox.ExitError{Name: "tofu", Code: 2}
+		case slices.Contains(c.Args, "show"):
+			c.Stdout.Write([]byte(`{"resource_changes":[{"address":"nomad_job.web","type":"nomad_job","change":{"actions":["update"],"after":{"jobspec":"job \"web\" {}"}}}]}`))
+		}
+		return nil
+	}
+	var asked event.Plan
+	e.Approve = func(p event.Plan) (event.Approval, error) { asked = p; return event.Approval{}, nil }
+	// Not marked confirm: the restart alone makes it ask.
+	step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"}, Env: map[string]string{"NOMAD_ADDR": nomad.URL}}
+	if err := e.Run(t.Context(), step, nil); !errors.Is(err, ErrDeclined) {
+		t.Fatalf("got %v", err)
+	}
+	if len(asked.Restarts) != 1 || asked.Restarts[0].Group != "web" || asked.Restarts[0].Addr != "nomad_job.web" ||
+		asked.Restarts[0].Fields[0] != "Service/ConsulConnect/LocalServicePort" {
+		t.Errorf("got %+v", asked.Restarts)
 	}
 }
