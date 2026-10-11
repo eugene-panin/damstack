@@ -296,6 +296,20 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 				}
 			}
 			command := strings.TrimSpace(app + " " + name)
+			// A command that changes the project waits its turn for the lock;
+			// one that only reads takes the platform's state as it is.
+			var sh *sharing
+			if step.Ansible != nil || (step.Tofu != nil && step.Tofu.Action == "apply") || step.Run != nil {
+				if sh, err = lockProject(cmd.Context(), s, p, platform, pdir, e.Password, command); err != nil {
+					return err
+				}
+				defer sh.release()
+			} else {
+				sh = readProject(s, p, platform, pdir, e.Password)
+			}
+			if sh != nil {
+				e.State = sh.store
+			}
 			start := time.Now()
 			err = e.Run(cmd.Context(), step, args)
 			if rerr := record(p, command, "", start, err); rerr != nil && err == nil {

@@ -44,6 +44,9 @@ type streams struct {
 	verbose bool
 	// yes is --yes: go ahead wherever damstack would ask to.
 	yes bool
+	// breakGlass is --break-glass: change a shared project without its lock,
+	// from the state on this machine, for when the platform itself is down.
+	breakGlass bool
 }
 
 // newStreams asks its questions on stderr, so they reach the person when the
@@ -120,14 +123,15 @@ func (s *streams) tty() bool {
 }
 
 type deployOptions struct {
-	verbose  bool
-	stack    string
-	name     string
-	dir      string
-	answers  string
-	from     string
-	yes      bool
-	appsOnly bool
+	verbose    bool
+	stack      string
+	name       string
+	dir        string
+	answers    string
+	from       string
+	yes        bool
+	appsOnly   bool
+	breakGlass bool
 }
 
 func deployCommand(s *streams) *cobra.Command {
@@ -150,13 +154,14 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().StringVar(&o.from, "from", "", "deploy the stack in this directory as it is, instead of a release; for writing a stack")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
 	cmd.Flags().BoolVar(&o.appsOnly, "apps-only", false, "deploy only the apps, skipping the platform's Ansible steps (bootstrap, provision); for when the platform is already up and unchanged")
+	cmd.Flags().BoolVar(&o.breakGlass, "break-glass", false, "change a project shared on its platform without the platform's lock, from the state on this machine; only to repair the platform itself")
 	return cmd
 }
 
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
-	s.verbose, s.yes = o.verbose, o.yes
+	s.verbose, s.yes, s.breakGlass = o.verbose, o.yes, o.breakGlass
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -612,6 +617,15 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
+	// A restore sets up a new server from a backup, the platform's state with
+	// it: there is no platform to lock yet.
+	var sh *sharing
+	if restore == "" {
+		if sh, err = lockProject(ctx, s, p, m, dir, e.Password, "deploy"); err != nil {
+			return err
+		}
+		defer sh.release()
+	}
 	keys, err := ensureKeys(p, m, dir, e.Password)
 	if err != nil {
 		return err
@@ -620,6 +634,7 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	if err != nil {
 		return err
 	}
+	sh.attach(jobs)
 	for _, j := range jobs {
 		if restore != "" {
 			if j.e.BaseEnv == nil {
@@ -629,7 +644,15 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		}
 	}
 	for i, j := range jobs {
+		if err := sh.check(); err != nil {
+			return err
+		}
 		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
+			return err
+		}
+	}
+	if restore == "" {
+		if err := publish(ctx, s, p, m, dir, e.Password); err != nil {
 			return err
 		}
 	}

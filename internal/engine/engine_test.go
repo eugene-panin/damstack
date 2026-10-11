@@ -322,3 +322,67 @@ func TestBriefConfirmsByCounts(t *testing.T) {
 		t.Errorf("asked %q", asked)
 	}
 }
+
+// fakeStore keeps the calls of a StateStore.
+type fakeStore struct {
+	calls   []string
+	pushErr error
+}
+
+func (s *fakeStore) Pull(unit, path string) error {
+	s.calls = append(s.calls, "pull "+unit+" "+filepath.Base(path))
+	return nil
+}
+
+func (s *fakeStore) Push(unit, path string) error {
+	s.calls = append(s.calls, "push "+unit+" "+filepath.Base(path))
+	return s.pushErr
+}
+
+func TestSharedStateIsPulledBeforeAndPushedAfterAnApply(t *testing.T) {
+	e, r := setup(t)
+	store := &fakeStore{}
+	e.State = store
+	r.reply = planReply(2)
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pull infra infra.tfstate", "push infra infra.tfstate"}; !slices.Equal(store.calls, want) {
+		t.Errorf("got %v, want %v", store.calls, want)
+	}
+
+	store.calls = nil
+	r.reply = planReply(0)
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pull infra infra.tfstate"}; !slices.Equal(store.calls, want) {
+		t.Errorf("nothing applied must push nothing: got %v", store.calls)
+	}
+}
+
+func TestAFailedApplyStillPushesWhatItChanged(t *testing.T) {
+	e, r := setup(t)
+	store := &fakeStore{}
+	e.State = store
+	plan := planReply(2)
+	r.reply = func(c toolbox.Cmd) error {
+		if slices.Contains(c.Args, "apply") {
+			return &toolbox.ExitError{Name: "tofu", Code: 1}
+		}
+		return plan(c)
+	}
+	var exit *toolbox.ExitError
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); !errors.As(err, &exit) {
+		t.Fatalf("the apply's error must come through, got %v", err)
+	}
+	if store.calls[len(store.calls)-1] != "push infra infra.tfstate" {
+		t.Errorf("a half-done apply's state must reach the platform too: %v", store.calls)
+	}
+
+	store.pushErr = errors.New("consul down")
+	r.reply = planReply(2)
+	if err := e.Run(t.Context(), tofuStep("apply"), nil); err == nil || !strings.Contains(err.Error(), "writing the state to the platform") {
+		t.Fatalf("a failed push must fail the step, got %v", err)
+	}
+}

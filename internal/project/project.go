@@ -47,6 +47,10 @@ type Meta struct {
 	Stack   StackRef   `yaml:"stack"`
 	Apps    []StackRef `yaml:"apps,omitempty"`
 	Created time.Time  `yaml:"created"`
+	// Shared is whether the project's state is kept on its platform, where the
+	// people running it share it: a change takes the platform's lock, and the
+	// state here is a cache of the platform's.
+	Shared bool `yaml:"shared,omitempty"`
 }
 
 func (m Meta) App(name string) (StackRef, bool) {

@@ -53,6 +53,17 @@ type Engine struct {
 	// Confirm asks before a step marked confirm changes anything.
 	Confirm func(question string) (bool, error)
 	Out     io.Writer
+	// State, when set, is where the OpenTofu state of the steps is shared
+	// (the platform): it is pulled into the project's state file before a step
+	// and pushed back after an apply. Nil keeps the state in the project only.
+	State StateStore
+}
+
+// StateStore keeps the OpenTofu state of a unit outside the project, such as
+// remote.Store on the platform's Consul.
+type StateStore interface {
+	Pull(unit, path string) error
+	Push(unit, path string) error
 }
 
 // ErrDeclined is returned when the person said no to a confirm.
@@ -192,8 +203,19 @@ func (e *Engine) prepareTofu(ctx context.Context, t *manifest.Tofu, env map[stri
 			return "", "", err
 		}
 	}
-	err := e.init(ctx, env, chdir, "-backend-config=path="+filepath.Join(e.Project.Dir, "state", name+".tfstate"))
+	state := e.statePath(t)
+	if e.State != nil {
+		if err := e.State.Pull(name, state); err != nil {
+			return "", "", err
+		}
+	}
+	err := e.init(ctx, env, chdir, "-backend-config=path="+state)
 	return chdir, data, err
+}
+
+// statePath is the state file of an OpenTofu directory in the project.
+func (e *Engine) statePath(t *manifest.Tofu) string {
+	return filepath.Join(e.Project.Dir, "state", e.unit(t.Dir)+".tfstate")
 }
 
 // Drift says what a step of OpenTofu would change now, without changing
@@ -290,7 +312,14 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 			return ErrDeclined
 		}
 	}
-	if err := e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", plan}}); err != nil {
+	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", plan}})
+	// A failed apply may have changed things too: its state is pushed either way.
+	if e.State != nil {
+		if perr := e.State.Push(e.unit(t.Dir), e.statePath(t)); perr != nil {
+			return errors.Join(err, fmt.Errorf("writing the state to the platform: %w", perr))
+		}
+	}
+	if err != nil {
 		return err
 	}
 	if err := os.Remove(plan); err != nil && !errors.Is(err, fs.ErrNotExist) {

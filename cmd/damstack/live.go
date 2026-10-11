@@ -25,6 +25,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	if err != nil {
 		return err
 	}
+	readProject(s, p, m, dir, e.Password).attach(jobs)
 	quiet := *s
 	quiet.in = nil
 	fmt.Fprintf(s.out, "Checking %s against the server, changing nothing.\n\n", p.Meta.Name)
