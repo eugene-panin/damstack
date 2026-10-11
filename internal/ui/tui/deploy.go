@@ -440,20 +440,24 @@ func (m *Deploy) stepRows(s *stepView, width int) []line {
 	return []line{{left: []span{text("○ "+s.Title, dim)}, right: []span{text(approx(s.Takes), dim)}}}
 }
 
-// appsRows are the apps as one group: a row for the group, then their names,
-// each in the colour of where it is.
+// appsRows are the apps as one group: a row for the group, then each app as a
+// row of its own, as a step is drawn, under it.
 func (m *Deploy) appsRows(width int) []line {
-	var names []span
+	var apps []line
 	state := pending
 	n := 0
-	for _, s := range m.steps {
+	for i := range m.steps {
+		s := m.steps[i]
 		app, _, ok := strings.Cut(s.Name, "/")
 		if !ok {
 			continue
 		}
 		n++
-		st := map[stepState]style{pending: dim, running: amber, stepDone: green, skipped: green, failed: red}[s.state]
-		names = append(names, text(app, st))
+		s.Title = app
+		for _, l := range m.stepRows(&s, width-2) {
+			l.left = append([]span{text("  ", plain)}, l.left...)
+			apps = append(apps, l)
+		}
 		switch {
 		case s.state == failed:
 			state = failed
@@ -476,19 +480,7 @@ func (m *Deploy) appsRows(width int) []line {
 	case allDone:
 		head.left = []span{text("✓ ", green), text("Apps", plain)}
 	}
-	rows := []line{head}
-	cur := line{left: []span{text("    ", plain)}}
-	used := 4
-	for _, s := range names {
-		w := len([]rune(s.text)) + 2
-		if used+w > width && used > 4 {
-			rows = append(rows, cur)
-			cur, used = line{left: []span{text("    ", plain)}}, 4
-		}
-		cur.left = append(cur.left, s, text("  ", plain))
-		used += w
-	}
-	return append(rows, cur)
+	return append([]line{head}, apps...)
 }
 
 func (m *Deploy) rightPane(width, height int) []string {

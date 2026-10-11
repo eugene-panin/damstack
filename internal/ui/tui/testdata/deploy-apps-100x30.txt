@@ -1,0 +1,30 @@
+  damstack deploy twinmind  hashi v0.21.0 · 169.58.210.131                            04:15 / ~28m  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+  ✓ Securing the server           0:48  │  grafana: Grafana                                         
+  ✓ Consul, Vault, Nomad          5:02  │  tofu · infra                                             
+  ✓ Traefik and admin pages       0:06  │                                                           
+  ● Apps                             8  │  ⠼ module.grafana.nomad_job.grafana                       
+    ✓ postgres                    0:03  │  · module.grafana.vault_kv_secret_v2.admin                
+    ✓ nats                        0:03  │                                                           
+    ✓ seaweedfs                   0:03  │                                                           
+    ✓ loki                        0:03  │                                                           
+    ✓ mimir                       0:03  │                                                           
+    ● grafana                      0/2  │                                                           
+      ░░░░░░░░░░░░░░░░░░░░░░░░░░ 0%     │                                                           
+    ○ odoo                         ~3m  │                                                           
+    ○ sauron                       ~5m  │                                                           
+  ○ DNS records                    10s  │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+                                        │                                                           
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+   l  log    d  details    p  plan    s  ssh    q  quit after this step                             

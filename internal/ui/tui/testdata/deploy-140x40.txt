@@ -5,15 +5,15 @@
     ████████████████░░░░░░░░░░░░░░░░░░░░░░ 43%    │                                                                                         
   ○ Traefik and admin pages                  ~1m  │  ✓ consul : install 2.0.4                                                         2.1s  
   ○ Apps                                       8  │  ✓ consul : extra config (connect)                                                0.4s  
-      postgres  nats  seaweedfs  loki  mimir      │  ✓ consul : grpc certificate                                                   changed  
-      grafana  odoo  sauron                       │  ✓ consul : restart                                                            changed  
-  ○ DNS records                              10s  │  ⠼ consul-cni : download 2.0.4                                                    3.4s  
-                                                  │  · consul-cni : link plugin                                                             
-                                                  │  · nomad : agent config                                                                 
-                                                  │  · nomad : docker registry login                                                        
-                                                  │  · nomad : restart if changed                                                           
-                                                  │  · vault : service registration                                                         
-                                                  │    + 35 more                                                                            
+    ○ postgres                               ~2m  │  ✓ consul : grpc certificate                                                   changed  
+    ○ nats                                   ~2m  │  ✓ consul : restart                                                            changed  
+    ○ seaweedfs                              ~2m  │  ⠼ consul-cni : download 2.0.4                                                    3.4s  
+    ○ loki                                   ~2m  │  · consul-cni : link plugin                                                             
+    ○ mimir                                  ~2m  │  · nomad : agent config                                                                 
+    ○ grafana                                ~2m  │  · nomad : docker registry login                                                        
+    ○ odoo                                   ~3m  │  · nomad : restart if changed                                                           
+    ○ sauron                                 ~5m  │  · vault : service registration                                                         
+  ○ DNS records                              10s  │    + 35 more                                                                            
                                                   │                                                                                         
                                                   │                                                                                         
                                                   │                                                                                         

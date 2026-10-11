@@ -179,3 +179,22 @@ func TestAFailureStaysOnScreen(t *testing.T) {
 	}
 	checkShape(t, m.Frame(), 100, 30)
 }
+
+func TestAppsAreAListEachWhereItIs(t *testing.T) {
+	m := midDeploy(100, 30)
+	send := func(e event.Event) { m.Update(eventMsg{e}) }
+	step := func(n int) event.Step { return m.run.Steps[n-1].Step }
+	send(event.StepDone{Step: step(2), Took: 5*time.Minute + 2*time.Second})
+	send(event.StepStarted{Step: step(3), Kind: "tofu", What: "infra"})
+	send(event.StepDone{Step: step(3), Took: 6 * time.Second})
+	for n := 4; n <= 8; n++ {
+		send(event.StepStarted{Step: step(n), Kind: "tofu", What: "infra"})
+		send(event.StepDone{Step: step(n), Took: 3 * time.Second})
+	}
+	send(event.StepStarted{Step: step(9), Kind: "tofu", What: "infra"})
+	send(event.TaskPlan{Names: []string{"module.grafana.nomad_job.grafana", "module.grafana.vault_kv_secret_v2.admin"}})
+	send(event.Task{Name: "module.grafana.nomad_job.grafana", Status: event.TaskRunning, Done: 0, Total: 2})
+	frame := m.Frame()
+	checkShape(t, frame, 100, 30)
+	golden(t, "deploy-apps-100x30", frame)
+}
