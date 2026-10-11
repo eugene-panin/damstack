@@ -51,6 +51,11 @@ type Cmd struct {
 	// then.
 	Quiet  bool
 	Silent bool
+	// Filter, when set, stands between the command and the stdout it would
+	// write to (the runner's, or Stdout): it gets that writer and returns the
+	// one the command writes to, which may read structured output and write
+	// text on. A returned io.Closer is closed after the command.
+	Filter func(io.Writer) io.Writer
 }
 
 // ExitError is a command that ran and failed.
@@ -155,6 +160,13 @@ func (r *Runner) Run(ctx context.Context, c Cmd) error {
 	default:
 		cmd.Stdin = r.Stdin
 		cmd.Stdout, cmd.Stderr = r.Stdout, r.Stderr
+	}
+	if c.Filter != nil && !c.Quiet {
+		filtered := c.Filter(cmd.Stdout)
+		cmd.Stdout = filtered
+		if closer, ok := filtered.(io.Closer); ok {
+			defer closer.Close()
+		}
 	}
 	err = cmd.Run()
 	var exit *exec.ExitError

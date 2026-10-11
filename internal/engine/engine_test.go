@@ -3,11 +3,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
@@ -164,7 +166,7 @@ func TestTofuApply(t *testing.T) {
 		"tofu -chdir=/stack/infra show -json /work/.damstack/work/tofu/infra/plan",
 		"conftest test" + data + " --namespace terraform /work/.damstack/work/tofu/infra/plan.json",
 		"conftest test" + data + " --parser hcl2 --namespace nomad /work/.damstack/work/jobs/module.app.nomad_job.web.nomad.hcl",
-		"tofu -chdir=/stack/infra apply -input=false /work/.damstack/work/tofu/infra/plan",
+		"tofu -chdir=/stack/infra apply -input=false -json /work/.damstack/work/tofu/infra/plan",
 	}
 	if got := r.lines(); !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -410,5 +412,50 @@ func TestTheEngineSaysWhatItDoesAsEvents(t *testing.T) {
 	}
 	if got := e.Events.(*recorder).events; !slices.Contains(got, event.Event(event.Note{Text: "Checking the plan against the policies of the stack.", Break: true})) {
 		t.Errorf("got %#v", got)
+	}
+}
+
+func TestAnApplyReportsEachResourceAgainstThePlan(t *testing.T) {
+	e, r := setup(t)
+	plan := `{"resource_changes":[
+ {"address":"nomad_job.web","change":{"actions":["update"]}},
+ {"address":"consul_config_entry.defaults[0]","change":{"actions":["create"]}},
+ {"address":"random_password.p","change":{"actions":["no-op"]}}]}`
+	var log strings.Builder
+	r.reply = func(c toolbox.Cmd) error {
+		switch {
+		case slices.Contains(c.Args, "plan"):
+			return &toolbox.ExitError{Name: "tofu", Code: 2}
+		case slices.Contains(c.Args, "show"):
+			c.Stdout.Write([]byte(plan))
+		case slices.Contains(c.Args, "apply"):
+			w := c.Filter(&log)
+			w.Write([]byte(`{"@message":"nomad_job.web: Modifying...","type":"apply_start","hook":{"resource":{"addr":"nomad_job.web"},"action":"update"}}
+{"@message":"nomad_job.web: Modifications complete after 3s","type":"apply_complete","hook":{"resource":{"addr":"nomad_job.web"},"action":"update","elapsed_seconds":3}}
+`))
+			w.(io.Closer).Close()
+		}
+		return nil
+	}
+	e.Manifest = nil
+	step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"}}
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	var tasks []event.Task
+	for _, ev := range e.Events.(*recorder).events {
+		if task, ok := ev.(event.Task); ok {
+			tasks = append(tasks, task)
+		}
+	}
+	want := []event.Task{
+		{Name: "nomad_job.web", Status: event.TaskRunning, Done: 0, Total: 2},
+		{Name: "nomad_job.web", Status: event.TaskChanged, Done: 1, Total: 2, Took: 3 * time.Second},
+	}
+	if !slices.Equal(tasks, want) {
+		t.Errorf("got %+v\nwant %+v", tasks, want)
+	}
+	if log.String() != "nomad_job.web: Modifying...\nnomad_job.web: Modifications complete after 3s\n" {
+		t.Errorf("the log must keep OpenTofu's text, got %q", log.String())
 	}
 }

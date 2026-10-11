@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/tofujson"
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
 
@@ -283,7 +285,9 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 		return err
 	}
 	planJSON := ""
-	if t.Policy != nil || (t.Action == "apply" && s.Confirm && e.Brief) {
+	// An apply reads its plan too: the number of resources it changes is what
+	// its progress counts to.
+	if t.Policy != nil || t.Action == "apply" {
 		if planJSON, err = e.showPlan(ctx, env, chdir, plan); err != nil {
 			return err
 		}
@@ -313,7 +317,14 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 			return ErrDeclined
 		}
 	}
-	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", plan}})
+	total := 0
+	if n, err := changes(planJSON); err == nil {
+		for _, c := range n {
+			total += c
+		}
+	}
+	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", "-json", plan},
+		Filter: e.applyProgress(total)})
 	// A failed apply may have changed things too: its state is pushed either way.
 	if e.State != nil {
 		if perr := e.State.Push(e.unit(t.Dir), e.statePath(t)); perr != nil {
@@ -376,11 +387,12 @@ func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, pla
 
 const onlyOutputs = "Only outputs change"
 
-// counts says in words what a plan changes: 12 to create, 1 to destroy.
-func (e *Engine) counts(planJSON string) (string, error) {
+// changes counts the resources a plan changes, by what it does to them:
+// create, update, replace and delete.
+func changes(planJSON string) (map[string]int, error) {
 	data, err := os.ReadFile(planJSON)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var plan struct {
 		ResourceChanges []struct {
@@ -390,7 +402,7 @@ func (e *Engine) counts(planJSON string) (string, error) {
 		} `json:"resource_changes"`
 	}
 	if err := json.Unmarshal(data, &plan); err != nil {
-		return "", fmt.Errorf("the plan: %w", err)
+		return nil, fmt.Errorf("the plan: %w", err)
 	}
 	n := map[string]int{}
 	for _, rc := range plan.ResourceChanges {
@@ -400,6 +412,15 @@ func (e *Engine) counts(planJSON string) (string, error) {
 		case "delete,create", "create,delete":
 			n["replace"]++
 		}
+	}
+	return n, nil
+}
+
+// counts says in words what a plan changes: 12 to create, 1 to destroy.
+func (e *Engine) counts(planJSON string) (string, error) {
+	n, err := changes(planJSON)
+	if err != nil {
+		return "", err
 	}
 	var parts []string
 	for _, k := range []struct{ action, words string }{
@@ -539,4 +560,29 @@ func (e *Engine) emit(ev event.Event) {
 
 func (e *Engine) note(text string, apart bool) {
 	e.emit(event.Note{Text: text, Break: apart})
+}
+
+// applyProgress reads an apply's -json output: OpenTofu's text goes on to the
+// log or the terminal, and each resource it changes is a Task event, counted
+// to total, the resources the plan changes.
+func (e *Engine) applyProgress(total int) func(io.Writer) io.Writer {
+	return func(w io.Writer) io.Writer {
+		done := 0
+		return tofujson.NewWriter(w, func(r tofujson.Resource) {
+			t := event.Task{Name: r.Addr, Took: r.Elapsed}
+			switch r.Status {
+			case tofujson.Started:
+				t.Status = event.TaskRunning
+			case tofujson.Done:
+				done++
+				t.Status = event.TaskChanged
+			case tofujson.Failed:
+				done++
+				t.Status = event.TaskFailed
+			}
+			// A data source read during the apply is not in the plan's count.
+			t.Done, t.Total = done, max(total, done)
+			e.emit(t)
+		})
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,5 +100,36 @@ func TestUnpack(t *testing.T) {
 		if err := unpack(archive(t, bad), t.TempDir()); err == nil {
 			t.Errorf("%s -> %s was unpacked", bad.Name, bad.Linkname)
 		}
+	}
+}
+
+// upper writes what it gets in capitals, and says when it is closed.
+type upper struct {
+	w      io.Writer
+	closed *bool
+}
+
+func (u upper) Write(p []byte) (int, error) { return u.w.Write(bytes.ToUpper(p)) }
+func (u upper) Close() error                { *u.closed = true; return nil }
+
+func TestAFilterStandsBetweenTheCommandAndItsOutput(t *testing.T) {
+	tb := t.TempDir()
+	os.MkdirAll(filepath.Join(tb, "bin"), 0o755)
+	os.WriteFile(filepath.Join(tb, "bin", "say"), []byte("#!/bin/sh\necho hello\n"), 0o755)
+	var out bytes.Buffer
+	r := &Runner{Toolbox: tb, Project: t.TempDir(), Stdout: &out, Stderr: io.Discard}
+	closed := false
+	filter := func(w io.Writer) io.Writer { return upper{w, &closed} }
+	if err := r.Run(context.Background(), Cmd{Args: []string{"say"}, Filter: filter}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "HELLO\n" || !closed {
+		t.Errorf("the output must pass through the filter, which is closed after: %q, closed %v", out.String(), closed)
+	}
+	var own bytes.Buffer
+	closed = false
+	r.Run(context.Background(), Cmd{Args: []string{"say"}, Filter: filter, Stdout: &own})
+	if own.String() != "HELLO\n" {
+		t.Errorf("a command's own Stdout is filtered too: %q", own.String())
 	}
 }

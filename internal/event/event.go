@@ -86,3 +86,29 @@ func (StepFailed) event()  {}
 func (Note) event()        {}
 func (Heading) event()     {}
 func (Waiting) event()     {}
+
+// TaskStatus is where a task of a step is.
+type TaskStatus int
+
+const (
+	TaskRunning TaskStatus = iota
+	TaskOK
+	TaskChanged
+	TaskFailed
+	TaskSkipped
+)
+
+// Task: a piece of work inside the step running now (a resource OpenTofu
+// changes, a task Ansible runs) changed status. Done of Total are finished;
+// Estimate says Total is a guess that may grow (Ansible's includes); Total is 0
+// when unknown.
+type Task struct {
+	Name     string
+	Status   TaskStatus
+	Done     int
+	Total    int
+	Estimate bool
+	Took     time.Duration
+}
+
+func (Task) event() {}
