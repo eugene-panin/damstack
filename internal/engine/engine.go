@@ -18,10 +18,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/eugene-panin/damstack/internal/ansibleevents"
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/nomadwatch"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/tofujson"
 	"github.com/eugene-panin/damstack/internal/toolbox"
@@ -394,8 +396,9 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 			total += c
 		}
 	}
+	var jobs []string
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", "-json", plan},
-		Filter: e.applyProgress(total)})
+		Filter: e.applyProgress(total, &jobs)})
 	// A failed apply may have changed things too: its state is pushed either way.
 	if e.State != nil {
 		if perr := e.State.Push(e.unit(t.Dir), e.statePath(t)); perr != nil {
@@ -408,7 +411,42 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	if err := os.Remove(plan); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	if err := e.waitJobs(ctx, env, jobs); err != nil {
+		return err
+	}
 	return e.outputs(ctx, t, env, chdir)
+}
+
+// JobsTimeout is how long a step waits for the Nomad jobs it submitted to come
+// up, past Nomad's own deadlines.
+const JobsTimeout = 15 * time.Minute
+
+// waitJobs waits for the Nomad jobs an apply submitted to come up, not just to
+// be accepted, reporting each as a Task. A step whose environment names no
+// Nomad submits none to wait for.
+func (e *Engine) waitJobs(ctx context.Context, env map[string]string, jobs []string) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	nomad, err := nomadwatch.FromEnv(env)
+	if err != nil || nomad == nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, JobsTimeout)
+	defer cancel()
+	for i, id := range jobs {
+		name := "nomad job " + id
+		err := nomad.Wait(ctx, id, func(p nomadwatch.Progress) {
+			e.emit(event.Task{Name: name, Status: event.TaskRunning, Done: i, Total: len(jobs),
+				Detail: fmt.Sprintf("%s, %d of %d up", p.Detail, p.Healthy, p.Desired)})
+		})
+		if err != nil {
+			e.emit(event.Task{Name: name, Status: event.TaskFailed, Done: i + 1, Total: len(jobs)})
+			return err
+		}
+		e.emit(event.Task{Name: name, Status: event.TaskOK, Done: i + 1, Total: len(jobs), Detail: "up"})
+	}
+	return nil
 }
 
 // outputs writes the outputs a step names, as JSON, to their files.
@@ -635,8 +673,9 @@ func (e *Engine) note(text string, apart bool) {
 
 // applyProgress reads an apply's -json output: OpenTofu's text goes on to the
 // log or the terminal, and each resource it changes is a Task event, counted
-// to total, the resources the plan changes.
-func (e *Engine) applyProgress(total int) func(io.Writer) io.Writer {
+// to total, the resources the plan changes. The Nomad jobs it submits are
+// added to jobs, to wait for after.
+func (e *Engine) applyProgress(total int, jobs *[]string) func(io.Writer) io.Writer {
 	return func(w io.Writer) io.Writer {
 		done := 0
 		return tofujson.NewWriter(w, func(r tofujson.Resource) {
@@ -647,6 +686,9 @@ func (e *Engine) applyProgress(total int) func(io.Writer) io.Writer {
 			case tofujson.Done:
 				done++
 				t.Status = event.TaskChanged
+				if r.Type == "nomad_job" && r.Action != "delete" && r.ID != "" {
+					*jobs = append(*jobs, r.ID)
+				}
 			case tofujson.Failed:
 				done++
 				t.Status = event.TaskFailed

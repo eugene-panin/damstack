@@ -33,9 +33,9 @@ func TestAnApplyIsTextForTheLogAndResourcesForTheProgress(t *testing.T) {
 	}
 
 	want := []Resource{
-		{Addr: "nomad_job.web", Action: "update", Status: Started},
+		{Addr: "nomad_job.web", Type: "nomad_job", ID: "web", Action: "update", Status: Started},
 		{Addr: "consul_config_entry.defaults[0]", Action: "create", Status: Started},
-		{Addr: "consul_config_entry.defaults[0]", Action: "create", Status: Done, Elapsed: time.Second},
+		{Addr: "consul_config_entry.defaults[0]", ID: "service-defaults-web", Action: "create", Status: Done, Elapsed: time.Second},
 		{Addr: "nomad_job.web", Action: "update", Status: Failed, Elapsed: 12 * time.Second},
 	}
 	if !slices.Equal(got, want) {

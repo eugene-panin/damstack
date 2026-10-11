@@ -23,6 +23,9 @@ const (
 // Resource is a resource of an apply that changed status.
 type Resource struct {
 	Addr string
+	// Type is the resource type, such as nomad_job; ID its id once applied.
+	Type string
+	ID   string
 	// Action is what OpenTofu does to it: create, update, delete, replace, read.
 	Action  string
 	Status  Status
@@ -76,8 +79,10 @@ type message struct {
 	Hook    struct {
 		Resource struct {
 			Addr string `json:"addr"`
+			Type string `json:"resource_type"`
 		} `json:"resource"`
 		Action  string  `json:"action"`
+		ID      string  `json:"id_value"`
 		Elapsed float64 `json:"elapsed_seconds"`
 	} `json:"hook"`
 }
@@ -96,7 +101,7 @@ func (w *Writer) line(line []byte) error {
 	}
 	if status, ok := statuses[m.Type]; ok && w.Report != nil && m.Hook.Resource.Addr != "" {
 		w.Report(Resource{
-			Addr: m.Hook.Resource.Addr, Action: m.Hook.Action, Status: status,
+			Addr: m.Hook.Resource.Addr, Type: m.Hook.Resource.Type, ID: m.Hook.ID, Action: m.Hook.Action, Status: status,
 			Elapsed: time.Duration(m.Hook.Elapsed * float64(time.Second)),
 		})
 	}

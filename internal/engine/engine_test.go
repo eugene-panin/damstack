@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -511,5 +513,61 @@ func TestAPlayReportsItsTasksAndRemembersHowManyItHad(t *testing.T) {
 	first := e.Events.(*recorder).events[0].(event.Task)
 	if first.Total != 3 || !first.Estimate {
 		t.Errorf("the second run must count to 3, an estimate: %+v", first)
+	}
+}
+
+// nomadAnswering is a Nomad that has the job web, version 1, whose
+// deployment is in status.
+func nomadAnswering(t *testing.T, status string) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/jobs":
+			w.Write([]byte(`[{"ID":"web","Namespace":"default"}]`))
+		case strings.HasSuffix(r.URL.Path, "/deployment"):
+			fmt.Fprintf(w, `{"JobVersion":1,"Status":%q,"StatusDescription":"Deployment %s","TaskGroups":{"web":{"DesiredTotal":1,"HealthyAllocs":1}}}`, status, status)
+		case strings.HasSuffix(r.URL.Path, "/allocations"):
+			w.Write([]byte(`[]`))
+		default:
+			w.Write([]byte(`{"ID":"web","Namespace":"default","Type":"service","Version":1}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestAnApplyWaitsForTheJobsItSubmittedToComeUp(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		ok     bool
+	}{{"successful", true}, {"failed", false}} {
+		e, r := setup(t)
+		r.reply = func(c toolbox.Cmd) error {
+			switch {
+			case slices.Contains(c.Args, "plan"):
+				return &toolbox.ExitError{Name: "tofu", Code: 2}
+			case slices.Contains(c.Args, "show"):
+				c.Stdout.Write([]byte(`{"resource_changes":[{"address":"nomad_job.web","change":{"actions":["update"]}}]}`))
+			case slices.Contains(c.Args, "apply"):
+				w := c.Filter(io.Discard)
+				w.Write([]byte(`{"@message":"done","type":"apply_complete","hook":{"resource":{"addr":"nomad_job.web","resource_type":"nomad_job"},"action":"update","id_value":"web"}}` + "\n"))
+				w.(io.Closer).Close()
+			}
+			return nil
+		}
+		step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"},
+			Env: map[string]string{"NOMAD_ADDR": nomadAnswering(t, tc.status)}}
+		err := e.Run(t.Context(), step, nil)
+		if tc.ok != (err == nil) {
+			t.Fatalf("deployment %s: got %v", tc.status, err)
+		}
+		var last event.Task
+		for _, ev := range e.Events.(*recorder).events {
+			if task, ok := ev.(event.Task); ok && task.Name == "nomad job web" {
+				last = task
+			}
+		}
+		if want := map[bool]event.TaskStatus{true: event.TaskOK, false: event.TaskFailed}[tc.ok]; last.Status != want {
+			t.Errorf("deployment %s: the job's last task is %+v", tc.status, last)
+		}
 	}
 }

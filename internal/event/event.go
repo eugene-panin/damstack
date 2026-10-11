@@ -110,6 +110,8 @@ type Task struct {
 	Total    int
 	Estimate bool
 	Took     time.Duration
+	// Detail says more of where it is, such as "deployment running, 1 of 2 up".
+	Detail string
 }
 
 func (Task) event() {}
