@@ -39,10 +39,24 @@ func (s *streams) screen() bool {
 // questions, and any stray output, as notes. The streams are as they were
 // once work returns.
 func onScreen(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, work func(context.Context, *atomic.Bool) error) error {
-	var stop atomic.Bool
 	if !s.screen() {
+		var stop atomic.Bool
 		return work(ctx, &stop)
 	}
+	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
+	// The failure screen's r runs the work again, on a new screen.
+	for {
+		retry, err := screenRound(ctx, s, p, m, work)
+		if !retry {
+			return err
+		}
+	}
+}
+
+// screenRound runs work once on the deploy screen; retry is whether the person
+// asked to run it again.
+func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, work func(context.Context, *atomic.Bool) error) (bool, error) {
+	var stop atomic.Bool
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	model := tui.NewDeploy(tui.Actions{
@@ -64,8 +78,8 @@ func onScreen(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			client := firstDevice(p)
 			return exec.Command("sh", "-c", `"$0" tunnel show "$2" -p "$1" --qr; printf "\nEnter to go back "; read _`, self(), p.Meta.Name, client)
 		},
+		Copy: copyText,
 	})
-	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	screen := tui.NewProgram(model, s.in, s.out)
 
 	saved := *s
@@ -83,10 +97,14 @@ func onScreen(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	if shown != nil {
 		cancel() // the screen failed: the work must not go on unseen
 	}
-	if err := <-done; err != nil {
-		return err
+	err := <-done
+	if err != nil && model.Retry() {
+		return true, nil
 	}
-	return shown
+	if err != nil {
+		return false, err
+	}
+	return false, shown
 }
 
 var urlRe = regexp.MustCompile(`https?://[^\s,;)]+`)

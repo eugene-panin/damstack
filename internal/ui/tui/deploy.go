@@ -75,6 +75,8 @@ type Actions struct {
 	Check     func(url string) string
 	CopyToken func(name string) error
 	QR        func() *exec.Cmd
+	// Copy puts text in the clipboard.
+	Copy func(text string) error
 }
 
 // Deploy is the deploy screen (design: 2 · Deploy progress): the steps on the
@@ -110,9 +112,11 @@ type Deploy struct {
 	// The done screen: what the run set up, how each address answers, the
 	// one chosen, and a word on what a key just did.
 	summary *event.RunDone
-	checks  map[string]string
-	cursor  int
-	flash   string
+	// retry: the person asked, on the failure screen, to run again.
+	retry  bool
+	checks map[string]string
+	cursor int
+	flash  string
 }
 
 // NewDeploy is the deploy screen, its keys doing actions.
@@ -173,8 +177,11 @@ func (m *Deploy) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashMsg:
 		m.flash = string(msg)
 	case tea.KeyPressMsg:
-		if m.done() {
+		switch {
+		case m.done():
 			return m, m.doneKey(msg.String())
+		case m.failedScreen():
+			return m, m.failureKey(msg.String())
 		}
 		return m, m.key(msg.String())
 	}
@@ -343,8 +350,13 @@ func (m *Deploy) View() tea.View {
 // exactly width cells.
 func (m *Deploy) Frame() string {
 	w, h := m.width, m.height
-	if m.done() && w >= minWidth && h >= minHeight {
-		return m.doneFrame()
+	if w >= minWidth && h >= minHeight {
+		switch {
+		case m.done():
+			return m.doneFrame()
+		case m.failedScreen():
+			return m.failureFrame()
+		}
 	}
 	if w < minWidth || h < minHeight {
 		msg := fmt.Sprintf("damstack needs a window of %d×%d at least; this one is %d×%d.", minWidth, minHeight, w, h)

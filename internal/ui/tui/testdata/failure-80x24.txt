@@ -1,0 +1,24 @@
+  damstack deploy twinmind                                    stopped at 03:41  
+  ────────────────────────────────────────────────────────────────────────────  
+  ✓ Securing the server   ✗ Consul, Vault, Nomad task 18/72   ○ Traefik and a…  
+                                                                                
+  ╭──────────────────────────────────────────────────────────────────────────╮  
+  │ ✗ nomad : registry login                                                 │  
+  │   The requested handler 'restart nomad' was not found in either the main │  
+  │   handlers list nor in the listening handlers list                       │  
+  │   the step provision failed: ansible-playbook failed with exit code 2    │  
+  │                                                                          │  
+  │   The steps before it are done and do not run again; this one starts ov… │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+  last lines of the log                                                         
+  ╭──────────────────────────────────────────────────────────────────────────╮  
+  │ ok: [server]                                                             │  
+  │ TASK [Write the registry auth file] *****************************        │  
+  │ ERROR! The requested handler 'restart nomad' was not found in either th… │  
+  │ PLAY RECAP: server ok=18 changed=2 unreachable=0 failed=1                │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+  full log  /Users/eugene/.damstack/twinmind/.damstack/work/logs/2026-10-11T1…  
+  ────────────────────────────────────────────────────────────────────────────  
+   r  retry    l  log    s  ssh    c  copy    q  quit                           

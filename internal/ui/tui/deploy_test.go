@@ -174,7 +174,7 @@ func TestAFailureStaysOnScreen(t *testing.T) {
 		t.Error("a failed run must wait for a key, not quit")
 	}
 	frame := ansi.Strip(m.Frame())
-	if !strings.Contains(frame, "Consul, Vault, Nomad failed") || !strings.Contains(frame, "restart nomad") {
+	if !strings.Contains(frame, "✗ Consul, Vault, Nomad") || !strings.Contains(frame, "restart nomad") || !strings.Contains(frame, "r  retry") {
 		t.Errorf("got\n%s", frame)
 	}
 	checkShape(t, m.Frame(), 100, 30)
@@ -259,5 +259,60 @@ func TestTheDoneScreensKeys(t *testing.T) {
 	}
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); cmd == nil {
 		t.Error("q must close the done screen")
+	}
+}
+
+func failedDeploy(width, height int) *Deploy {
+	m := midDeploy(width, height)
+	m.Update(eventMsg{event.Task{Name: "nomad : registry login", Status: event.TaskRunning, Done: 17, Total: 72, Estimate: true}})
+	m.Update(eventMsg{event.Task{Name: "nomad : registry login", Status: event.TaskFailed, Done: 18, Total: 72, Estimate: true}})
+	m.Update(eventMsg{event.StepFailed{Step: m.run.Steps[1].Step, Err: errors.New("ansible-playbook failed with exit code 2"),
+		Log: "/Users/eugene/.damstack/twinmind/.damstack/work/logs/2026-10-11T12-04-05-provision.log",
+		Tail: []string{
+			"TASK [Log the Nomad client in to the registry] ******************",
+			"ok: [server]",
+			"TASK [Write the registry auth file] *****************************",
+			"ERROR! The requested handler 'restart nomad' was not found in either the main handlers list nor in the listening handlers list",
+			"PLAY RECAP: server ok=18 changed=2 unreachable=0 failed=1",
+		}}})
+	m.now = start.Add(3*time.Minute + 41*time.Second)
+	m.Update(finishMsg{err: errors.New("the step provision failed: ansible-playbook failed with exit code 2\nFix what it says above, then run damstack deploy again in /Users/eugene/.damstack/twinmind")})
+	return m
+}
+
+func TestTheFailureScreenAtTheSizesItIsMadeFor(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {100, 30}, {140, 40}} {
+		w, h := size[0], size[1]
+		frame := failedDeploy(w, h).Frame()
+		checkShape(t, frame, w, h)
+		golden(t, fmt.Sprintf("failure-%dx%d", w, h), frame)
+	}
+}
+
+func TestRetryIsAskedFromTheFailureScreen(t *testing.T) {
+	m := failedDeploy(100, 30)
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"}); cmd == nil || !m.Retry() {
+		t.Error("r must close the screen asking to run again")
+	}
+	var copied string
+	m = failedDeploy(100, 30)
+	m.actions.Copy = func(s string) error { copied = s; return nil }
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	m.Update(cmd())
+	if !strings.Contains(copied, "restart nomad") || !strings.Contains(m.flash, "clipboard") {
+		t.Errorf("c must copy the error and its log lines: %q, %q", copied, m.flash)
+	}
+}
+
+func TestTheReasonIsInTheToolsOwnWords(t *testing.T) {
+	for tail, want := range map[string]string{
+		"TASK [x] ***\nERROR! The requested handler 'restart nomad' was not found":                   "The requested handler 'restart nomad' was not found",
+		`fatal: [server]: FAILED! => {"changed": false, "msg": "Could not find \"consul\""}`:         `Could not find "consul"`,
+		"│ Error: both 'oidc_client_id' and 'oidc_client_secret' must be set\n│ \n│   with module.x": "both 'oidc_client_id' and 'oidc_client_secret' must be set",
+		"ok: [server]\nPLAY RECAP": "",
+	} {
+		if got := reason(strings.Split(tail, "\n")); got != want {
+			t.Errorf("%q: got %q, want %q", tail, got, want)
+		}
 	}
 }
