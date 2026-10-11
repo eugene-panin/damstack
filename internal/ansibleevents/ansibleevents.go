@@ -135,3 +135,24 @@ func Count(listTasks string) int {
 	}
 	return n
 }
+
+// Names are the tasks a play's events file shows starting, in order, each
+// once: what the same play is expected to go through next time. None when the
+// file cannot be read.
+func Names(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		parse(bytes.TrimSpace(line), func(t Task) {
+			if t.Status == Started && !seen[t.Name] {
+				seen[t.Name] = true
+				names = append(names, t.Name)
+			}
+		})
+	}
+	return names
+}

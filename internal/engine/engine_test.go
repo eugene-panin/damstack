@@ -510,7 +510,11 @@ func TestAPlayReportsItsTasksAndRemembersHowManyItHad(t *testing.T) {
 			t.Errorf("listed again although the last run's count is known: %s", line)
 		}
 	}
-	first := e.Events.(*recorder).events[0].(event.Task)
+	evs := e.Events.(*recorder).events
+	if plan, ok := evs[0].(event.TaskPlan); !ok || !slices.Equal(plan.Names, []string{"Install Consul", "consul : include", "Start Consul"}) {
+		t.Errorf("the second run must expect the tasks of the first: %+v", evs[0])
+	}
+	first := evs[1].(event.Task)
 	if first.Total != 3 || !first.Estimate {
 		t.Errorf("the second run must count to 3, an estimate: %+v", first)
 	}

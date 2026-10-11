@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/tabwriter"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/toolbox"
 	"github.com/eugene-panin/damstack/internal/ui/plain"
+	"github.com/eugene-panin/damstack/internal/wg"
 )
 
 type streams struct {
@@ -49,6 +51,10 @@ type streams struct {
 	// events gets what damstack says while it works: plain lines here, the
 	// TUI later.
 	events event.Sink
+	// plain is --plain: lines, never the TUI.
+	plain bool
+	// ask, when set, asks yes-or-no questions instead of the prompt: the TUI.
+	ask func(question string) (bool, error)
 	// breakGlass is --break-glass: change a shared project without its lock,
 	// from the state on this machine, for when the platform itself is down.
 	breakGlass bool
@@ -115,6 +121,9 @@ func (s *streams) confirm(question string, def bool) (bool, error) {
 	if s.yes {
 		return true, nil
 	}
+	if s.ask != nil {
+		return s.ask(question)
+	}
 	if s.prompt.NoTerminal {
 		return false, fmt.Errorf("%q: %w; pass --yes to go ahead", question, ask.ErrNoTerminal)
 	}
@@ -137,6 +146,7 @@ type deployOptions struct {
 	yes        bool
 	appsOnly   bool
 	breakGlass bool
+	plain      bool
 }
 
 func deployCommand(s *streams) *cobra.Command {
@@ -160,13 +170,14 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
 	cmd.Flags().BoolVar(&o.appsOnly, "apps-only", false, "deploy only the apps, skipping the platform's Ansible steps (bootstrap, provision); for when the platform is already up and unchanged")
 	cmd.Flags().BoolVar(&o.breakGlass, "break-glass", false, "change a project shared on its platform without the platform's lock, from the state on this machine; only to repair the platform itself")
+	cmd.Flags().BoolVar(&o.plain, "plain", false, "show plain lines, as in a log, instead of the full-screen view on a terminal")
 	return cmd
 }
 
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
-	s.verbose, s.yes, s.breakGlass = o.verbose, o.yes, o.breakGlass
+	s.verbose, s.yes, s.breakGlass, s.plain = o.verbose, o.yes, o.breakGlass, o.plain
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -569,7 +580,9 @@ func newEngine(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	}
 	return &engine.Engine{
 		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, KeyFile: runner.Key,
-		Color: stdin != nil, Events: s.events,
+		Color: stdin != nil,
+		// Through s at each call: the TUI may take the events over after the engine is made.
+		Events:  event.SinkFunc(func(ev event.Event) { s.events.Emit(ev) }),
 		Confirm: func(q string) (bool, error) { return s.confirm(q, false) },
 	}, key, nil
 }
@@ -622,44 +635,58 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			return err
 		}
 	}
-	// A restore sets up a new server from a backup, the platform's state with
-	// it: there is no platform to lock yet.
-	var sh *sharing
-	if restore == "" {
-		if sh, err = lockProject(ctx, s, p, m, dir, e.Password, "deploy"); err != nil {
-			return err
-		}
-		defer sh.release()
-	}
-	keys, err := ensureKeys(p, m, dir, e.Password)
-	if err != nil {
-		return err
-	}
-	jobs, err := buildJobs(ctx, s, p, m, e, restore != "", appsOnly)
-	if err != nil {
-		return err
-	}
-	sh.attach(jobs)
-	for _, j := range jobs {
-		if restore != "" {
-			if j.e.BaseEnv == nil {
-				j.e.BaseEnv = map[string]string{}
+	var keys wg.Change
+	err = onScreen(ctx, s, p, func(ctx context.Context, stop *atomic.Bool) error {
+		var err error
+		// A restore sets up a new server from a backup, the platform's state
+		// with it: there is no platform to lock yet.
+		var sh *sharing
+		if restore == "" {
+			if sh, err = lockProject(ctx, s, p, m, dir, e.Password, "deploy"); err != nil {
+				return err
 			}
-			j.e.BaseEnv["DAMSTACK_RESTORE"] = restore
+			defer sh.release()
 		}
-	}
-	for i, j := range jobs {
-		if err := sh.check(); err != nil {
+		if keys, err = ensureKeys(p, m, dir, e.Password); err != nil {
 			return err
 		}
-		if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
+		jobs, err := buildJobs(ctx, s, p, m, e, restore != "", appsOnly)
+		if err != nil {
 			return err
 		}
-	}
-	if restore == "" {
-		if err := publish(ctx, s, p, m, dir, e.Password); err != nil {
-			return err
+		sh.attach(jobs)
+		command := "deploy"
+		if restore != "" {
+			command = "restore"
 		}
+		s.events.Emit(runStarted(p, command, jobs))
+		for _, j := range jobs {
+			if restore != "" {
+				if j.e.BaseEnv == nil {
+					j.e.BaseEnv = map[string]string{}
+				}
+				j.e.BaseEnv["DAMSTACK_RESTORE"] = restore
+			}
+		}
+		for i, j := range jobs {
+			if stop.Load() {
+				return fmt.Errorf("stopped after %s, as asked; run damstack %s %s again to go on from the next step",
+					jobs[i-1].name, command, p.Meta.Name)
+			}
+			if err := sh.check(); err != nil {
+				return err
+			}
+			if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
+				return err
+			}
+		}
+		if restore == "" {
+			return publish(ctx, s, p, m, dir, e.Password)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	fmt.Fprintf(s.out, "\nDone. %s is running.\n", p.Meta.Name)
 	done(s.out, p, m, "")
@@ -762,15 +789,49 @@ func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
 	}
 }
 
-func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server, restore bool) error {
+// title is what a step is called for people: an app's step after its app.
+func (j job) title() string {
 	title := j.step.Title
 	if title == "" {
 		title = j.name
 	}
-	if strings.Contains(j.name, "/") && j.step.Title != "" {
-		title = j.name[:strings.Index(j.name, "/")] + ": " + title
+	if app, _, ok := strings.Cut(j.name, "/"); ok && j.step.Title != "" {
+		title = app + ": " + title
 	}
-	step := event.Step{N: n, Total: total, Name: j.name, Title: title}
+	return title
+}
+
+// kind is what runs a step, and its playbook or directory.
+func (j job) kind() (string, string) {
+	switch {
+	case j.step.Ansible != nil:
+		return "ansible", filepath.Base(j.step.Ansible.Playbook)
+	case j.step.Tofu != nil:
+		return "tofu", j.step.Tofu.Dir
+	case len(j.step.Run) > 0:
+		return "run", filepath.Base(j.step.Run[0])
+	}
+	return "", ""
+}
+
+// runStarted says which steps a run is going to take.
+func runStarted(p *project.Project, command string, jobs []job) event.RunStarted {
+	run := event.RunStarted{Command: command, Project: p.Meta.Name,
+		Stack: strings.TrimSpace(p.Meta.Stack.Name + " " + p.Meta.Stack.Tag)}
+	if config, err := p.Config(); err == nil {
+		if server, ok := config["server"].(map[string]any); ok {
+			run.Server, _ = server["address"].(string)
+		}
+	}
+	for i, j := range jobs {
+		run.Steps = append(run.Steps, event.PlannedStep{
+			Step: event.Step{N: i + 1, Total: len(jobs), Name: j.name, Title: j.title()}, Takes: j.step.Takes})
+	}
+	return run
+}
+
+func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total int, srv *manifest.Server, restore bool) error {
+	step := event.Step{N: n, Total: total, Name: j.name, Title: j.title()}
 	if j.step.Once && !restore {
 		done, err := p.Done(j.name)
 		if err != nil {
@@ -781,13 +842,6 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 			return nil
 		}
 	}
-	s.events.Emit(event.StepStarted{Step: step, Takes: j.step.Takes})
-	if j.step.Tunnel && srv != nil {
-		if err := waitTunnel(ctx, s, p, srv); err != nil {
-			return err
-		}
-	}
-
 	log := ""
 	if !s.verbose {
 		var restore func()
@@ -796,6 +850,13 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 			return err
 		}
 		defer restore()
+	}
+	kind, what := j.kind()
+	s.events.Emit(event.StepStarted{Step: step, Takes: j.step.Takes, Kind: kind, What: what, Log: log})
+	if j.step.Tunnel && srv != nil {
+		if err := waitTunnel(ctx, s, p, srv); err != nil {
+			return err
+		}
 	}
 	command := "deploy"
 	if restore {

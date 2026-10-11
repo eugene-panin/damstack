@@ -56,3 +56,18 @@ func TestCountReadsListTasks(t *testing.T) {
 		t.Errorf("got %d tasks, want 40 (the play line has TAGS too, and is no task)", n)
 	}
 }
+
+func TestNamesAreTheTasksAPlayWentThroughInOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prev.jsonl")
+	os.WriteFile(path, []byte(`{"type":"start","name":"a"}
+{"type":"ok","name":"a"}
+{"type":"start","name":"b"}
+{"type":"start","name":"a"}
+`), 0o644)
+	if got := Names(path); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("got %v", got)
+	}
+	if Names(filepath.Join(t.TempDir(), "none")) != nil {
+		t.Error("no file must mean no names")
+	}
+}

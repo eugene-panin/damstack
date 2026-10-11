@@ -1,0 +1,40 @@
+  damstack deploy twinmind  hashi v0.21.0 · 169.58.210.131                                                                    04:15 / ~28m  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  ✓ Securing the server                     0:48  │  Consul, Vault, Nomad                                                                   
+  ● Consul, Vault, Nomad                   31/72  │  ansible · provision.yml · changed 2 · ok 2                                             
+    ████████████████░░░░░░░░░░░░░░░░░░░░░░ 43%    │                                                                                         
+  ○ Traefik and admin pages                  ~1m  │  ✓ consul : install 2.0.4                                                         2.1s  
+  ○ Apps                                       8  │  ✓ consul : extra config (connect)                                                0.4s  
+      postgres  nats  seaweedfs  loki  mimir      │  ✓ consul : grpc certificate                                                   changed  
+      grafana  odoo  sauron                       │  ✓ consul : restart                                                            changed  
+  ○ DNS records                              10s  │  ⠼ consul-cni : download 2.0.4                                                    3.4s  
+                                                  │  · consul-cni : link plugin                                                             
+                                                  │  · nomad : agent config                                                                 
+                                                  │  · nomad : docker registry login                                                        
+                                                  │  · nomad : restart if changed                                                           
+                                                  │  · vault : service registration                                                         
+                                                  │    + 35 more                                                                            
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+                                                  │                                                                                         
+  log  /Users/eugene/.damstack/twinmind/          │                                                                                         
+       .damstack/work/logs/2026-10-11T12-04-05-   │                                                                                         
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   l  log    d  details    p  plan    s  ssh    q  quit — this step finishes, deploy resumes from here                                      

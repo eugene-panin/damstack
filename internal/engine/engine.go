@@ -189,9 +189,13 @@ func (e *Engine) play(ctx context.Context, cmd []string, env map[string]string, 
 	if err := os.WriteFile(filepath.Join(dir, "callbacks", ansibleevents.PluginName+".py"), ansibleevents.Plugin, 0o644); err != nil {
 		return err
 	}
-	events := filepath.Join(dir, name+".jsonl")
-	if err := os.Remove(events); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	// The last run's events are what this one is expected to go through.
+	events, previous := filepath.Join(dir, name+".jsonl"), filepath.Join(dir, name+".prev.jsonl")
+	if err := os.Rename(events, previous); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
+	}
+	if names := ansibleevents.Names(previous); len(names) > 0 {
+		e.emit(event.TaskPlan{Names: names})
 	}
 	env["ANSIBLE_CALLBACK_PLUGINS"] = filepath.Join(dir, "callbacks")
 	env["ANSIBLE_CALLBACKS_ENABLED"] = ansibleevents.PluginName
@@ -396,6 +400,9 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 			total += c
 		}
 	}
+	if names := planned(planJSON); len(names) > 0 {
+		e.emit(event.TaskPlan{Names: names})
+	}
 	var jobs []string
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "apply", "-input=false", "-json", plan},
 		Filter: e.applyProgress(total, &jobs)})
@@ -496,16 +503,20 @@ func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, pla
 
 const onlyOutputs = "Only outputs change"
 
-// changes counts the resources a plan changes, by what it does to them:
-// create, update, replace and delete.
-func changes(planJSON string) (map[string]int, error) {
+// resourceChange is a resource a plan changes: its address, and create,
+// update, replace or delete.
+type resourceChange struct{ addr, action string }
+
+// resourceChanges are the resources a plan changes, in its order.
+func resourceChanges(planJSON string) ([]resourceChange, error) {
 	data, err := os.ReadFile(planJSON)
 	if err != nil {
 		return nil, err
 	}
 	var plan struct {
 		ResourceChanges []struct {
-			Change struct {
+			Address string `json:"address"`
+			Change  struct {
 				Actions []string `json:"actions"`
 			} `json:"change"`
 		} `json:"resource_changes"`
@@ -513,16 +524,41 @@ func changes(planJSON string) (map[string]int, error) {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return nil, fmt.Errorf("the plan: %w", err)
 	}
-	n := map[string]int{}
+	var out []resourceChange
 	for _, rc := range plan.ResourceChanges {
 		switch a := strings.Join(rc.Change.Actions, ","); a {
 		case "create", "update", "delete":
-			n[a]++
+			out = append(out, resourceChange{rc.Address, a})
 		case "delete,create", "create,delete":
-			n["replace"]++
+			out = append(out, resourceChange{rc.Address, "replace"})
 		}
 	}
+	return out, nil
+}
+
+// changes counts the resources a plan changes, by what it does to them:
+// create, update, replace and delete.
+func changes(planJSON string) (map[string]int, error) {
+	rcs, err := resourceChanges(planJSON)
+	if err != nil {
+		return nil, err
+	}
+	n := map[string]int{}
+	for _, rc := range rcs {
+		n[rc.action]++
+	}
 	return n, nil
+}
+
+// planned are the addresses of the resources a plan changes; none when it
+// cannot be read.
+func planned(planJSON string) []string {
+	rcs, _ := resourceChanges(planJSON)
+	names := make([]string, 0, len(rcs))
+	for _, rc := range rcs {
+		names = append(names, rc.addr)
+	}
+	return names
 }
 
 // counts says in words what a plan changes: 12 to create, 1 to destroy.

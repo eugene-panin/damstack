@@ -33,11 +33,41 @@ type Step struct {
 	Title    string
 }
 
+// RunStarted: a run of steps begins, such as a deploy. Steps are all of them,
+// in order, with how long each takes as its stack says ("" when it does not).
+type RunStarted struct {
+	Command string
+	Project string
+	// Stack is the platform's stack and its version, such as "hashi v0.21.0";
+	// Server the address of its server.
+	Stack  string
+	Server string
+	Steps  []PlannedStep
+}
+
+// PlannedStep is a step a run is going to take.
+type PlannedStep struct {
+	Step
+	Takes string
+}
+
 // StepStarted: a step begins. Takes is how long its stack says it takes,
-// empty when it does not say.
+// empty when it does not say. Kind is what runs it (ansible, tofu, run) and
+// What its playbook or directory; Log is where its tools' output goes, empty
+// when to the terminal.
 type StepStarted struct {
 	Step
 	Takes string
+	Kind  string
+	What  string
+	Log   string
+}
+
+// TaskPlan: the tasks the step running now is expected to go through, in
+// order (the resources its plan changes, or the tasks its play had last
+// time), so the ones to come can be shown.
+type TaskPlan struct {
+	Names []string
 }
 
 // StepSkipped: a step is not run, and why.
@@ -80,6 +110,8 @@ type Waiting struct {
 	Ahead  int
 }
 
+func (RunStarted) event()  {}
+func (TaskPlan) event()    {}
 func (StepStarted) event() {}
 func (StepSkipped) event() {}
 func (StepDone) event()    {}
