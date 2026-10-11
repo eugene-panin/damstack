@@ -10,6 +10,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 type origin struct {
@@ -160,6 +161,31 @@ func TestNormalizeURL(t *testing.T) {
 	for _, bad := range []string{"github.com", "http://github.com/owner/repo", "owner/Repo", "owner/repo/sub"} {
 		if got, err := NormalizeURL(bad); err == nil {
 			t.Errorf("NormalizeURL(%q) = %q, want an error", bad, got)
+		}
+	}
+}
+
+func TestAuthUsesAGitHubTokenForGitHubOnly(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	if auth("https://github.com/acme/damstack-x") != nil {
+		t.Fatal("no token in the environment must mean no credentials")
+	}
+
+	t.Setenv("GH_TOKEN", "gho_fromgh")
+	a, ok := auth("https://github.com/acme/damstack-x").(*githttp.BasicAuth)
+	if !ok || a.Password != "gho_fromgh" {
+		t.Fatalf("GH_TOKEN must be used for github.com, got %#v", a)
+	}
+
+	t.Setenv("GITHUB_TOKEN", "ghp_first")
+	if a := auth("https://github.com/acme/damstack-x").(*githttp.BasicAuth); a.Password != "ghp_first" {
+		t.Fatalf("GITHUB_TOKEN must win over GH_TOKEN, got %q", a.Password)
+	}
+
+	for _, u := range []string{"https://gitlab.com/acme/damstack-x", "http://github.com/acme/damstack-x", "file:///tmp/repo"} {
+		if auth(u) != nil {
+			t.Fatalf("%s must get no GitHub token", u)
 		}
 	}
 }

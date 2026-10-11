@@ -17,6 +17,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"golang.org/x/mod/semver"
 )
@@ -59,12 +60,32 @@ func NormalizeURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
+// auth is the credential for a repository that is not public: a GitHub token
+// from the environment (GITHUB_TOKEN or GH_TOKEN, as `gh auth token` gives),
+// used over HTTPS to github.com so a private stack can be fetched. It is nil
+// when there is no token or the host is not github.com, so public repositories
+// are fetched as before, without credentials.
+func auth(raw string) transport.AuthMethod {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "github.com" {
+		return nil
+	}
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		token = os.Getenv("GH_TOKEN")
+	}
+	if token == "" {
+		return nil
+	}
+	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
+}
+
 // Latest finds the highest release tag of the repository at url.
 func Latest(ctx context.Context, url string) (Release, error) {
 	remote := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "origin", URLs: []string{url}})
-	refs, err := remote.ListContext(ctx, &git.ListOptions{PeelingOption: git.AppendPeeled})
+	refs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth(url), PeelingOption: git.AppendPeeled})
 	if errors.Is(err, transport.ErrRepositoryNotFound) || errors.Is(err, transport.ErrAuthenticationRequired) {
-		return Release{}, fmt.Errorf("there is no public repository at %s", url)
+		return Release{}, fmt.Errorf("there is no repository at %s that this machine may read; for a private one on github.com, set GITHUB_TOKEN (gh auth token gives one)", url)
 	}
 	if err != nil {
 		return Release{}, fmt.Errorf("list the tags of %s: %w", url, err)
@@ -125,6 +146,7 @@ func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error)
 	defer os.RemoveAll(tmp)
 	repo, err := git.PlainCloneContext(ctx, tmp, false, &git.CloneOptions{
 		URL:           url,
+		Auth:          auth(url),
 		ReferenceName: plumbing.NewTagReferenceName(r.Tag),
 		SingleBranch:  true,
 		Depth:         1,
