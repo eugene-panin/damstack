@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -611,5 +612,43 @@ func TestAPlanThatNomadWouldApplyInPlaceAsksToRestart(t *testing.T) {
 	if len(asked.Restarts) != 1 || asked.Restarts[0].Group != "web" || asked.Restarts[0].Addr != "nomad_job.web" ||
 		asked.Restarts[0].Fields[0] != "Service/ConsulConnect/LocalServicePort" {
 		t.Errorf("got %+v", asked.Restarts)
+	}
+}
+
+func TestAnAppsKeysReachItsStackAsTheirServicesNeed(t *testing.T) {
+	e, _ := setup(t)
+	e.App = "sauron"
+	e.Manifest = &manifest.Manifest{Secrets: []manifest.Secret{
+		{Name: "sauron_xai_api_key", Ask: "xAI", Env: "XAI_API_KEY", For: []string{"enrich", "incidents"}},
+		{Name: "sauron_telegram_bot_token", Ask: "Telegram", Env: "TELEGRAM_BOT_TOKEN", For: []string{"fetcher"}, Optional: true},
+		{Name: "sauron_db", Generate: "password"},
+	}}
+	envOf := func(xai string) map[string]string {
+		env, err := e.env(manifest.Step{}, map[string]any{}, map[string]any{"sauron_xai_api_key": xai, "sauron_db": "pw"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return env
+	}
+	env := envOf("xai-1")
+	var envs map[string]struct {
+		Env string
+		For []string
+	}
+	json.Unmarshal([]byte(env["TF_VAR_app_secret_envs"]), &envs)
+	if len(envs) != 1 || envs["sauron_xai_api_key"].Env != "XAI_API_KEY" || !slices.Equal(envs["sauron_xai_api_key"].For, []string{"enrich", "incidents"}) {
+		t.Errorf("only the keys set, with their variable and services: %s", env["TF_VAR_app_secret_envs"])
+	}
+	if env["TF_VAR_app_secrets"] != `{"sauron_xai_api_key":"xai-1"}` {
+		t.Errorf("values: %s", env["TF_VAR_app_secrets"])
+	}
+	var before, after map[string]int64
+	json.Unmarshal([]byte(env["TF_VAR_app_secret_versions"]), &before)
+	json.Unmarshal([]byte(envOf("xai-2")["TF_VAR_app_secret_versions"]), &after)
+	if len(before) != 2 || before["enrich"] == after["enrich"] || before["incidents"] == after["incidents"] || before["enrich"] != before["incidents"] {
+		t.Errorf("a new key must change the version of its services: %v → %v", before, after)
+	}
+	if _, ok := before["fetcher"]; ok {
+		t.Error("an unset key gives its service no version")
 	}
 }

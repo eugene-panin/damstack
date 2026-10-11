@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -319,6 +320,10 @@ func TestAppProblems(t *testing.T) {
 		{"output outside the project", "dns/mail.json", "../mail.json", "a path inside the project"},
 		{"app with a backup", "kind: app", "kind: app\nbackup: {from: x, to: y, password: z}", "is the platform's; it backs up"},
 		{"no platform to check on", "  platform: test/answers.yaml\n", "", "check.platform: is required"},
+		{"env on a generated secret is fine but for without env is not", "    generate: password\n", "    generate: password\n    for: [smtp]\n", "give env too"},
+		{"a bad env", "    generate: password\n", "    generate: password\n    env: mail-key\n", "must be an environment variable"},
+		{"optional generated", "    generate: password\n", "    generate: password\n    optional: true\n", "is for an asked secret"},
+		{"a bad service", "    generate: password\n", "    generate: password\n    env: MAIL_KEY\n    for: [Smtp]\n", "must be a service of the app"},
 		{"target without steps", "    steps:\n      - name: apply\n        tofu:\n          dir: infra\n          action: apply\n          outputs: {dns_records: dns/mail.json}\n        confirm: true\n", "", "targets.nomad.steps: at least one"},
 	}
 	for _, tc := range tests {
@@ -365,5 +370,22 @@ func TestWhenOnAnOption(t *testing.T) {
 		if got := Holds(tc.when, tc.answers); got != tc.want {
 			t.Errorf("Holds(%q, %v) = %v", tc.when, tc.answers, got)
 		}
+	}
+}
+
+func TestAnAppsKeysGoToTheServicesThatUseThem(t *testing.T) {
+	app := strings.Replace(validApp, "    generate: password\n", "    generate: password\n"+
+		"  - name: mail_relay_key\n    ask: The key of the relay\n    env: RELAY_KEY\n    for: [smtp, queue]\n    optional: true\n", 1)
+	m, err := Load(stackDir(t, app), "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := m.Secrets[1]
+	if s.Env != "RELAY_KEY" || !slices.Equal(s.For, []string{"smtp", "queue"}) || !s.Optional {
+		t.Errorf("got %+v", s)
+	}
+	platform := strings.Replace(valid, "secrets:\n", "secrets:\n  - name: relay_key\n    ask: a key\n    env: RELAY_KEY\n", 1)
+	if _, err := Load(stackDir(t, platform), "0.1.0"); err == nil || !strings.Contains(err.Error(), "is for an app's secrets") {
+		t.Errorf("a platform's secret goes to no service: got %v", err)
 	}
 }

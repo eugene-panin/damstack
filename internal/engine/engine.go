@@ -5,6 +5,9 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,7 +139,65 @@ func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[strin
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
 	}
+	if e.App != "" && e.Manifest != nil {
+		maps.Copy(env, e.appSecrets(secrets))
+	}
 	return env, nil
+}
+
+// AllServices is the service an app's secret goes to when its For names none.
+const AllServices = "*"
+
+// appSecrets is how an app's stack gets the secrets its services take as
+// environment variables (those with env in its manifest that are set):
+//
+//   - TF_VAR_app_secret_envs: for each, its variable and its services; no
+//     values, so the stack may template jobs from it;
+//   - TF_VAR_app_secrets: the values, for a variable the stack declares
+//     ephemeral and writes to Vault write-only, so they reach neither
+//     stack.yaml nor the state;
+//   - TF_VAR_app_secret_versions: for each service, a version of its secrets
+//     (an HMAC of them, keyed by the project's password): it changes, and the
+//     service restarts, only when one of its own secrets does.
+//
+// A stack that declares none of these variables is not given them.
+func (e *Engine) appSecrets(secrets map[string]any) map[string]string {
+	type envOf struct {
+		Env string   `json:"env"`
+		For []string `json:"for"`
+	}
+	envs, values := map[string]envOf{}, map[string]string{}
+	byService := map[string][]string{}
+	for _, s := range e.Manifest.Secrets {
+		value, _ := secrets[s.Name].(string)
+		if s.Env == "" || value == "" {
+			continue
+		}
+		services := s.For
+		if len(services) == 0 {
+			services = []string{AllServices}
+		}
+		envs[s.Name] = envOf{Env: s.Env, For: services}
+		values[s.Name] = value
+		for _, svc := range services {
+			byService[svc] = append(byService[svc], s.Name+"="+value)
+		}
+	}
+	versions := map[string]int64{}
+	for svc, pairs := range byService {
+		slices.Sort(pairs)
+		mac := hmac.New(sha256.New, []byte(e.Password))
+		mac.Write([]byte(strings.Join(pairs, "\n")))
+		versions[svc] = int64(binary.BigEndian.Uint32(mac.Sum(nil)) >> 1)
+	}
+	out := map[string]string{}
+	for key, v := range map[string]any{
+		"TF_VAR_app_secret_envs": envs, "TF_VAR_app_secrets": values, "TF_VAR_app_secret_versions": versions,
+	} {
+		data, _ := json.Marshal(v)
+		out[key] = string(data)
+	}
+	return out
 }
 
 // unit is the name of an OpenTofu directory in the project: its state file

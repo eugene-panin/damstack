@@ -154,6 +154,15 @@ type Secret struct {
 	// Rotate says a generated secret may be made anew with damstack secret
 	// rotate: the next deploy puts the new one in place everywhere.
 	Rotate bool `yaml:"rotate"`
+	// Env, for an app, is the environment variable its services get the
+	// secret as, and For the services that get it (all, when empty): an API
+	// key only the services that call that API see. Such a secret reaches
+	// them through Vault, never stack.yaml or the OpenTofu state.
+	Env string   `yaml:"env"`
+	For []string `yaml:"for"`
+	// Optional says an asked secret may be left unset: the app works
+	// without it, with less.
+	Optional bool `yaml:"optional"`
 }
 
 // Server is how damstack reaches the server of a project, as templates over
@@ -750,8 +759,28 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 				c.add(path+".checks", "%q is not a check; one of %s", check.Name, strings.Join(Checks, ", "))
 			}
 		}
+		switch {
+		case s.Optional && s.Ask == "":
+			c.add(path+".optional", "is for an asked secret: a generated one is always there")
+		case s.Env != "" && !envRe.MatchString(s.Env):
+			c.add(path+".env", "must be an environment variable: capitals, digits and underscores, starting with a letter")
+		case len(s.For) > 0 && s.Env == "":
+			c.add(path+".for", "says which services get the secret as its env; give env too")
+		case s.Env != "" && len(m.Targets) == 0:
+			c.add(path+".env", "is for an app's secrets, which its services get")
+		}
+		for j, f := range s.For {
+			if !serviceRe.MatchString(f) {
+				c.add(fmt.Sprintf("%s.for[%d]", path, j), "must be a service of the app: lowercase letters, digits and hyphens")
+			}
+		}
 	}
 }
+
+var (
+	envRe     = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	serviceRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+)
 
 // checkWhen checks a condition on the answers to earlier questions.
 func (c *checker) checkWhen(path, when string, earlier []Question) {

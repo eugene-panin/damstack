@@ -142,6 +142,8 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 			secrets[s.Name] = text
 		case placeholders:
 			secrets[s.Name] = "placeholder-" + s.Name
+		case s.Optional && (p == nil || p.NoTerminal):
+			// An optional key not given is left unset: the app works without it.
 		case p != nil && p.NoTerminal:
 			return nil, nil, nil, fmt.Errorf("secret %s: not given, and %v: put it in the file of --answers", s.Name, ask.ErrNoTerminal)
 		case p != nil:
@@ -149,10 +151,17 @@ func collect(m *manifest.Manifest, name string, given map[string]any, p *ask.Pro
 				fmt.Fprintln(p.Out, "\n── Secrets, not shown as you type them")
 				heading = true
 			}
+			prompt := s.Ask
+			if s.Optional {
+				prompt += " (optional: Enter leaves it unset)"
+			}
 			for {
-				value, err := p.Secret(s.Ask)
+				value, err := p.Secret(prompt)
 				if err != nil {
 					return nil, nil, nil, err
+				}
+				if value == "" && s.Optional {
+					break
 				}
 				if ask.Report(p, check, s.Checks, value, answers) == "" {
 					secrets[s.Name] = value
