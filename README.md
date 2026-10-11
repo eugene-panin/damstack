@@ -87,13 +87,39 @@ damstack app add mail
 damstack deploy
 ```
 
-asks what the app needs and runs it on your server. Today the library has one
-app: **mail**, your own mail server with [Stalwart](https://stalw.art):
-mailboxes for every domain, DKIM, MTA-STS, IMAP and SMTP with certificates,
-and the DNS records mail clients find their settings from.
-`damstack mail output passwords` shows the passwords of the mailboxes.
+asks what the app needs and runs it on your server. The library has **mail**,
+your own mail server with [Stalwart](https://stalw.art) (mailboxes for every
+domain, DKIM, MTA-STS, IMAP and SMTP with certificates, and the DNS records mail
+clients find their settings from), **odoo**, and the shared services apps build
+on: **postgres**, **nats**, **seaweedfs** (S3), **loki**, **mimir** and
+**grafana**. An app from a repository of your own, public or private, is added
+the same way.
 
-Apps run in containers on Nomad, each with only the rights it needs.
+Apps run in containers on Nomad, each with only the rights it needs, and can
+join the Consul service mesh: a database then lets in only the apps named in
+its settings, over mTLS.
+
+An app's keys, such as the API keys of an LLM, are its secrets: asked when it
+is added (an optional one may be left unset), changed with
+`damstack secret set`, kept encrypted and given only to the services that use
+them, through Vault. A changed key restarts only those services.
+
+## On a terminal
+
+`damstack deploy` shows a full-screen view: every step, the tasks of the one
+running and how many are left, the plan to approve before anything changes,
+what failed in the words of the tool that failed, and at the end every
+address your server serves, checked. When Nomad would change a service in a
+way it only takes after a restart, the plan says so and offers to restart it.
+`--plain`, a pipe or CI keep the plain lines.
+
+## Working together
+
+Once a project is up, its state lives on its server, not on one laptop:
+anyone with the project can deploy it. Changes take a lock: a second deploy
+waits its turn and shows whose deploy it waits for. `--break-glass` deploys
+without the lock, from the state on your Mac, only to repair the server
+itself.
 
 ## Every day
 
@@ -103,6 +129,8 @@ Apps run in containers on Nomad, each with only the rights it needs.
 | Check that the server is as you set it up | `damstack status --live` |
 | Change a setting | `damstack edit`, then `damstack deploy` |
 | Deploy again, changing only what differs | `damstack deploy` |
+| Deploy the apps only, the server left as it is | `damstack deploy --apps-only` |
+| Give an app a key, or see which are set | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
 | Add or remove a device of the private network | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Give a device or the server new keys | `damstack tunnel rotate phone` |
 | Open a shell on the server, or run a command there | `damstack ssh`, `damstack ssh -- uptime` |
@@ -162,7 +190,8 @@ server of yours runs: without them nothing can manage it.
 ## Limits today
 
 - macOS only, and one server per project.
-- One app in the library: mail.
+- The full-screen view covers deploys; the other screens of its design come
+  in later releases.
 - New releases of a platform or an app are taken by hand; there is no
   `damstack upgrade` yet.
 - Tested on OVH and Google Cloud.

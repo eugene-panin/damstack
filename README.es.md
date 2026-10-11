@@ -90,15 +90,42 @@ damstack app add mail
 damstack deploy
 ```
 
-pregunta lo que necesita la aplicación y la ejecuta en tu servidor. Hoy la
-biblioteca tiene una aplicación: **mail**, tu propio servidor de correo con
-[Stalwart](https://stalw.art): buzones para cada dominio, DKIM, MTA-STS, IMAP
-y SMTP con certificados, y los registros DNS con los que los clientes de
-correo encuentran su configuración. `damstack mail output passwords` muestra
-las contraseñas de los buzones.
+pregunta lo que necesita la aplicación y la ejecuta en tu servidor. La
+biblioteca tiene **mail**, tu propio servidor de correo con
+[Stalwart](https://stalw.art) (buzones para cada dominio, DKIM, MTA-STS, IMAP y
+SMTP con certificados, y los registros DNS con los que los clientes de correo
+encuentran su configuración), **odoo** y los servicios compartidos sobre los
+que se construyen las aplicaciones: **postgres**, **nats**, **seaweedfs**
+(S3), **loki**, **mimir** y **grafana**. Una aplicación de un repositorio
+propio, público o privado, se añade igual.
 
 Las aplicaciones se ejecutan en contenedores sobre Nomad, cada una solo con
-los permisos que necesita.
+los permisos que necesita, y pueden unirse a la service mesh de Consul: una
+base de datos deja entrar entonces, por mTLS, solo a las aplicaciones
+nombradas en su configuración.
+
+Las claves de una aplicación, como las claves de API de un LLM, son sus
+secretos: se piden al añadirla (una opcional puede quedar sin poner), se
+cambian con `damstack secret set`, se guardan cifradas y llegan por Vault solo
+a los servicios que las usan. Cambiar una clave reinicia solo esos servicios.
+
+## En una terminal
+
+`damstack deploy` muestra una vista a pantalla completa: cada paso, las tareas
+del que está en marcha y cuántas quedan, el plan que hay que aprobar antes de
+que nada cambie, lo que falló con las palabras de la herramienta que falló, y
+al final cada dirección que sirve tu servidor, comprobada. Cuando Nomad
+cambiaría un servicio de un modo que solo toma tras reiniciarlo, el plan lo
+dice y ofrece reiniciarlo. `--plain`, una tubería o CI mantienen las líneas
+simples.
+
+## En equipo
+
+Una vez arriba, el estado del proyecto vive en su servidor, no en un portátil:
+cualquiera que tenga el proyecto puede desplegarlo. Los cambios toman un
+bloqueo: un segundo despliegue espera su turno y muestra a quién espera.
+`--break-glass` despliega sin el bloqueo, con el estado de tu Mac, solo para
+reparar el propio servidor.
 
 ## Día a día
 
@@ -108,6 +135,8 @@ los permisos que necesita.
 | Comprobar que el servidor está como lo configuraste | `damstack status --live` |
 | Cambiar un ajuste | `damstack edit`, luego `damstack deploy` |
 | Desplegar de nuevo, cambiando solo lo que difiere | `damstack deploy` |
+| Desplegar solo las aplicaciones, sin tocar el servidor | `damstack deploy --apps-only` |
+| Dar una clave a una aplicación, o ver cuáles hay | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
 | Añadir o quitar un dispositivo de la red privada | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Dar claves nuevas a un dispositivo o al servidor | `damstack tunnel rotate phone` |
 | Abrir una shell en el servidor, o ejecutar un comando allí | `damstack ssh`, `damstack ssh -- uptime` |
@@ -169,7 +198,8 @@ mientras funcione algún servidor tuyo: sin ellos nada puede gestionarlo.
 ## Límites actuales
 
 - Solo macOS, y un servidor por proyecto.
-- Una aplicación en la biblioteca: el correo.
+- La vista a pantalla completa cubre los despliegues; las demás pantallas de
+  su diseño llegan en próximas versiones.
 - Las nuevas versiones de una plataforma o una aplicación se instalan a mano;
   todavía no existe `damstack upgrade`.
 - Probado en OVH y Google Cloud.
