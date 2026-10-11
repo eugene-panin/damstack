@@ -10,8 +10,9 @@ import "time"
 // types are Events.
 type Event interface{ event() }
 
-// Sink takes events as they happen. Emit is called from the goroutine that
-// does the work and must not block it for long.
+// Sink takes events as they happen. Emit may be called from another goroutine
+// than the one that started the work, but never from two at once; it must not
+// block the work for long.
 type Sink interface {
 	Emit(Event)
 }

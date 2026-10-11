@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -92,12 +93,13 @@ func TestAnsible(t *testing.T) {
 	}
 	want := []string{
 		"ansible-galaxy collection install -r /stack/ansible/requirements.yml -p /work/.damstack/work/collections",
+		"ansible-playbook -i /stack/ansible/inventory -e @/work/vault.yml --private-key /h/.ssh/id_ed25519 /stack/ansible/playbooks/site.yml --check --list-tasks",
 		"ansible-playbook -i /stack/ansible/inventory -e @/work/vault.yml --private-key /h/.ssh/id_ed25519 /stack/ansible/playbooks/site.yml --check",
 	}
 	if got := r.lines(); !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	env := r.env(1)
+	env := r.env(2)
 	if env["ANSIBLE_CONFIG"] != "/stack/ansible/ansible.cfg" || env["NOMAD_ADDR"] != "https://10.77.0.1:4646" || env["NOMAD_CACERT"] != "/work/ca.pem" ||
 		!strings.Contains(env["ANSIBLE_SSH_ARGS"], "UserKnownHostsFile=/work/.damstack/known_hosts") || !r.cmds[0].Quiet {
 		t.Errorf("env %v", env)
@@ -457,5 +459,57 @@ func TestAnApplyReportsEachResourceAgainstThePlan(t *testing.T) {
 	}
 	if log.String() != "nomad_job.web: Modifying...\nnomad_job.web: Modifications complete after 3s\n" {
 		t.Errorf("the log must keep OpenTofu's text, got %q", log.String())
+	}
+}
+
+func TestAPlayReportsItsTasksAndRemembersHowManyItHad(t *testing.T) {
+	e, r := setup(t)
+	r.reply = func(c toolbox.Cmd) error {
+		switch {
+		case slices.Contains(c.Args, "--list-tasks"):
+			c.Stdout.Write([]byte("  play #1 (stack): Provision\tTAGS: []\n    tasks:\n      Install Consul\tTAGS: []\n      Start Consul\tTAGS: []\n"))
+		case c.Args[0] == "ansible-playbook":
+			f, _ := os.Create(c.Env["DAMSTACK_EVENTS"])
+			defer f.Close()
+			for _, l := range []string{`{"type":"start","name":"Install Consul"}`, `{"type":"changed","name":"Install Consul"}`,
+				`{"type":"start","name":"consul : include"}`, `{"type":"ok","name":"consul : include"}`,
+				`{"type":"start","name":"Start Consul"}`, `{"type":"skipped","name":"Start Consul"}`} {
+				f.WriteString(l + "\n")
+			}
+			if c.Env["ANSIBLE_CALLBACKS_ENABLED"] != "damstack_events" || !strings.HasSuffix(c.Env["ANSIBLE_CALLBACK_PLUGINS"], "callbacks") {
+				t.Errorf("the plugin is not enabled: %v", c.Env)
+			}
+		}
+		return nil
+	}
+	step := manifest.Step{Ansible: &manifest.Ansible{Playbook: "ansible/playbooks/site.yml"}}
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	var done []string
+	for _, ev := range e.Events.(*recorder).events {
+		if task, ok := ev.(event.Task); ok && task.Status != event.TaskRunning {
+			done = append(done, fmt.Sprintf("%s %d/%d", task.Name, task.Done, task.Total))
+		}
+	}
+	// Two tasks were listed; the include made three: the count grows.
+	if want := []string{"Install Consul 1/2", "consul : include 2/2", "Start Consul 3/3"}; !slices.Equal(done, want) {
+		t.Errorf("got %v, want %v", done, want)
+	}
+
+	// The next run counts to the three it had, without listing.
+	r.cmds = nil
+	e.Events = &recorder{}
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range r.lines() {
+		if strings.Contains(line, "--list-tasks") {
+			t.Errorf("listed again although the last run's count is known: %s", line)
+		}
+	}
+	first := e.Events.(*recorder).events[0].(event.Task)
+	if first.Total != 3 || !first.Estimate {
+		t.Errorf("the second run must count to 3, an estimate: %+v", first)
 	}
 }

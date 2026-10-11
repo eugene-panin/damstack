@@ -15,8 +15,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/eugene-panin/damstack/internal/ansibleevents"
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -168,8 +171,76 @@ func (e *Engine) ansible(ctx context.Context, a *manifest.Ansible, env map[strin
 	if e.KeyFile != "" {
 		cmd = append(cmd, "--private-key", e.KeyFile)
 	}
-	cmd = append(cmd, filepath.Join(e.Stack, a.Playbook))
-	return e.Runner.Run(ctx, toolbox.Cmd{Args: append(cmd, args...), Env: env})
+	cmd = append(append(cmd, filepath.Join(e.Stack, a.Playbook)), args...)
+	return e.play(ctx, cmd, env, e.unit(strings.TrimSuffix(a.Playbook, filepath.Ext(a.Playbook))))
+}
+
+// play runs a playbook and reports each of its tasks as a Task event, counted
+// to an estimate: how many tasks the same play had the last time, or before
+// that the tasks ansible-playbook can list ahead (roles included at run time
+// are not among them, so the count grows as the play goes).
+func (e *Engine) play(ctx context.Context, cmd []string, env map[string]string, name string) error {
+	dir := filepath.Join(e.work(), "progress")
+	if err := os.MkdirAll(filepath.Join(dir, "callbacks"), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "callbacks", ansibleevents.PluginName+".py"), ansibleevents.Plugin, 0o644); err != nil {
+		return err
+	}
+	events := filepath.Join(dir, name+".jsonl")
+	if err := os.Remove(events); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	env["ANSIBLE_CALLBACK_PLUGINS"] = filepath.Join(dir, "callbacks")
+	env["ANSIBLE_CALLBACKS_ENABLED"] = ansibleevents.PluginName
+	env["DAMSTACK_EVENTS"] = events
+
+	countFile := filepath.Join(dir, name+".tasks")
+	total := 0
+	if data, err := os.ReadFile(countFile); err == nil {
+		total, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+	} else {
+		var list bytes.Buffer
+		if e.Runner.Run(ctx, toolbox.Cmd{Env: env, Stdout: &list, Args: append(slices.Clone(cmd), "--list-tasks")}) == nil {
+			total = ansibleevents.Count(list.String())
+		}
+	}
+
+	following, stop := context.WithCancel(ctx)
+	defer stop()
+	done := 0
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		_ = ansibleevents.Follow(following, events, func(t ansibleevents.Task) {
+			task := event.Task{Name: t.Name, Estimate: true}
+			switch t.Status {
+			case ansibleevents.Started:
+				task.Status = event.TaskRunning
+			case ansibleevents.OK:
+				done++
+				task.Status = event.TaskOK
+			case ansibleevents.Changed:
+				done++
+				task.Status = event.TaskChanged
+			case ansibleevents.Failed:
+				done++
+				task.Status = event.TaskFailed
+			case ansibleevents.Skipped:
+				done++
+				task.Status = event.TaskSkipped
+			}
+			task.Done, task.Total = done, max(total, done)
+			e.emit(task)
+		})
+	})
+	err := e.Runner.Run(ctx, toolbox.Cmd{Args: cmd, Env: env})
+	stop()
+	wg.Wait()
+	if err == nil && done > 0 {
+		// A whole play: next time, its count is the estimate.
+		_ = os.WriteFile(countFile, []byte(strconv.Itoa(done)+"\n"), 0o644)
+	}
+	return err
 }
 
 // ansibleConfig is the ansible.cfg nearest the playbook, in its directory or
