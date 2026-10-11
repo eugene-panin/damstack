@@ -1,6 +1,7 @@
 package project
 
 import (
+	"github.com/eugene-panin/damstack/internal/release"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,5 +171,24 @@ backup: {schedule: "03:00"}
 	}
 	if got, _ := os.ReadFile(filepath.Join(bare.Dir, ConfigFile)); string(got) != "name: bare\n\napps:\n  mail:\n    hostname: m\n" {
 		t.Errorf("without apps: %q", got)
+	}
+}
+
+func TestAnOlderDamstackRefusesAProjectThatNeedsANewerOne(t *testing.T) {
+	p, err := Create(t.TempDir(), Meta{Name: "twinmind", Shared: true, Requires: SharedRequires}, map[string][]byte{ConfigFile: []byte("{}\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := release.Version
+	t.Cleanup(func() { release.Version = saved })
+	for version, opens := range map[string]bool{"0.8.0": false, "0.9.0": true, "1.2.0": true, "dev": true} {
+		release.Version = version
+		_, err := Open(p.Dir)
+		if opens != (err == nil) {
+			t.Errorf("damstack %s: got %v", version, err)
+		}
+		if !opens && (err == nil || !strings.Contains(err.Error(), "needs damstack >=0.9.0")) {
+			t.Errorf("damstack %s must say what it needs: %v", version, err)
+		}
 	}
 }

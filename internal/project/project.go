@@ -20,6 +20,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/vault"
 )
 
@@ -51,7 +53,15 @@ type Meta struct {
 	// people running it share it: a change takes the platform's lock, and the
 	// state here is a cache of the platform's.
 	Shared bool `yaml:"shared,omitempty"`
+	// Requires is the damstack the project needs, such as >=0.9.0: an older one
+	// refuses to open it rather than work on it the old way (a shared project
+	// changed without its lock, say).
+	Requires string `yaml:"requires,omitempty"`
 }
+
+// SharedRequires is the damstack a shared project needs: the first that takes
+// its lock and its state from the platform.
+const SharedRequires = ">=0.9.0"
 
 func (m Meta) App(name string) (StackRef, bool) {
 	for _, a := range m.Apps {
@@ -92,6 +102,15 @@ func Open(dir string) (*Project, error) {
 	p := &Project{Dir: dir}
 	if err := yaml.Unmarshal(data, &p.Meta); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if p.Meta.Requires != "" {
+		ok, err := manifest.Satisfies(release.Version, p.Meta.Requires)
+		if err != nil {
+			return nil, fmt.Errorf("%s: requires: %w", path, err)
+		}
+		if !ok {
+			return nil, fmt.Errorf("%s needs damstack %s, and this is %s: brew upgrade damstack", p.Meta.Name, p.Meta.Requires, release.Version)
+		}
 	}
 	return p, nil
 }

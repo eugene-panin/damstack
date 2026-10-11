@@ -55,6 +55,9 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 	if !p.Meta.Shared {
 		return nil, nil
 	}
+	if err := requireShared(p); err != nil {
+		return nil, err
+	}
 	if s.breakGlass {
 		fmt.Fprintf(s.err, "--break-glass: changing %s without its lock, from the state on this machine. "+
 			"Anyone else changing it now races this.\n", p.Meta.Name)
@@ -176,11 +179,22 @@ func publish(ctx context.Context, s *streams, p *project.Project, m *manifest.Ma
 			return fmt.Errorf("publishing the state of %s: %w", unit, err)
 		}
 	}
-	p.Meta.Shared = true
+	p.Meta.Shared, p.Meta.Requires = true, project.SharedRequires
 	if err := p.SaveMeta(); err != nil {
 		return err
 	}
 	s.events.Emit(event.Note{Break: true, Text: fmt.Sprintf("The state of %d steps is now kept on the platform. "+
 		"From now on a change to %s waits its turn: one person at a time, the others queue.", len(files), p.Meta.Name)})
 	return nil
+}
+
+// requireShared writes into a shared project that it needs a damstack that
+// knows it is shared, for a project shared before damstack wrote that: an
+// older one would change it without its lock.
+func requireShared(p *project.Project) error {
+	if !p.Meta.Shared || p.Meta.Requires != "" {
+		return nil
+	}
+	p.Meta.Requires = project.SharedRequires
+	return p.SaveMeta()
 }
