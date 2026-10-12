@@ -371,15 +371,7 @@ func (m *Deploy) Frame() string {
 		}
 	}
 	if w < minWidth || h < minHeight {
-		msg := fmt.Sprintf("damstack needs a window of %d×%d at least; this one is %d×%d.", minWidth, minHeight, w, h)
-		rows := make([]string, h)
-		for i := range rows {
-			rows[i] = line{}.String(w)
-		}
-		if h > 0 {
-			rows[h/2] = line{left: []span{text(msg, dim)}}.String(w)
-		}
-		return strings.Join(rows, "\n")
+		return tooSmall(w, h)
 	}
 	pad := 2
 	inner := w - 2*pad

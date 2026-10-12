@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,13 +21,16 @@ func tokenCommand(s *streams) *cobra.Command {
 		Use:   "token [name]",
 		Short: "Copy a token of the project you are in, such as the one of the Nomad admin page",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(c *cobra.Command, args []string) error {
 			p, err := pickProject(s, "")
 			if err != nil {
 				return err
 			}
-			m, _ := cachedStack(p)
-			if m == nil || len(m.Tokens) == 0 {
+			m, _, err := projectStack(c.Context(), p, "")
+			if err != nil {
+				return err
+			}
+			if len(m.Tokens) == 0 {
 				return fmt.Errorf("the stack of %s gives no tokens", p.Meta.Name)
 			}
 			names := slices.Sorted(maps.Keys(m.Tokens))
@@ -48,6 +52,10 @@ func tokenCommand(s *streams) *cobra.Command {
 				}
 			}
 			fmt.Fprintln(s.out, value)
+			if s.tty() {
+				// On a terminal it is in plain text now, and its scrollback.
+				return p.MarkSeen(m.Tokens[args[0]], "printed by damstack token", time.Now())
+			}
 			return nil
 		},
 	}

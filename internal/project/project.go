@@ -221,12 +221,21 @@ func (p *Project) Secrets(password string) (map[string]any, error) {
 	return secrets, nil
 }
 
+// SaveSecrets writes vault.yml, and records the secrets whose value changed
+// as set now.
 func (p *Project) SaveSecrets(password string, secrets map[string]any) error {
+	before, err := p.Secrets(password)
+	if err != nil {
+		before = map[string]any{}
+	}
 	data, err := EncryptSecrets(password, secrets)
 	if err != nil {
 		return err
 	}
-	return writeFile(filepath.Join(p.Dir, VaultFile), data, 0o644)
+	if err := writeFile(filepath.Join(p.Dir, VaultFile), data, 0o644); err != nil {
+		return err
+	}
+	return p.stamp(before, secrets, time.Now())
 }
 
 // EncryptSecrets is the vault.yml holding secrets.

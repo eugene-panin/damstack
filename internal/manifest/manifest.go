@@ -63,6 +63,7 @@ type Manifest struct {
 	Image     string          `yaml:"image"`
 	Questions []Question      `yaml:"questions"`
 	Secrets   []Secret        `yaml:"secrets"`
+	Accounts  []Account       `yaml:"accounts"`
 	Config    string          `yaml:"config"`
 	Server    *Server         `yaml:"server"`
 	Backup    *Backup         `yaml:"backup"`
@@ -163,6 +164,22 @@ type Secret struct {
 	// Optional says an asked secret may be left unset: the app works
 	// without it, with less.
 	Optional bool `yaml:"optional"`
+	// Keep says why a generated secret cannot be made anew, such as "old
+	// backups need it"; the secrets screen shows it.
+	Keep string `yaml:"keep"`
+	// NewAt is the page where a new value of an asked secret is made, such as
+	// a registry's tokens; the secrets screen opens it.
+	NewAt string `yaml:"new_at"`
+}
+
+// Account is a set of an app's sign-ins that damstack can give new passwords:
+// the users of a userpass method of the platform's Vault.
+type Account struct {
+	// What they are, such as operator passwords.
+	What string `yaml:"what"`
+	// Userpass is the path of the method, as a template over .config and
+	// .app; empty when the app keeps them elsewhere.
+	Userpass string `yaml:"userpass"`
 }
 
 // Server is how damstack reaches the server of a project, as templates over
@@ -482,6 +499,18 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 	}
 
 	c.checkSecrets(m, dir)
+	for i, a := range m.Accounts {
+		path := fmt.Sprintf("accounts[%d]", i)
+		switch {
+		case !m.IsApp():
+			c.add(path, "is for an app: the sign-ins it keeps in the platform's Vault")
+		case a.What == "":
+			c.add(path+".what", "says what they are, such as operator passwords")
+		case a.Userpass == "":
+			c.add(path+".userpass", "is the path of the userpass method in Vault")
+		}
+		c.checkTemplate(path+".userpass", a.Userpass)
+	}
 	if m.Config != "" {
 		c.checkFile("config", m.Config, dir, false)
 		if text, err := os.ReadFile(filepath.Join(dir, m.Config)); dir != "" && filepath.IsLocal(m.Config) && err == nil {
@@ -747,6 +776,14 @@ func (c *checker) checkSecrets(m *Manifest, dir string) {
 		}
 		if s.Rotate && s.Generate == "" {
 			c.add(path+".rotate", "is for a generated secret: damstack cannot make an asked one anew")
+		}
+		switch {
+		case s.Keep != "" && (s.Generate == "" || s.Rotate):
+			c.add(path+".keep", "says why a generated secret cannot be made anew: not with rotate, nor for an asked one")
+		case s.NewAt != "" && s.Ask == "":
+			c.add(path+".new_at", "is for an asked secret: the page where a new value is made")
+		case s.NewAt != "" && !strings.HasPrefix(s.NewAt, "https://"):
+			c.add(path+".new_at", "must be an https:// address")
 		}
 		if s.Cert != "" && (s.Generate != "ca" || !filepath.IsLocal(s.Cert)) {
 			c.add(path+".cert", "is for a generated ca only, a path inside the project")

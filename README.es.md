@@ -137,6 +137,7 @@ reparar el propio servidor.
 | Desplegar de nuevo, cambiando solo lo que difiere | `damstack deploy` |
 | Desplegar solo las aplicaciones, sin tocar el servidor | `damstack deploy --apps-only` |
 | Dar una clave a una aplicación, o ver cuáles hay | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
+| Ver todos los secretos, los de más riesgo primero, y cambiar los elegidos | `damstack secret` |
 | Añadir o quitar un dispositivo de la red privada | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Dar claves nuevas a un dispositivo o al servidor | `damstack tunnel rotate phone` |
 | Abrir una shell en el servidor, o ejecutar un comando allí | `damstack ssh`, `damstack ssh -- uptime` |
@@ -198,8 +199,8 @@ mientras funcione algún servidor tuyo: sin ellos nada puede gestionarlo.
 ## Límites actuales
 
 - Solo macOS, y un servidor por proyecto.
-- La vista a pantalla completa cubre los despliegues; las demás pantallas de
-  su diseño llegan en próximas versiones.
+- La vista a pantalla completa cubre los despliegues y los secretos; las demás
+  pantallas de su diseño llegan en próximas versiones.
 - Las nuevas versiones de una plataforma o una aplicación se instalan a mano;
   todavía no existe `damstack upgrade`.
 - Probado en OVH y Google Cloud.

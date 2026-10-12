@@ -131,6 +131,7 @@ itself.
 | Deploy again, changing only what differs | `damstack deploy` |
 | Deploy the apps only, the server left as it is | `damstack deploy --apps-only` |
 | Give an app a key, or see which are set | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
+| See every secret, the riskiest first, and make the ones you pick anew | `damstack secret` |
 | Add or remove a device of the private network | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Give a device or the server new keys | `damstack tunnel rotate phone` |
 | Open a shell on the server, or run a command there | `damstack ssh`, `damstack ssh -- uptime` |
@@ -190,8 +191,8 @@ server of yours runs: without them nothing can manage it.
 ## Limits today
 
 - macOS only, and one server per project.
-- The full-screen view covers deploys; the other screens of its design come
-  in later releases.
+- The full-screen view covers deploys and secrets; the other screens of its
+  design come in later releases.
 - New releases of a platform or an app are taken by hand; there is no
   `damstack upgrade` yet.
 - Tested on OVH and Google Cloud.

@@ -22,7 +22,19 @@ func secretCommand(s *streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secret",
 		Short: "The secrets of a project: those damstack generates, and those you give it, such as API keys",
+		Long: "The secrets of a project: those damstack generates, those you give it, such as API keys, and the " +
+			"sign-ins of its apps. Alone, it shows them all, the riskiest first, and makes the ones you pick anew; " +
+			"on a pipe or with --plain, it lists them.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p, err := pickProject(s, "")
+			if err != nil {
+				return err
+			}
+			return secretsScreen(cmd.Context(), s, p)
+		},
 	}
+	cmd.Flags().BoolVar(&s.plain, "plain", false, "list them as lines instead of the full-screen view on a terminal")
 	rotate := &cobra.Command{
 		Use:   "rotate <secret>",
 		Short: "Make a generated secret anew, one the stack allows; the next deploy puts it in place",
@@ -71,20 +83,9 @@ func secretCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			g, err := secret.Generate(spec.Generate, spec.Bytes, p.Meta.Name)
-			if err != nil {
+			if err := makeAnew(p, *spec, secrets); err != nil {
 				return err
 			}
-			if spec.Cert != "" {
-				path := filepath.Join(p.Dir, spec.Cert)
-				if err := os.Rename(path, path+".old"); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				if err := os.WriteFile(path, g.Cert, 0o644); err != nil {
-					return err
-				}
-			}
-			secrets[spec.Name] = g.Value
 			if err := p.SaveSecrets(password, secrets); err != nil {
 				return err
 			}
@@ -99,6 +100,26 @@ func secretCommand(s *streams) *cobra.Command {
 	rotate.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
 	cmd.AddCommand(rotate, secretSetCommand(s), secretListCommand(s))
 	return cmd
+}
+
+// makeAnew puts a new value of a generated secret in secrets, and its
+// certificate, when it has one, in the project, the old one next to it.
+func makeAnew(p *project.Project, spec manifest.Secret, secrets map[string]any) error {
+	g, err := secret.Generate(spec.Generate, spec.Bytes, p.Meta.Name)
+	if err != nil {
+		return err
+	}
+	if spec.Cert != "" {
+		path := filepath.Join(p.Dir, spec.Cert)
+		if err := os.Rename(path, path+".old"); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(path, g.Cert, 0o644); err != nil {
+			return err
+		}
+	}
+	secrets[spec.Name] = g.Value
+	return nil
 }
 
 // askedSecret is an asked secret of a project's platform or one of its apps,
