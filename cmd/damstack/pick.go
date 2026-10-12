@@ -131,9 +131,10 @@ func useCommand(s *streams) *cobra.Command {
 }
 
 func editCommand(s *streams) *cobra.Command {
-	return &cobra.Command{
+	var asYAML bool
+	cmd := &cobra.Command{
 		Use:   "edit [project]",
-		Short: "Open the stack.yaml of a project in your editor, check it, and offer to deploy it",
+		Short: "Change the settings of a project: a full screen on a terminal, or stack.yaml in your editor with --yaml; then offer to deploy",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := ""
@@ -143,6 +144,17 @@ func editCommand(s *streams) *cobra.Command {
 			p, err := pickProject(s, name)
 			if err != nil {
 				return err
+			}
+			if !asYAML && s.screen() {
+				deploy, err := settingsScreen(cmd.Context(), s, p)
+				if err != nil || !deploy {
+					return err
+				}
+				m, dir, err := projectStack(cmd.Context(), p, "")
+				if err != nil {
+					return err
+				}
+				return runSteps(cmd.Context(), s, p, m, dir, "", false)
 			}
 			path := filepath.Join(p.Dir, project.ConfigFile)
 			before, err := os.ReadFile(path)
@@ -186,6 +198,8 @@ func editCommand(s *streams) *cobra.Command {
 			return runSteps(cmd.Context(), s, p, m, dir, "", false)
 		},
 	}
+	cmd.Flags().BoolVar(&asYAML, "yaml", false, "open stack.yaml in your editor, $VISUAL or $EDITOR, instead of the settings screen")
+	return cmd
 }
 
 func openEditor(s *streams, path string) error {

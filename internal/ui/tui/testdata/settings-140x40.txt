@@ -1,0 +1,40 @@
+  Settings · twinmind · stack.yaml                                                                                                          
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+    General                 │  server                                                                                                       
+  › server                  │                                                                                                               
+    network                 │  › address                 169.58.210.131                                                                     
+    vault                   │    node name               server  chosen once                                                                
+                            │    public ports            80, 443                                                                            
+  apps                      │                                                                                                               
+    sauron                  │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+                            │                                                                                                               
+  Public address of the server, as the provider gave it.                                                                                    
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↑↓  choose    tab  section    ↵  change    E  edit as YAML    d  save and deploy    esc  save and leave                                  

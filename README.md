@@ -127,7 +127,8 @@ itself.
 | --- | --- |
 | See the projects and what needs you, and do the rest from there | `damstack` |
 | Check that the server is as you set it up | `damstack status --live` |
-| Change a setting | `damstack edit`, then `damstack deploy` |
+| Change a setting, on a screen of sections and fields (`--yaml` for the file) | `damstack edit` |
+| Deploy only some parts, such as one app | `damstack deploy --only sauron` |
 | Deploy again, changing only what differs | `damstack deploy` |
 | Deploy the apps only, the server left as it is | `damstack deploy --apps-only` |
 | Give an app a key, or see which are set | `damstack app keys sauron` |

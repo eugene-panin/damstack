@@ -69,6 +69,12 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 		if err != nil {
 			return err
 		}
+		parts, ok, err := pickParts(ctx, s, p, m, dir)
+		if err != nil || !ok {
+			return err
+		}
+		s.only = parts
+		defer func() { s.only = nil }()
 		return runSteps(ctx, s, p, m, dir, "", false)
 	case "k":
 		return appKeys(ctx, s, p, "")
@@ -76,9 +82,14 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 		return secretsScreen(ctx, s, p)
 	case "u":
 		return linksScreen(ctx, s, p)
-	case "e", "s":
-		name := map[string]string{"e": "edit", "s": "ssh"}[key]
-		cmd := exec.CommandContext(ctx, self(), name, p.Meta.Name)
+	case "e":
+		deploy, err := settingsScreen(ctx, s, p)
+		if err != nil || !deploy {
+			return err
+		}
+		return homeAction(ctx, s, p, "d")
+	case "s":
+		cmd := exec.CommandContext(ctx, self(), "ssh", p.Meta.Name)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		return cmd.Run()
 	}
@@ -347,4 +358,69 @@ func linksScreen(ctx context.Context, s *streams, p *project.Project) error {
 	})
 	_, err = tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run()
 	return err
+}
+
+// pickParts asks, on the deploy choice, what of a project to deploy: the
+// platform's steps whose inputs changed and every app come picked.
+func pickParts(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) (map[string]bool, bool, error) {
+	password, err := p.Password()
+	if err != nil {
+		return nil, false, err
+	}
+	var rows []tui.PickRow
+	for _, step := range m.Steps {
+		if step.Restore {
+			continue
+		}
+		row := tui.PickRow{Name: step.Name, Title: orDefault(step.Title, step.Name), Picked: true}
+		last, ran, _ := p.LastRun(step.Name)
+		switch {
+		case step.Once && ran && last.Result == project.OK:
+			row.Note, row.Picked = "done once", false
+		case step.Ansible != nil:
+			inputs, err := platformInputs(p, dir, step.Ansible.Playbook, password)
+			if err != nil {
+				return nil, false, err
+			}
+			if why := unchanged(p, step.Name, inputs, time.Now()); why != "" {
+				row.Note, row.Picked = strings.TrimSuffix(why, "; --all runs it"), false
+			} else {
+				row.Note, row.Changed = "changed since it last ran well", true
+			}
+		case ran:
+			row.Note = "ran " + ago(last.Time)
+		}
+		rows = append(rows, row)
+	}
+	pending := map[string]bool{}
+	if r, err := p.Records(); err == nil {
+		for _, a := range askedSecrets(p) {
+			deployed := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, a.app+"/") })
+			if rec, ok := r.Secrets[a.spec.Name]; a.app != "" && ok && rec.Set.After(deployed) {
+				pending[a.app] = true
+			}
+		}
+	}
+	for _, ref := range p.Meta.Apps {
+		row := tui.PickRow{Name: ref.Name, Title: ref.Name + "  " + ref.Tag, App: true, Picked: true}
+		if pending[ref.Name] {
+			row.Note, row.Changed = "keys changed", true
+		} else if at := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, ref.Name+"/") }); !at.IsZero() {
+			row.Note = "deployed " + ago(at)
+		}
+		rows = append(rows, row)
+	}
+	model := tui.NewDeployPick(p.Meta.Name, rows)
+	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+		return nil, false, err
+	}
+	names, ok := model.Picked()
+	if !ok {
+		return nil, false, nil
+	}
+	parts := map[string]bool{}
+	for _, n := range names {
+		parts[n] = true
+	}
+	return parts, true, nil
 }

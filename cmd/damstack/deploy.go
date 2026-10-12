@@ -62,6 +62,9 @@ type streams struct {
 	breakGlass bool
 	// all is deploy --all: run every step, those whose inputs did not change too.
 	all bool
+	// only, when set, is what a deploy runs: the platform's steps by name and
+	// the apps, all their steps, by theirs; it runs them though unchanged.
+	only map[string]bool
 }
 
 // newStreams asks its questions on stderr, so they reach the person when the
@@ -150,6 +153,7 @@ type deployOptions struct {
 	yes        bool
 	appsOnly   bool
 	all        bool
+	only       string
 	breakGlass bool
 	plain      bool
 }
@@ -175,6 +179,7 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
 	cmd.Flags().BoolVar(&o.appsOnly, "apps-only", false, "deploy only the apps, skipping the platform's Ansible steps (bootstrap, provision); for when the platform is already up and unchanged")
 	cmd.Flags().BoolVar(&o.all, "all", false, "run every step, also the platform's Ansible steps whose inputs did not change since they last ran well")
+	cmd.Flags().StringVar(&o.only, "only", "", "deploy only these, comma-separated: steps of the platform (such as provision, apply) and apps (such as sauron); they run though unchanged")
 	cmd.Flags().BoolVar(&o.breakGlass, "break-glass", false, "change a project shared on its platform without the platform's lock, from the state on this machine; only to repair the platform itself")
 	cmd.Flags().BoolVar(&o.plain, "plain", false, "show plain lines, as in a log, instead of the full-screen view on a terminal")
 	return cmd
@@ -184,6 +189,12 @@ var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	s.verbose, s.yes, s.breakGlass, s.plain, s.all = o.verbose, o.yes, o.breakGlass, o.plain, o.all
+	if o.only != "" {
+		s.only = map[string]bool{}
+		for _, part := range strings.Split(o.only, ",") {
+			s.only[strings.TrimSpace(part)] = true
+		}
+	}
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -663,6 +674,9 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		if err != nil {
 			return err
 		}
+		if jobs, err = chooseJobs(s, p, jobs, restore != "", e.Password); err != nil {
+			return err
+		}
 		sh.attach(jobs)
 		command := "deploy"
 		if restore != "" {
@@ -809,6 +823,15 @@ func doneLines(p *project.Project, m *manifest.Manifest, app string) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// part is what a job is part of, as a deploy picks it: its app, or for a step
+// of the platform, the step.
+func (j job) part() string {
+	if app, _, ok := strings.Cut(j.name, "/"); ok {
+		return app
+	}
+	return j.name
 }
 
 // title is what a step is called for people: an app's step after its app.

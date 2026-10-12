@@ -3,10 +3,12 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,4 +93,37 @@ func unchanged(p *project.Project, step, inputs string, now time.Time) string {
 		return ""
 	}
 	return "unchanged since " + last.Time.Local().Format("Jan 2 15:04") + "; --all runs it"
+}
+
+// chooseJobs keeps the jobs a deploy runs: those picked, when some were, all
+// of them run; otherwise every one, those of the platform's Ansible steps with
+// the fingerprint of their inputs, to be skipped while it stays the same.
+func chooseJobs(s *streams, p *project.Project, jobs []job, restore bool, password string) ([]job, error) {
+	if s.only != nil {
+		var parts []string
+		for _, j := range jobs {
+			if !slices.Contains(parts, j.part()) {
+				parts = append(parts, j.part())
+			}
+		}
+		for name := range s.only {
+			if !slices.Contains(parts, name) {
+				return nil, fmt.Errorf("%s is no part of a deploy of %s; the parts: %s", name, p.Meta.Name, strings.Join(parts, ", "))
+			}
+		}
+		return slices.DeleteFunc(jobs, func(j job) bool { return !s.only[j.part()] }), nil
+	}
+	if restore || s.all {
+		return jobs, nil
+	}
+	for i, j := range jobs {
+		if j.step.Ansible == nil || j.step.Once || j.e.App != "" {
+			continue
+		}
+		var err error
+		if jobs[i].inputs, err = platformInputs(p, j.e.Stack, j.step.Ansible.Playbook, password); err != nil {
+			return nil, err
+		}
+	}
+	return jobs, nil
 }

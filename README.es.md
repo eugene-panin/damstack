@@ -133,7 +133,8 @@ reparar el propio servidor.
 | --- | --- |
 | Ver los proyectos y lo que te necesita, y hacer el resto desde ahí | `damstack` |
 | Comprobar que el servidor está como lo configuraste | `damstack status --live` |
-| Cambiar un ajuste | `damstack edit`, luego `damstack deploy` |
+| Cambiar un ajuste, en una pantalla de secciones y campos (`--yaml` para el archivo) | `damstack edit` |
+| Desplegar solo una parte, como una aplicación | `damstack deploy --only sauron` |
 | Desplegar de nuevo, cambiando solo lo que difiere | `damstack deploy` |
 | Desplegar solo las aplicaciones, sin tocar el servidor | `damstack deploy --apps-only` |
 | Dar una clave a una aplicación, o ver cuáles hay | `damstack app keys sauron` |

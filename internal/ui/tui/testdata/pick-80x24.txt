@@ -1,0 +1,24 @@
+  Deploy · twinmind · what to put in place                      4 parts picked  
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+  platform                                                                      
+  [ ] Securing the server                     done once                         
+  [ ] Consul, Vault, Nomad and WireGuard      unchanged since Oct 12 11:05      
+  [x] Traefik and the admin pages             ran 2 h ago                       
+  [x] DNS records                             ran 2 h ago                       
+                                                                                
+  apps                                                                          
+  [x] odoo  v0.3.10                           deployed 2 h ago                  
+  [x] sauron  v0.1.19                         keys changed                      
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  Platform steps whose inputs did not change come unpicked; what is picked ru…  
+  ────────────────────────────────────────────────────────────────────────────  
+   space  pick    a  all    p  platform    c  changed    ↵  deploy    esc  ba…  
