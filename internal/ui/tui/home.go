@@ -85,7 +85,7 @@ type Home struct {
 // HomeKeys are the keys of the home screen and what they say, in the order
 // of the design's line; a key is shown once the command does it.
 var HomeKeys = []struct{ Key, Label string }{
-	{"d", "deploy"}, {"u", "links"}, {"e", "edit"}, {"k", "keys"}, {"!", "security"}, {"s", "ssh"},
+	{"enter", "open"}, {"d", "deploy"}, {"u", "links"}, {"e", "edit"}, {"a", "apps"}, {"k", "keys"}, {"!", "security"}, {"s", "ssh"},
 }
 
 // NewHome is the home screen of projects, the current one chosen; look tells
@@ -365,7 +365,11 @@ func (m *Home) needs() []line {
 func (m *Home) footer() line {
 	var keys []span
 	for _, hk := range HomeKeys {
-		keys = append(keys, text(hk.Key, key), text(" "+hk.Label+"   ", dim))
+		shown := hk.Key
+		if shown == "enter" {
+			shown = "↵"
+		}
+		keys = append(keys, text(shown, key), text(" "+hk.Label+"   ", dim))
 	}
 	keys = append(keys, text("q", key), text(" quit", dim))
 	return line{left: keys}

@@ -76,6 +76,8 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 		s.only = parts
 		defer func() { s.only = nil }()
 		return runSteps(ctx, s, p, m, dir, "", false)
+	case "a", "enter":
+		return catalogScreen(ctx, s, p)
 	case "k":
 		return appKeys(ctx, s, p, "")
 	case "!":

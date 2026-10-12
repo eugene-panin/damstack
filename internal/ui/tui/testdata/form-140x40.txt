@@ -1,0 +1,40 @@
+  Install mail v0.4.1 on twinmind                                                                                                    2 / 5  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  ✓ What it needs             │  Domains                                                                                                    
+  ● Domains                   │                                                                                                             
+  ○ Accounts                  │  Mail domains                                                                                               
+  ○ Keys                      │  twinmind.pro, newo.ai▌                                                                                     
+  ○ Review                    │                                                                                                             
+                              │  Host name of the server                                                                                    
+  takes about 4 minutes       │                                                                                                             
+  nothing changes until you   │                                                                                                             
+  confirm the review          │  Database                                                                                                   
+                              │  › shared                                                                                                   
+                              │    bundled                                                                                                  
+                              │                                                                                                             
+                              │  ▸ advanced  memory (defaults kept)                                                                         
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                              │                                                                                                             
+                                                                                                                                            
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↑↓  choose    ←→  option    tab  next    shift-tab  back    esc  leave                                                                   

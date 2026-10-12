@@ -201,8 +201,9 @@ mientras funcione algún servidor tuyo: sin ellos nada puede gestionarlo.
 
 - Solo macOS, y un servidor por proyecto.
 - La vista a pantalla completa cubre la pantalla de inicio, los despliegues, los
-  enlaces, las claves de las aplicaciones y los secretos; las demás pantallas de
-  su diseño llegan en próximas versiones.
+  ajustes, el catálogo, las instalaciones, las aplicaciones, los enlaces, las
+  claves y los secretos; las demás pantallas de su diseño llegan en próximas
+  versiones.
 - Las nuevas versiones de una plataforma o una aplicación se instalan a mano;
   todavía no existe `damstack upgrade`.
 - Probado en OVH y Google Cloud.

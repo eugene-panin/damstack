@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -50,6 +51,15 @@ func NewSettings(project string, doc *settings.Doc) *Settings {
 	m.sections = doc.Sections()
 	m.cursor = m.next(0, 1)
 	return m
+}
+
+// Focus opens the section at path, such as apps sauron, when there is one.
+func (m *Settings) Focus(path []string) {
+	for i, s := range m.sections {
+		if len(path) > 0 && slices.Equal(s.Path, path) {
+			m.section(i)
+		}
+	}
 }
 
 // Result is what the person chose; Doc the file as they left it.

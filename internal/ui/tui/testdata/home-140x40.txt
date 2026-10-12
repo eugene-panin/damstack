@@ -37,4 +37,4 @@
                                                                                                                                             
                                                                                                                                             
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
-   d  deploy    u  links    e  edit    k  keys    !  security    s  ssh    q  quit                                                          
+   ↵  open    d  deploy    u  links    e  edit    a  apps    k  keys    !  security    s  ssh    q  quit                                    

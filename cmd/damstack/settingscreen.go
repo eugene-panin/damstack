@@ -17,7 +17,7 @@ import (
 // settingsScreen changes a project's stack.yaml on the settings screen; the
 // file opens in the editor when the person asks, and comes back to it. It
 // says whether the person asked to deploy.
-func settingsScreen(ctx context.Context, s *streams, p *project.Project) (bool, error) {
+func settingsScreen(ctx context.Context, s *streams, p *project.Project, focus ...string) (bool, error) {
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	path := filepath.Join(p.Dir, project.ConfigFile)
 	for {
@@ -30,6 +30,7 @@ func settingsScreen(ctx context.Context, s *streams, p *project.Project) (bool, 
 			return false, fmt.Errorf("%s: %w; damstack edit --yaml opens it", path, err)
 		}
 		model := tui.NewSettings(p.Meta.Name, doc)
+		model.Focus(focus)
 		if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
 			return false, err
 		}

@@ -1,0 +1,24 @@
+  Catalog · for twinmind (hashi v0.22.1)       4 apps · 3 installed · 1 update  
+  ────────────────────────────────────────────────────────────────────────────  
+  / search                                                                      
+                                                                                
+  › mail        your own mail v0.4.1      │  mail  eugene-panin/damstack-mail…  
+                                          │  your own mail server, by Stalwart  
+  installed                               │                                     
+    ● odoo        v0.3.10 → v0.3.11       │  needs                              
+    ● grafana     v0.1.6                  │  ✓ platform hashi, which provides…  
+    ● sauron      v0.1.19        private  │  ✓ public ports 25 465 587 993, o…  
+                                          │                                     
+                                          │  takes about 4 minutes              
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                          │                                     
+                                                                                
+  ────────────────────────────────────────────────────────────────────────────  
+   /  search    i  install    u  update    r  README    ↵  open    esc  back    

@@ -192,8 +192,9 @@ server of yours runs: without them nothing can manage it.
 ## Limits today
 
 - macOS only, and one server per project.
-- The full-screen view covers the home screen, deploys, links, app keys and
-  secrets; the other screens of its design come in later releases.
+- The full-screen view covers the home screen, deploys, settings, the catalog,
+  installs, apps, links, keys and secrets; the other screens of its design come
+  in later releases.
 - New releases of a platform or an app are taken by hand; there is no
   `damstack upgrade` yet.
 - Tested on OVH and Google Cloud.

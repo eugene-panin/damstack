@@ -1,0 +1,40 @@
+  sauron  twinmind-pro/damstack-sauron · v0.1.19  ● 1 group short                                                        v0.1.20 available  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                                            
+    group       count   memory            restarts  healthy                                                                                 
+  ● console     1/1     310 MB / 384 MB   0         1/1                                                                                     
+  ● fetcher     1/1     1.1 GB / 2.3 GB   3         1/1                                                                                     
+  ● enrich      0/1     — / 512 MB        0         0/0                                                                                     
+  ✓ init        done    —                 0                                                                                                 
+                                                                                                                                            
+  serves                                                                                                                                    
+    https://sauron.twinmind.pro                     no DNS record                                                                           
+    https://sauron.twinmind.damstack.dev            200                                                                                     
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↑↓  group    l  logs    r  restart    R  restart all    u  update    e  settings    K  keys    esc  back                                 
