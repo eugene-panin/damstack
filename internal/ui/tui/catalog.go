@@ -234,6 +234,9 @@ func (m *Catalog) key(k string) tea.Cmd {
 			m.choice = CatalogChoice{"i", a}
 			return tea.Quit
 		}
+	case "s":
+		m.choice = CatalogChoice{Key: "s"}
+		return tea.Quit
 	case "r":
 		if ok && a.URL != "" && m.actions.Open != nil {
 			return func() tea.Msg {
@@ -288,7 +291,7 @@ func (m *Catalog) Frame() string {
 	rows = append(rows, search, line{})
 	bottom := []line{{}, {left: []span{text(strings.Repeat("─", inner), rule)}},
 		{left: []span{text("/", key), text(" search   ", dim), text("i", key), text(" install   ", dim), text("u", key), text(" update   ", dim),
-			text("r", key), text(" README   ", dim), text("↵", key), text(" open   ", dim), text("esc", key), text(" back", dim)}}}
+			text("r", key), text(" README   ", dim), text("↵", key), text(" open   ", dim), text("s", key), text(" sources   ", dim), text("esc", key), text(" back", dim)}}}
 	if m.flash != "" {
 		bottom[0] = line{left: []span{text(m.flash, blue)}}
 	}

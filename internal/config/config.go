@@ -36,6 +36,9 @@ type Project struct {
 type Config struct {
 	Stacks   []Stack   `yaml:"stacks,omitempty"`
 	Projects []Project `yaml:"projects,omitempty"`
+	// Sources are where apps come from besides the library: owner/name of a
+	// repository, an address, or an owner, all of whose damstack-* ones.
+	Sources []string `yaml:"sources,omitempty"`
 	// Current is the project commands work on when none is named.
 	Current string `yaml:"current,omitempty"`
 	// Library is the library of damstack, fetched; Builtin when not set.

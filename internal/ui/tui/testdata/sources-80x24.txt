@@ -1,0 +1,24 @@
+  App sources · git repositories damstack takes apps from   2 sources · 9 apps  
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+    source                              access     auth              apps   s…  
+    eugene-panin/damstack-library       public     —                 8      ✓…  
+  › twinmind-pro                        private    gh eugene-panin   1      ✓…  
+                                                                                
+  twinmind-pro: sauron                                                          
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  An app runs on your server with your secrets: add sources you trust. Apps a…  
+  ────────────────────────────────────────────────────────────────────────────  
+   a  add    r  sync now    d  remove    c  catalog    esc  back                

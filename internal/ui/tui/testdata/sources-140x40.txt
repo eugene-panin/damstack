@@ -1,0 +1,40 @@
+  App sources · git repositories damstack takes apps from                                                               2 sources · 9 apps  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                                            
+    source                              access     auth              apps   synced                                                          
+    eugene-panin/damstack-library       public     —                 8      ✓ 2 minutes ago                                                 
+  › twinmind-pro                        private    gh eugene-panin   1      ✓ 2 minutes ago                                                 
+                                                                                                                                            
+  twinmind-pro: sauron                                                                                                                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+  An app runs on your server with your secrets: add sources you trust. Apps are pinned by tag and commit.                                   
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   a  add    r  sync now    d  remove    c  catalog    esc  back                                                                            

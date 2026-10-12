@@ -15,6 +15,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
+	"github.com/eugene-panin/damstack/internal/sources"
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
@@ -22,13 +23,24 @@ import (
 // catalogScreen shows the apps a project can take, and installs, updates or
 // opens the one chosen.
 func catalogScreen(ctx context.Context, s *streams, p *project.Project) error {
+	for {
+		again, err := catalogRound(ctx, s, p)
+		if err != nil || !again {
+			return err
+		}
+	}
+}
+
+// catalogRound shows the catalog once, and does what was chosen; again says
+// to show it once more, as after the sources.
+func catalogRound(ctx context.Context, s *streams, p *project.Project) (bool, error) {
 	cfg, err := loadConfig(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	pm, _, err := projectStack(ctx, p, "")
 	if err != nil {
-		return err
+		return false, err
 	}
 	model := tui.NewCatalog(p.Meta.Name, strings.TrimSpace(p.Meta.Stack.Name+" "+p.Meta.Stack.Tag), catalogApps(cfg, p), tui.CatalogActions{
 		Latest: func(a tui.CatalogApp) (string, error) {
@@ -50,18 +62,21 @@ func catalogScreen(ctx context.Context, s *streams, p *project.Project) error {
 		Open: openURL,
 	})
 	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
-		return err
+		return false, err
 	}
 	c := model.Choice()
 	switch c.Key {
 	case "i":
-		return installApp(ctx, s, p, c.App.URL)
+		return false, installApp(ctx, s, p, c.App.URL)
 	case "u":
-		return updateApp(ctx, s, p, c.App.Name)
+		return false, updateApp(ctx, s, p, c.App.Name)
 	case "enter":
-		return appScreen(ctx, s, p, c.App.Name)
+		return false, appScreen(ctx, s, p, c.App.Name)
+	case "s":
+		_, err := sourcesScreen(ctx, s)
+		return err == nil, err
 	}
-	return nil
+	return false, nil
 }
 
 // catalogApps are the apps of the library and those added for the project's
@@ -73,8 +88,12 @@ func catalogApps(cfg *config.Config, p *project.Project) []tui.CatalogApp {
 	for _, a := range p.Meta.Apps {
 		installed[a.Name] = a.Tag
 	}
-	for _, st := range cfg.AllStacks() {
-		if st.Kind != "app" || (st.Platform != "" && st.Platform != p.Meta.Stack.Name) {
+	found := cfg.AllStacks()
+	if cache, err := sources.Load(); err == nil {
+		found = append(found, cache.Apps()...)
+	}
+	for _, st := range found {
+		if st.Kind != "app" || seen[st.Name] || (st.Platform != "" && st.Platform != p.Meta.Stack.Name) {
 			continue
 		}
 		seen[st.Name] = true

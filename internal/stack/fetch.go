@@ -72,17 +72,24 @@ func auth(raw string) transport.AuthMethod {
 	if err != nil || u.Scheme != "https" || u.Host != "github.com" {
 		return nil
 	}
-	token := os.Getenv("GITHUB_TOKEN")
-	if token == "" {
-		token = os.Getenv("GH_TOKEN")
-	}
-	if token == "" {
-		token = ghToken()
-	}
+	token := GitHubToken()
 	if token == "" {
 		return nil
 	}
 	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
+}
+
+// GitHubToken is the token damstack reads private repositories on github.com
+// with: GITHUB_TOKEN, GH_TOKEN, or the one the GitHub CLI signed in with; empty
+// when there is none.
+func GitHubToken() string {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token
+	}
+	if token := os.Getenv("GH_TOKEN"); token != "" {
+		return token
+	}
+	return ghToken()
 }
 
 // ghToken is the token the GitHub CLI signed in with, when it is installed

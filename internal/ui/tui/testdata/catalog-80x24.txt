@@ -21,4 +21,4 @@
                                           │                                     
                                                                                 
   ────────────────────────────────────────────────────────────────────────────  
-   /  search    i  install    u  update    r  README    ↵  open    esc  back    
+   /  search    i  install    u  update    r  README    ↵  open    s  sources…  
