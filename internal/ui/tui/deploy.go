@@ -35,7 +35,9 @@ const (
 
 type stepView struct {
 	event.PlannedStep
-	state       stepState
+	state stepState
+	// why is why a skipped step did not run.
+	why         string
 	took        time.Duration
 	done, total int
 }
@@ -281,7 +283,7 @@ func (m *Deploy) apply(e event.Event) {
 		m.tasks, m.plan, m.notes, m.logTail = nil, nil, nil, nil
 	case event.StepSkipped:
 		if s := m.at(e.N - 1); s != nil {
-			s.state = skipped
+			s.state, s.why = skipped, e.Reason
 		}
 	case event.StepDone:
 		if s := m.at(e.N - 1); s != nil {
@@ -482,7 +484,11 @@ func (m *Deploy) stepRows(s *stepView, width int) []line {
 	case stepDone:
 		return []line{{left: []span{text("✓ ", green), text(s.Title, plain)}, right: []span{text(clock(s.took), dim)}}}
 	case skipped:
-		return []line{{left: []span{text("✓ ", green), text(s.Title, plain)}, right: []span{text("once", dim)}}}
+		label := "once"
+		if strings.HasPrefix(s.why, "unchanged") {
+			label = "unchanged"
+		}
+		return []line{{left: []span{text("✓ ", green), text(s.Title, plain)}, right: []span{text(label, dim)}}}
 	case failed:
 		return []line{{left: []span{text("✗ ", red), text(s.Title, red)}}}
 	}

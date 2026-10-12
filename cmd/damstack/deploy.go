@@ -60,6 +60,8 @@ type streams struct {
 	// breakGlass is --break-glass: change a shared project without its lock,
 	// from the state on this machine, for when the platform itself is down.
 	breakGlass bool
+	// all is deploy --all: run every step, those whose inputs did not change too.
+	all bool
 }
 
 // newStreams asks its questions on stderr, so they reach the person when the
@@ -147,6 +149,7 @@ type deployOptions struct {
 	from       string
 	yes        bool
 	appsOnly   bool
+	all        bool
 	breakGlass bool
 	plain      bool
 }
@@ -171,6 +174,7 @@ func deployCommand(s *streams) *cobra.Command {
 	cmd.Flags().StringVar(&o.from, "from", "", "deploy the stack in this directory as it is, instead of a release; for writing a stack")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "go ahead wherever damstack would ask, such as before a step marked confirm; needed without a terminal")
 	cmd.Flags().BoolVar(&o.appsOnly, "apps-only", false, "deploy only the apps, skipping the platform's Ansible steps (bootstrap, provision); for when the platform is already up and unchanged")
+	cmd.Flags().BoolVar(&o.all, "all", false, "run every step, also the platform's Ansible steps whose inputs did not change since they last ran well")
 	cmd.Flags().BoolVar(&o.breakGlass, "break-glass", false, "change a project shared on its platform without the platform's lock, from the state on this machine; only to repair the platform itself")
 	cmd.Flags().BoolVar(&o.plain, "plain", false, "show plain lines, as in a log, instead of the full-screen view on a terminal")
 	return cmd
@@ -179,7 +183,7 @@ func deployCommand(s *streams) *cobra.Command {
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 func deploy(ctx context.Context, s *streams, o deployOptions) error {
-	s.verbose, s.yes, s.breakGlass, s.plain = o.verbose, o.yes, o.breakGlass, o.plain
+	s.verbose, s.yes, s.breakGlass, s.plain, s.all = o.verbose, o.yes, o.breakGlass, o.plain, o.all
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -613,6 +617,9 @@ type job struct {
 	e    *engine.Engine
 	name string
 	step manifest.Step
+	// inputs is the fingerprint of what the step is given, for a step that
+	// may be skipped while they stay the same; empty for one that always runs.
+	inputs string
 }
 
 // runSteps deploys a project: the steps of its platform, then those of each
@@ -742,9 +749,9 @@ func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.
 			continue
 		}
 		if step.AfterApps {
-			after = append(after, job{e, step.Name, step})
+			after = append(after, job{e: e, name: step.Name, step: step})
 		} else {
-			jobs = append(jobs, job{e, step.Name, step})
+			jobs = append(jobs, job{e: e, name: step.Name, step: step})
 		}
 	}
 	for _, ref := range p.Meta.Apps {
@@ -768,7 +775,7 @@ func buildJobs(ctx context.Context, s *streams, p *project.Project, m *manifest.
 			if step.Restore && !restore {
 				continue
 			}
-			jobs = append(jobs, job{ae, ref.Name + "/" + step.Name, step})
+			jobs = append(jobs, job{e: ae, name: ref.Name + "/" + step.Name, step: step})
 		}
 	}
 	return append(jobs, after...), nil
@@ -857,6 +864,10 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 			return nil
 		}
 	}
+	if why := unchanged(p, j.name, j.inputs, time.Now()); why != "" {
+		s.events.Emit(event.StepSkipped{Step: step, Reason: why})
+		return nil
+	}
 	log := ""
 	if !s.verbose {
 		var restore func()
@@ -879,7 +890,7 @@ func runJob(ctx context.Context, s *streams, p *project.Project, j job, n, total
 	}
 	start := time.Now()
 	err := j.e.Run(ctx, j.step, nil)
-	if rerr := record(p, command, j.name, start, err); rerr != nil && err == nil {
+	if rerr := recordRun(p, command, j.name, j.inputs, start, err); rerr != nil && err == nil {
 		err = rerr
 	}
 	if errors.Is(err, engine.ErrDeclined) {
@@ -962,8 +973,13 @@ func ensureLogin(ctx context.Context, s *streams, e *engine.Engine, key string) 
 }
 
 func record(p *project.Project, command, step string, start time.Time, err error) error {
+	return recordRun(p, command, step, "", start, err)
+}
+
+// recordRun records a step that ran, and the fingerprint of its inputs.
+func recordRun(p *project.Project, command, step, inputs string, start time.Time, err error) error {
 	e := project.Entry{
-		Time: start, Command: command, Step: step, Result: project.OK,
+		Time: start, Command: command, Step: step, Result: project.OK, Inputs: inputs,
 		Seconds: time.Since(start).Round(100 * time.Millisecond).Seconds(),
 		Stack:   p.Meta.Stack.Tag, Commit: p.Meta.Stack.Commit, Damstack: release.Version,
 	}

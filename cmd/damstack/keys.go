@@ -180,19 +180,7 @@ func platformPending(p *project.Project, password string) bool {
 	if err != nil {
 		return true
 	}
-	apps := map[string]bool{}
-	for _, a := range askedSecrets(p) {
-		if a.app != "" {
-			apps[a.spec.Name] = true
-		}
-	}
-	for _, ref := range p.Meta.Apps {
-		if am, _ := cachedRef(ref); am != nil {
-			for _, sec := range am.Secrets {
-				apps[sec.Name] = true
-			}
-		}
-	}
+	apps := appSecretNames(p)
 	deployed := lastStepDone(p, func(step string) bool { return !strings.Contains(step, "/") })
 	for name, rec := range records.Secrets {
 		if !apps[name] && !strings.HasPrefix(name, "account:") && rec.Set.After(deployed) {

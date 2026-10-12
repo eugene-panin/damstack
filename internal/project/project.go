@@ -274,6 +274,9 @@ type Entry struct {
 	Commit   string    `json:"commit"`
 	Damstack string    `json:"damstack"`
 	Error    string    `json:"error,omitempty"`
+	// Inputs is a fingerprint of what the step was given, for a step
+	// skipped while they stay the same.
+	Inputs string `json:"inputs,omitempty"`
 }
 
 const (
@@ -333,6 +336,21 @@ func (p *Project) Done(step string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// LastRun is the last run of a step of a deploy or a restore, and whether
+// there was one.
+func (p *Project) LastRun(step string) (Entry, bool, error) {
+	entries, err := p.History()
+	if err != nil {
+		return Entry{}, false, err
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		if e := entries[i]; (e.Command == "deploy" || e.Command == "restore") && e.Step == step {
+			return e, true, nil
+		}
+	}
+	return Entry{}, false, nil
 }
 
 // SaveMeta records a new release of the stack.
