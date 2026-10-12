@@ -1,0 +1,30 @@
+  damstack 0.13.0 · this Mac is ready ✓                                  live · refreshed 14:00:00  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+    project      stack            server            apps         health          backup             
+  › twinmind     hashi v0.22.1    169.58.210.131    8            ● all healthy   03:00 ✓            
+    mailbox      hashi v0.19.2    95.217.4.18       1 · mail     ○ looking…      03:00 ✓            
+                                                                                                    
+  twinmind                                                   │  Needs you                           
+  ● postgres   ● nats       ● seaweedfs                      │  ✗ 3 secrets seen in plain text  !   
+  ● loki       ● mimir      ● grafana                        │  ✗ backups never restored            
+  ● odoo       ● sauron 7/7                                  │  ! 2 changes wait for a deploy   d   
+                                                             │                                      
+  deploy  last 2h ago                                        │                                      
+  keys    1 of 12 set · damstack app keys sauron             │                                      
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+   d  deploy    u  links    e  edit    k  keys    !  security    s  ssh    q  quit                  

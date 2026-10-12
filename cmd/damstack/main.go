@@ -165,11 +165,11 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 		Version:       release.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return home(cmd.Context(), stdout)
-		},
 	}
 	s := newStreams(ctx, stdin, stdout, stderr)
+	root.RunE = func(cmd *cobra.Command, _ []string) error {
+		return home(cmd.Context(), s)
+	}
 	root.SetArgs(takeProjectFlag(args))
 	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
 	// Declared before cobra adds its own, so --version gets no -v shorthand: -v is --verbose.

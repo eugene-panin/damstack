@@ -18,8 +18,10 @@ import (
 
 // home is what damstack shows without a command: on the first run what it
 // is, the machine and where to start; later the projects, and the machine
-// only when something on it broke.
-func home(ctx context.Context, w io.Writer) error {
+// only when something on it broke. On a terminal the projects are the home
+// screen.
+func home(ctx context.Context, s *streams) error {
+	w := s.out
 	cfg, err := loadConfig(ctx)
 	if err != nil {
 		return err
@@ -39,6 +41,10 @@ func home(ctx context.Context, w io.Writer) error {
 			return errProblems
 		}
 		markChecked()
+	}
+	// On a terminal, the projects are the home screen, where everything is done.
+	if len(cfg.Projects) > 0 && s.screen() {
+		return homeScreen(ctx, s, cfg, true)
 	}
 	if len(cfg.Projects) == 0 {
 		platforms(w, cfg)

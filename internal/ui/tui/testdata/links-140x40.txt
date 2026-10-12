@@ -1,0 +1,40 @@
+  Links · every address twinmind serves · checked 14:00                                                                        ● tunnel on  
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                                            
+  apps                                            reach      answers       sign in                                                          
+  › https://odoo-demo.twinmind.pro                internet   200 · 0.3s    —                                                                
+    https://sauron.twinmind.pro                   internet   no DNS record —                                                                
+    https://sauron.twinmind.damstack.dev          tunnel     200 · 0.1s    —                                                                
+                                                                                                                                            
+  platform                                        reach      answers       sign in                                                          
+    https://nomad.twinmind.damstack.dev           tunnel     200 · 0.1s    token · t copy                                                   
+    https://vault.twinmind.damstack.dev           tunnel     307 · 0.1s    token · t copy                                                   
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+  ↵ opens it in your browser. A tunnel address needs the tunnel on in the WireGuard app.                                                    
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↵  open in browser    t  copy token    y  copy URL    r  check now    esc  back                                                          

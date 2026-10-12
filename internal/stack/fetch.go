@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
@@ -75,10 +77,26 @@ func auth(raw string) transport.AuthMethod {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
+		token = ghToken()
+	}
+	if token == "" {
 		return nil
 	}
 	return &githttp.BasicAuth{Username: "x-access-token", Password: token}
 }
+
+// ghToken is the token the GitHub CLI signed in with, when it is installed
+// and signed in; asked once.
+var ghToken = sync.OnceValue(func() string {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ""
+	}
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+})
 
 // Latest finds the highest release tag of the repository at url.
 func Latest(ctx context.Context, url string) (Release, error) {

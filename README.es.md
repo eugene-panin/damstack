@@ -131,7 +131,7 @@ reparar el propio servidor.
 
 | Quieres | Ejecuta |
 | --- | --- |
-| Ver los proyectos y lo que requiere atención | `damstack` |
+| Ver los proyectos y lo que te necesita, y hacer el resto desde ahí | `damstack` |
 | Comprobar que el servidor está como lo configuraste | `damstack status --live` |
 | Cambiar un ajuste | `damstack edit`, luego `damstack deploy` |
 | Desplegar de nuevo, cambiando solo lo que difiere | `damstack deploy` |
@@ -199,8 +199,9 @@ mientras funcione algún servidor tuyo: sin ellos nada puede gestionarlo.
 ## Límites actuales
 
 - Solo macOS, y un servidor por proyecto.
-- La vista a pantalla completa cubre los despliegues y los secretos; las demás
-  pantallas de su diseño llegan en próximas versiones.
+- La vista a pantalla completa cubre la pantalla de inicio, los despliegues, los
+  enlaces, las claves de las aplicaciones y los secretos; las demás pantallas de
+  su diseño llegan en próximas versiones.
 - Las nuevas versiones de una plataforma o una aplicación se instalan a mano;
   todavía no existe `damstack upgrade`.
 - Probado en OVH y Google Cloud.

@@ -473,7 +473,7 @@ func tooSmall(w, h int) string {
 func (m *Secrets) columns(width int, first line, owner, age, why string, st style, extra ...span) line {
 	first.left = append(first.left, text(strings.Repeat(" ", max(nameWidth(width)+4-lineWidth(first), 1)), plain))
 	l := first
-	l.left = append(l.left, text(pad(owner, 13), st), text(pad(age, 10), st), text(why, st))
+	l.left = append(l.left, text(padTo(owner, 13), st), text(padTo(age, 10), st), text(why, st))
 	l.left = append(l.left, extra...)
 	return l
 }
@@ -483,13 +483,6 @@ func (m *Secrets) columns(width int, first line, owner, age, why string, st styl
 func nameWidth(width int) int { return min(32, width-4-13-10-20) }
 
 func lineWidth(l line) int { return width(l.left) }
-
-func pad(s string, n int) string {
-	if len([]rune(s)) >= n {
-		return string([]rune(s)[:n-1]) + " "
-	}
-	return s + strings.Repeat(" ", n-len([]rune(s)))
-}
 
 // list is the rows that fit in height, the cursor's among them.
 func (m *Secrets) list(width, height int) []line {

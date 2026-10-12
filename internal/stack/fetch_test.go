@@ -168,8 +168,16 @@ func TestNormalizeURL(t *testing.T) {
 func TestAuthUsesAGitHubTokenForGitHubOnly(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
+	saved := ghToken
+	defer func() { ghToken = saved }()
+	ghToken = func() string { return "" }
 	if auth("https://github.com/acme/damstack-x") != nil {
-		t.Fatal("no token in the environment must mean no credentials")
+		t.Fatal("no token in the environment, nor gh signed in, must mean no credentials")
+	}
+
+	ghToken = func() string { return "gho_cli" }
+	if a, ok := auth("https://github.com/acme/damstack-x").(*githttp.BasicAuth); !ok || a.Password != "gho_cli" {
+		t.Fatalf("the token gh signed in with must be used when the environment has none, got %#v", a)
 	}
 
 	t.Setenv("GH_TOKEN", "gho_fromgh")

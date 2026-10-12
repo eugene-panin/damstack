@@ -125,7 +125,7 @@ itself.
 
 | You want to | Run |
 | --- | --- |
-| See the projects and what needs attention | `damstack` |
+| See the projects and what needs you, and do the rest from there | `damstack` |
 | Check that the server is as you set it up | `damstack status --live` |
 | Change a setting | `damstack edit`, then `damstack deploy` |
 | Deploy again, changing only what differs | `damstack deploy` |
@@ -191,8 +191,8 @@ server of yours runs: without them nothing can manage it.
 ## Limits today
 
 - macOS only, and one server per project.
-- The full-screen view covers deploys and secrets; the other screens of its
-  design come in later releases.
+- The full-screen view covers the home screen, deploys, links, app keys and
+  secrets; the other screens of its design come in later releases.
 - New releases of a platform or an app are taken by hand; there is no
   `damstack upgrade` yet.
 - Tested on OVH and Google Cloud.

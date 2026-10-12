@@ -327,13 +327,22 @@ type vaultClient struct {
 }
 
 func newVaultClient(addr, caFile, token string) *vaultClient {
+	return &vaultClient{addr: strings.TrimRight(addr, "/"), token: token, http: caClient(caFile)}
+}
+
+// caClient is an HTTP client that trusts the project's CA, the one of the
+// platform's private addresses, besides the system's.
+func caClient(caFile string) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	if pem, err := os.ReadFile(caFile); err == nil {
-		pool := x509.NewCertPool()
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
 		pool.AppendCertsFromPEM(pem)
 		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
-	return &vaultClient{addr: strings.TrimRight(addr, "/"), token: token, http: &http.Client{Transport: tr, Timeout: 5 * time.Second}}
+	return &http.Client{Transport: tr, Timeout: 5 * time.Second}
 }
 
 func (c *vaultClient) do(ctx context.Context, method, path string, body any) (*http.Response, error) {
