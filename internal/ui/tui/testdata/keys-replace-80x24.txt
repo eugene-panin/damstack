@@ -1,0 +1,24 @@
+  sauron  twinmind-pro/damstack-sauron · v0.1.19            values never shown  
+  ────────────────────────────────────────────────────────────────────────────  
+                                                                                
+    key                     state           used by                changed      
+  › Anthropic API key       ● set           enrich incidents       3 days ago   
+    Telegram bot token      ○ not set       fetcher                —            
+    xAI API key             ○ not set       enrich incidents       —            
+                                                                                
+  ╭──────────────────────────────────────────────────────────────────────────╮  
+  │ Replace the Anthropic API key                                            │  
+  │                                                                          │  
+  │ •••••••••••••••••••▌                                                     │  
+  │                                                                          │  
+  │ then: enrich and incidents restart, one at a time, on the next deploy    │  
+  │       the old key stops being used; revoke it at console.anthropic.com   │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+  Given through Vault only to the services that use them: never in stack.yaml…  
+  ────────────────────────────────────────────────────────────────────────────  
+   ↵  keep it    ctrl+o  where to get it    esc  cancel                         

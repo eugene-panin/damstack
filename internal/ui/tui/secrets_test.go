@@ -149,8 +149,11 @@ func TestRotatingAsksForTheNewValueThenMakesThemAnew(t *testing.T) {
 	if strings.Contains(frame, "pw-aizi") || !strings.Contains(frame, "alex") {
 		t.Error("the names show, never the passwords")
 	}
+	if press(m, "d"); m.Deploy() || !strings.Contains(m.flash, "1 password not copied") {
+		t.Errorf("d must warn first, while a password is not copied: %q", m.flash)
+	}
 	if press(m, "d"); !m.Deploy() {
-		t.Error("d must ask for a deploy")
+		t.Error("d again must ask for a deploy")
 	}
 }
 

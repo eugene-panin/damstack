@@ -73,7 +73,7 @@ func appCommand(s *streams) *cobra.Command {
 		},
 	}
 	list.Flags().BoolVar(&asJSON, "json", false, "print the apps as JSON: name, tag, commit, url")
-	app.AddCommand(add, list)
+	app.AddCommand(add, list, appKeysCommand(s))
 	return app
 }
 

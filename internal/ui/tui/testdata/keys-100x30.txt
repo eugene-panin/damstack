@@ -1,0 +1,30 @@
+  sauron  twinmind-pro/damstack-sauron · v0.1.19                                values never shown  
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                    
+    key                     state           used by                changed                          
+  › Anthropic API key       ● set           enrich incidents       3 days ago                       
+    Telegram bot token      ○ not set       fetcher                —                                
+    xAI API key             ○ not set       enrich incidents       —                                
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  Given through Vault only to the services that use them: never in stack.yaml or the state.         
+  ────────────────────────────────────────────────────────────────────────────────────────────────  
+   ↵  set or replace    x  remove    ?  where to get it    d  deploy    esc  back                   

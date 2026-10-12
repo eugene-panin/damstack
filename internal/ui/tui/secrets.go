@@ -102,6 +102,10 @@ type Secrets struct {
 
 	results []Rotated
 	copyAt  int
+	// copied are the users whose password was copied; leaving is the key
+	// pressed once to leave before all were.
+	copied  map[string]bool
+	leaving string
 	deploy  bool
 }
 
@@ -129,7 +133,7 @@ func (m *Secrets) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashMsg:
 		m.flash = string(msg)
 	case rotatedMsg:
-		m.results, m.phase, m.copyAt = msg, rotated, 0
+		m.results, m.phase, m.copyAt, m.copied = msg, rotated, 0, nil
 		for _, r := range msg {
 			if r.Err != nil {
 				continue
@@ -345,11 +349,21 @@ func (m *Secrets) passwords() []Password {
 func (m *Secrets) rotatedKey(k string) tea.Cmd {
 	m.flash = ""
 	ps := m.passwords()
+	// The new passwords are nowhere else: leaving before each is copied
+	// takes the same key twice.
+	if k == "q" || k == "esc" || k == "d" {
+		if left := len(ps) - len(m.copied); left > 0 && m.leaving != k {
+			m.leaving = k
+			m.flash = fmt.Sprintf("%s not copied yet are lost once you leave · %s again leaves", plural(left, "password"), k)
+			return nil
+		}
+	}
+	m.leaving = ""
 	switch k {
 	case "q":
 		return tea.Quit
 	case "esc":
-		m.phase, m.review, m.results = listing, nil, nil
+		m.phase, m.review, m.results, m.copied = listing, nil, nil, nil
 	case "up", "k":
 		m.copyAt = max(m.copyAt-1, 0)
 	case "down", "j":
@@ -363,7 +377,11 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 			m.flash = err.Error()
 			return nil
 		}
-		m.flash = "the password of " + p.User + " is in the clipboard"
+		if m.copied == nil {
+			m.copied = map[string]bool{}
+		}
+		m.copied[p.User] = true
+		m.flash = "the password of " + p.User + " is in the clipboard: send it before copying the next"
 		m.copyAt = min(m.copyAt+1, len(ps)-1)
 	case "d":
 		m.deploy = true
@@ -613,6 +631,9 @@ func (m *Secrets) panel(width int) []line {
 				l := line{left: []span{text("    ", plain), text(p.User, plain)}}
 				if i == m.copyAt {
 					l.left = []span{text("  › ", blue), text(p.User, bold)}
+				}
+				if m.copied[p.User] {
+					l.right = []span{text("copied", green)}
 				}
 				rows = append(rows, l)
 			}

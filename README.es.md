@@ -136,7 +136,7 @@ reparar el propio servidor.
 | Cambiar un ajuste | `damstack edit`, luego `damstack deploy` |
 | Desplegar de nuevo, cambiando solo lo que difiere | `damstack deploy` |
 | Desplegar solo las aplicaciones, sin tocar el servidor | `damstack deploy --apps-only` |
-| Dar una clave a una aplicación, o ver cuáles hay | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
+| Dar una clave a una aplicación, o ver cuáles hay | `damstack app keys sauron` |
 | Ver todos los secretos, los de más riesgo primero, y cambiar los elegidos | `damstack secret` |
 | Añadir o quitar un dispositivo de la red privada | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Dar claves nuevas a un dispositivo o al servidor | `damstack tunnel rotate phone` |

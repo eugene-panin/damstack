@@ -131,7 +131,7 @@ DNS-записи, по которым почтовые клиенты наход
 | Поменять настройку | `damstack edit`, затем `damstack deploy` |
 | Задеплоить снова, меняя только то, что отличается | `damstack deploy` |
 | Задеплоить только приложения, не трогая сервер | `damstack deploy --apps-only` |
-| Дать приложению ключ или посмотреть, какие заданы | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
+| Дать приложению ключ или посмотреть, какие заданы | `damstack app keys sauron` |
 | Увидеть все секреты, самые рискованные первыми, и сменить выбранные | `damstack secret` |
 | Добавить или убрать устройство приватной сети | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Выдать устройству или серверу новые ключи | `damstack tunnel rotate phone` |

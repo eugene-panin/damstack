@@ -130,7 +130,7 @@ itself.
 | Change a setting | `damstack edit`, then `damstack deploy` |
 | Deploy again, changing only what differs | `damstack deploy` |
 | Deploy the apps only, the server left as it is | `damstack deploy --apps-only` |
-| Give an app a key, or see which are set | `damstack secret set sauron_xai_api_key`, `damstack secret list` |
+| Give an app a key, or see which are set | `damstack app keys sauron` |
 | See every secret, the riskiest first, and make the ones you pick anew | `damstack secret` |
 | Add or remove a device of the private network | `damstack tunnel add phone`, `damstack tunnel remove phone` |
 | Give a device or the server new keys | `damstack tunnel rotate phone` |
