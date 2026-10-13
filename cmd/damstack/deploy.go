@@ -36,6 +36,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/toolbox"
 	"github.com/eugene-panin/damstack/internal/ui/plain"
+	"github.com/eugene-panin/damstack/internal/ui/tui"
 	"github.com/eugene-panin/damstack/internal/wg"
 )
 
@@ -62,6 +63,9 @@ type streams struct {
 	breakGlass bool
 	// all is deploy --all: run every step, those whose inputs did not change too.
 	all bool
+	// session, on the home screen, keeps one program on the terminal while
+	// its screens follow one another (tui.Session).
+	session *tui.Session
 	// only, when set, is what a deploy runs: the platform's steps by name and
 	// the apps, all their steps, by theirs; it runs them though unchanged.
 	only map[string]bool

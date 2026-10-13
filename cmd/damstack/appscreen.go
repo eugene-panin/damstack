@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
@@ -277,7 +275,7 @@ func appScreen(ctx context.Context, s *streams, p *project.Project, name string)
 		Check: check,
 		Open:  openURL,
 	})
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return err
 	}
 	switch model.Choice() {

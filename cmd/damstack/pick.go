@@ -213,5 +213,5 @@ func openEditor(s *streams, path string) error {
 	fields := strings.Fields(editor)
 	cmd := exec.Command(fields[0], append(fields[1:], path)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, s.out, s.err
-	return cmd.Run()
+	return s.run(cmd)
 }

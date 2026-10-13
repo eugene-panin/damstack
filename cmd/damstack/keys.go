@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
 
@@ -136,19 +134,23 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 		},
 		Open: openURL,
 	})
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return err
 	}
 	if !model.Deploy() {
 		return nil
 	}
-	args := []string{"deploy", p.Meta.Name}
-	if !platformPending(p, password) {
-		args = append(args, "--apps-only")
+	// Here, on the same terminal: the app whose keys these are, or every app;
+	// the platform too while a change of it waits for a deploy.
+	m, dir, err := projectStack(ctx, p, "")
+	if err != nil {
+		return err
 	}
-	deploy := exec.CommandContext(ctx, self(), args...)
-	deploy.Stdin, deploy.Stdout, deploy.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return deploy.Run()
+	pending := platformPending(p, password)
+	if name != "" && !pending {
+		return deployParts(ctx, s, p, m, dir, name)
+	}
+	return runSteps(ctx, s, p, m, dir, "", !pending)
 }
 
 // keyLabel is the name of a key in what an app asks for it with: "xAI API

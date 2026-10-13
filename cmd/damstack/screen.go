@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/eugene-panin/damstack/internal/event"
@@ -29,6 +30,25 @@ import (
 // tool output goes to the terminal as it comes).
 func (s *streams) screen() bool {
 	return s.tty() && !s.plain && !s.verbose && !s.prompt.NoTerminal
+}
+
+// show runs a screen until it quits: on the home screen's session, so the
+// terminal stays with damstack between two screens, else on its own program.
+func (s *streams) show(ctx context.Context, model tea.Model) error {
+	if s.session != nil {
+		return s.session.Show(ctx, model)
+	}
+	_, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run()
+	return err
+}
+
+// run runs cmd on the terminal, such as ssh or an editor: a session lets go
+// of it meanwhile and takes it back after.
+func (s *streams) run(cmd *exec.Cmd) error {
+	if s.session != nil {
+		return s.session.Exec(cmd)
+	}
+	return cmd.Run()
 }
 
 // onScreen runs work while the deploy screen shows it, when the terminal
@@ -81,6 +101,9 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 		Copy: copyText,
 	})
 	screen := tui.NewProgram(model, s.in, s.out)
+	if s.session != nil {
+		screen = s.session.Program(model)
+	}
 
 	saved := *s
 	s.events, s.ask, s.planner = screen, screen.Confirm, screen.Approve

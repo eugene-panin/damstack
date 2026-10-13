@@ -7,8 +7,6 @@ import (
 	"slices"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/sources"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
@@ -65,7 +63,7 @@ func sourcesScreen(ctx context.Context, s *streams) (bool, error) {
 			return nil
 		},
 	})
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return false, err
 	}
 	return model.Catalog(), nil

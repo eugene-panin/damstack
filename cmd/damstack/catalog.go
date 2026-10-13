@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/config"
@@ -61,7 +59,7 @@ func catalogRound(ctx context.Context, s *streams, p *project.Project) (bool, er
 		},
 		Open: openURL,
 	})
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return false, err
 	}
 	c := model.Choice()
@@ -193,7 +191,7 @@ func installApp(ctx context.Context, s *streams, p *project.Project, url string)
 			},
 			Open: openURL,
 		})
-	if _, err := tea.NewProgram(form, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, form); err != nil {
 		return err
 	}
 	answers, keys, ok := form.Result()

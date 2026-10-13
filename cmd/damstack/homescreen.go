@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/eugene-panin/damstack/internal/backup"
@@ -27,6 +26,10 @@ import (
 // and whatever its keys choose, until the person quits.
 func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool) error {
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
+	// One program for the home screen and every screen its keys open: the
+	// terminal never shows the shell between two of them.
+	s.session = tui.NewSession(s.in, s.out)
+	defer func() { s.session.Close(); s.session = nil }()
 	note := ""
 	for {
 		projects := map[string]*project.Project{}
@@ -43,7 +46,7 @@ func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool)
 			return lookAt(ctx, projects[name])
 		})
 		model.SetNote(note)
-		if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+		if err := s.show(ctx, model); err != nil {
 			return err
 		}
 		act := model.Action()
@@ -93,7 +96,7 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 	case "s":
 		cmd := exec.CommandContext(ctx, self(), "ssh", p.Meta.Name)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		return cmd.Run()
+		return s.run(cmd)
 	}
 	return nil
 }
@@ -358,7 +361,7 @@ func linksScreen(ctx context.Context, s *streams, p *project.Project) error {
 			return true
 		},
 	})
-	_, err = tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run()
+	err = s.show(ctx, model)
 	return err
 }
 
@@ -413,7 +416,7 @@ func pickParts(ctx context.Context, s *streams, p *project.Project, m *manifest.
 		rows = append(rows, row)
 	}
 	model := tui.NewDeployPick(p.Meta.Name, rows)
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return nil, false, err
 	}
 	names, ok := model.Picked()

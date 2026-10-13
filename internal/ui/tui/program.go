@@ -17,6 +17,10 @@ import (
 type Program struct {
 	p    *tea.Program
 	done chan struct{}
+	// On a session: the screen is shown there, and what is sent to it goes
+	// to that screen alone.
+	session *Session
+	quit    chan struct{}
 }
 
 // NewProgram is a Program showing model, reading keys from in and drawing on
@@ -25,15 +29,43 @@ func NewProgram(model tea.Model, in io.Reader, out io.Writer) *Program {
 	return &Program{p: tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out)), done: make(chan struct{})}
 }
 
+// Program is a Program showing model on the session's terminal.
+// The screen is up at once: what the work sends before Run reaches it.
+func (s *Session) Program(model tea.Model) *Program {
+	s.start()
+	p := &Program{p: s.p, done: make(chan struct{}), session: s, quit: make(chan struct{})}
+	s.p.Send(showMsg{model: model, quit: p.quit})
+	return p
+}
+
 // Run shows the screen until it is closed.
 func (p *Program) Run() error {
 	defer close(p.done)
+	if p.session != nil {
+		select {
+		case <-p.quit:
+			return nil
+		case <-p.session.done:
+			if p.session.err != nil {
+				return p.session.err
+			}
+			return ErrSessionEnded
+		}
+	}
 	_, err := p.p.Run()
 	return err
 }
 
+// send is msg for the screen: on a session, for this screen alone.
+func (p *Program) send(msg tea.Msg) {
+	if p.session != nil {
+		msg = screenMsg{quit: p.quit, msg: msg}
+	}
+	p.p.Send(msg)
+}
+
 // Emit shows an event on the screen.
-func (p *Program) Emit(e event.Event) { p.p.Send(eventMsg{e}) }
+func (p *Program) Emit(e event.Event) { p.send(eventMsg{e}) }
 
 // ErrClosed is returned by Confirm when the screen closed before the question
 // was answered.
@@ -42,7 +74,7 @@ var ErrClosed = errors.New("the screen was closed before the question was answer
 // Confirm asks a yes-or-no question on the screen and waits for the answer.
 func (p *Program) Confirm(question string) (bool, error) {
 	answer := make(chan bool, 1)
-	p.p.Send(confirmMsg{question: question, answer: answer})
+	p.send(confirmMsg{question: question, answer: answer})
 	select {
 	case a := <-answer:
 		return a, nil
@@ -52,7 +84,7 @@ func (p *Program) Confirm(question string) (bool, error) {
 }
 
 // Finish tells the screen the work ended, with err when it failed.
-func (p *Program) Finish(err error) { p.p.Send(finishMsg{err: err}) }
+func (p *Program) Finish(err error) { p.send(finishMsg{err: err}) }
 
 // Writer is where the work's stray output goes: each line a note on the screen.
 func (p *Program) Writer() io.Writer { return &noteWriter{sink: p} }
@@ -79,7 +111,7 @@ func (w *noteWriter) Write(b []byte) (int, error) {
 // Approve shows a plan on the screen and waits for the person to approve it.
 func (p *Program) Approve(plan event.Plan) (event.Approval, error) {
 	answer := make(chan event.Approval, 1)
-	p.p.Send(approveMsg{plan: plan, answer: answer})
+	p.send(approveMsg{plan: plan, answer: answer})
 	select {
 	case a := <-answer:
 		return a, nil

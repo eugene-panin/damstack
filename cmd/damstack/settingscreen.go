@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/eugene-panin/damstack/internal/project"
@@ -31,7 +30,7 @@ func settingsScreen(ctx context.Context, s *streams, p *project.Project, focus .
 		}
 		model := tui.NewSettings(p.Meta.Name, doc)
 		model.Focus(focus)
-		if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+		if err := s.show(ctx, model); err != nil {
 			return false, err
 		}
 		r := model.Result()
