@@ -11,13 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/eugene-panin/damstack/internal/ask"
@@ -45,6 +43,16 @@ type accountSet struct {
 
 func (a accountSet) name() string { return "account:" + a.app + ":" + a.mount }
 
+// userRow is the row of one sign-in of a set: each gets its own password,
+// so making one anew leaves the others' as they are.
+func (a accountSet) userRow(user string) string { return a.name() + ":" + user }
+
+// signIn is the sign-in a row of the screen stands for.
+type signIn struct {
+	set  accountSet
+	user string
+}
+
 // secretsView is what the secrets screen lists of a project.
 type secretsView struct {
 	p        *project.Project
@@ -53,8 +61,10 @@ type secretsView struct {
 	records  project.Records
 	sources  map[string]secretSource
 	accounts map[string]accountSet
-	vault    *vaultClient
-	rows     []tui.SecretRow
+	// signIns are the account rows, by name: one per user of a set.
+	signIns map[string]signIn
+	vault   *vaultClient
+	rows    []tui.SecretRow
 	// wireguard is the secret of the private network's keys, which damstack
 	// tunnel rotate makes anew.
 	wireguard string
@@ -67,7 +77,7 @@ func loadSecrets(ctx context.Context, p *project.Project) (*secretsView, error) 
 	if err != nil {
 		return nil, err
 	}
-	v := &secretsView{p: p, sources: map[string]secretSource{}, accounts: map[string]accountSet{}}
+	v := &secretsView{p: p, sources: map[string]secretSource{}, accounts: map[string]accountSet{}, signIns: map[string]signIn{}}
 	if v.password, err = p.Password(); err != nil {
 		return nil, err
 	}
@@ -149,13 +159,26 @@ func (v *secretsView) list() []tui.SecretRow {
 		rows = append(rows, row)
 	}
 	for _, set := range v.accounts {
+		// A row per user: one person's password is made anew, not everyone's.
+		if v.vault != nil && len(set.users) > 0 {
+			for _, user := range set.users {
+				row := tui.SecretRow{Name: set.userRow(user), Label: set.app + " " + set.what + ": " + user,
+					Owner: set.app, Kind: tui.Accounts, Takes: "no restart: Vault checks it at sign-in"}
+				v.signIns[row.Name] = signIn{set: set, user: user}
+				v.stamp(&row)
+				rows = append(rows, row)
+			}
+			continue
+		}
 		row := tui.SecretRow{Name: set.name(), Label: set.app + " " + set.what, Owner: set.app, Kind: tui.Accounts,
-			Count: len(set.users), Takes: "no restart"}
+			Takes: "no restart: Vault checks it at sign-in"}
 		switch {
 		case v.vault == nil:
 			row.Keep = "the platform gives no Vault address"
 		case set.users == nil:
 			row.Keep = "Vault did not answer: is the tunnel on?"
+		default:
+			row.Keep = "no users yet: add them in Vault"
 		}
 		v.stamp(&row)
 		rows = append(rows, row)
@@ -196,7 +219,12 @@ func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values m
 		res := tui.Rotated{Name: r.Name}
 		switch r.Kind {
 		case tui.Accounts:
-			res.Passwords, res.Err = v.renew(ctx, v.accounts[r.Name])
+			in, ok := v.signIns[r.Name]
+			if !ok {
+				res.Err = fmt.Errorf("%s: no such sign-in", r.Label)
+				break
+			}
+			res.Passwords, res.Err = v.renew(ctx, in.set.mount, in.user)
 			if res.Err == nil {
 				renewed = append(renewed, len(out))
 			}
@@ -242,23 +270,19 @@ func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values m
 	return out
 }
 
-// renew gives every user of an account set a new password.
-func (v *secretsView) renew(ctx context.Context, set accountSet) ([]tui.Password, error) {
+// renew gives one user of a userpass method a new password.
+func (v *secretsView) renew(ctx context.Context, mount, user string) ([]tui.Password, error) {
 	if v.vault == nil {
 		return nil, fmt.Errorf("the platform gives no Vault address")
 	}
-	var out []tui.Password
-	for _, u := range set.users {
-		g, err := secret.Generate("password", 0, "")
-		if err != nil {
-			return out, err
-		}
-		if err := v.vault.setPassword(ctx, set.mount, u, g.Value); err != nil {
-			return out, fmt.Errorf("%s: %w", u, err)
-		}
-		out = append(out, tui.Password{User: u, Password: g.Value})
+	g, err := secret.Generate("password", 0, "")
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	if err := v.vault.setPassword(ctx, mount, user, g.Value); err != nil {
+		return nil, fmt.Errorf("%s: %w", user, err)
+	}
+	return []tui.Password{{User: user, Password: g.Value}}, nil
 }
 
 // secretsScreen shows a project's secrets, and makes the ones the person
@@ -290,15 +314,40 @@ func secretsScreen(ctx context.Context, s *streams, p *project.Project) error {
 		Open: openURL,
 		Copy: copyText,
 	})
-	if _, err := tea.NewProgram(model, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithContext(ctx)).Run(); err != nil {
+	if err := s.show(ctx, model); err != nil {
 		return err
 	}
 	if !model.Deploy() {
 		return nil
 	}
-	deploy := exec.CommandContext(ctx, self(), "deploy", p.Meta.Name)
-	deploy.Stdin, deploy.Stdout, deploy.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return deploy.Run()
+	return deployRotated(ctx, s, p, v, model.Rotated())
+}
+
+// deployRotated puts secrets made anew in place, here on the same terminal:
+// only the apps whose secrets they are; a platform's secret opens the pick of
+// what to deploy, as d on the home screen does.
+func deployRotated(ctx context.Context, s *streams, p *project.Project, v *secretsView, rows []tui.SecretRow) error {
+	m, dir, err := projectStack(ctx, p, "")
+	if err != nil {
+		return err
+	}
+	var apps []string
+	for _, r := range rows {
+		if r.Kind == tui.Accounts {
+			continue // set in Vault already
+		}
+		app := v.sources[r.Name].app
+		if app == "" {
+			return homeAction(ctx, s, p, "d")
+		}
+		if !slices.Contains(apps, app) {
+			apps = append(apps, app)
+		}
+	}
+	if len(apps) == 0 {
+		return nil
+	}
+	return deployParts(ctx, s, p, m, dir, apps...)
 }
 
 // table is the screen's list as lines, for a pipe or --plain.

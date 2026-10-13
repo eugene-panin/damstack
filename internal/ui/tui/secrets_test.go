@@ -14,7 +14,7 @@ import (
 func designSecrets() []SecretRow {
 	day := 24 * time.Hour
 	rows := []SecretRow{
-		{Name: "sauron/operators", Label: "sauron operator passwords", Owner: "sauron", Kind: Accounts, Count: 5, Set: start.Add(-day), Seen: true, Takes: "no restart"},
+		{Name: "sauron/operators/eugene", Label: "sauron operator passwords: eugene", Owner: "sauron", Kind: Accounts, Set: start.Add(-day), Seen: true, Takes: "no restart: Vault checks it at sign-in"},
 		{Name: "vault_registry_password", Label: "registry token (ghcr)", Owner: "platform", Kind: Asked, Set: start.Add(-2 * day), Seen: true,
 			NewAt: "https://github.com/settings/tokens/new?scopes=read:packages", Takes: "damstack deploy"},
 		{Name: "vault_consul_acl_agent_token", Label: "consul agent token", Owner: "platform", Set: start.Add(-9 * day), Seen: true, Takes: "damstack deploy"},
@@ -76,7 +76,7 @@ func TestTheRiskiestSecretsComeFirst(t *testing.T) {
 	for _, r := range m.rows[:6] {
 		order = append(order, r.Name)
 	}
-	want := []string{"vault_consul_acl_agent_token", "vault_registry_password", "sauron/operators", "vault_stack_ca_key"}
+	want := []string{"vault_consul_acl_agent_token", "vault_registry_password", "sauron/operators/eugene", "vault_stack_ca_key"}
 	if strings.Join(order[:4], " ") != strings.Join(want, " ") {
 		t.Errorf("seen, oldest first, then old: got %v", order)
 	}
@@ -107,7 +107,7 @@ func TestRotatingAsksForTheNewValueThenMakesThemAnew(t *testing.T) {
 			for _, r := range rows {
 				res := Rotated{Name: r.Name}
 				if r.Kind == Accounts {
-					res.Passwords = []Password{{"aizi", "pw-aizi"}, {"alex", "pw-alex"}}
+					res.Passwords = []Password{{"aizi", "pw-aizi"}}
 				}
 				out = append(out, res)
 			}
@@ -142,18 +142,36 @@ func TestRotatingAsksForTheNewValueThenMakesThemAnew(t *testing.T) {
 		t.Error("rotated secrets are no longer seen")
 	}
 	press(m, "enter")
-	if copied != "pw-aizi" || m.copyAt != 1 {
-		t.Errorf("enter must copy the first password and move on: %q", copied)
+	if copied != "pw-aizi" {
+		t.Errorf("enter must copy the password: %q", copied)
 	}
 	frame := m.Frame()
-	if strings.Contains(frame, "pw-aizi") || !strings.Contains(frame, "alex") {
+	if strings.Contains(frame, "pw-aizi") || !strings.Contains(frame, "aizi") {
 		t.Error("the names show, never the passwords")
 	}
-	if press(m, "d"); m.Deploy() || !strings.Contains(m.flash, "1 password not copied") {
-		t.Errorf("d must warn first, while a password is not copied: %q", m.flash)
-	}
 	if press(m, "d"); !m.Deploy() {
-		t.Error("d again must ask for a deploy")
+		t.Error("d must ask for a deploy: the registry token is in vault.yml")
+	}
+}
+
+func TestASignInsPasswordAloneAsksForNoDeploy(t *testing.T) {
+	m := secretsScreen(100, 30, SecretActions{
+		Rotate: func(rows []SecretRow, _ map[string]string) []Rotated {
+			return []Rotated{{Name: rows[0].Name, Passwords: []Password{{"eugene", "pw"}}}}
+		},
+	})
+	m.cursor = m.index("sauron/operators/eugene")
+	cmd := press(m, "space", "enter", "enter")
+	m.Update(cmd())
+	if m.phase != rotated {
+		t.Fatalf("enter must rotate the one sign-in: phase %d", m.phase)
+	}
+	if strings.Contains(m.Frame(), "deploy now") {
+		t.Error("a password set in Vault has nothing for a deploy to put in place")
+	}
+	press(m, "enter") // copied
+	if press(m, "d"); m.Deploy() {
+		t.Error("d must not deploy after only a sign-in's password")
 	}
 }
 

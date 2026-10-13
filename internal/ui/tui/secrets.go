@@ -122,6 +122,28 @@ func NewSecrets(project string, rows []SecretRow, oldAfter int, now time.Time, a
 // Deploy is whether the person asked, after making secrets anew, to deploy.
 func (m *Secrets) Deploy() bool { return m.deploy }
 
+// Rotated are the rows made anew without an error.
+func (m *Secrets) Rotated() []SecretRow {
+	var out []SecretRow
+	for i, res := range m.results {
+		if res.Err == nil && i < len(m.review) {
+			out = append(out, m.review[i])
+		}
+	}
+	return out
+}
+
+// needsDeploy is whether a deploy has anything to put in place: a secret of
+// vault.yml made anew. A sign-in's password is in Vault already.
+func (m *Secrets) needsDeploy() bool {
+	for _, r := range m.Rotated() {
+		if r.Kind != Accounts {
+			return true
+		}
+	}
+	return false
+}
+
 type rotatedMsg []Rotated
 
 func (m *Secrets) Init() tea.Cmd { return nil }
@@ -351,7 +373,7 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 	ps := m.passwords()
 	// The new passwords are nowhere else: leaving before each is copied
 	// takes the same key twice.
-	if k == "q" || k == "esc" || k == "d" {
+	if k == "q" || k == "esc" || (k == "d" && m.needsDeploy()) {
 		if left := len(ps) - len(m.copied); left > 0 && m.leaving != k {
 			m.leaving = k
 			m.flash = fmt.Sprintf("%s not copied yet are lost once you leave · %s again leaves", plural(left, "password"), k)
@@ -384,6 +406,9 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 		m.flash = "the password of " + p.User + " is in the clipboard: send it before copying the next"
 		m.copyAt = min(m.copyAt+1, len(ps)-1)
 	case "d":
+		if !m.needsDeploy() {
+			return nil
+		}
 		m.deploy = true
 		return tea.Quit
 	}
@@ -648,7 +673,7 @@ func (m *Secrets) plan(r SecretRow) string {
 		}
 		return r.Label + ": a new one is made " + where + " by you; damstack opens the page"
 	case Accounts:
-		return r.Label + ": new ones are set in Vault; old ones stop working at once"
+		return r.Label + ": a new password is set in Vault; the old one stops working at once, no deploy"
 	}
 	return r.Label + ": a new one is made here"
 }
@@ -657,7 +682,7 @@ func (m *Secrets) plan(r SecretRow) string {
 func (m *Secrets) done(r SecretRow, res Rotated) string {
 	switch r.Kind {
 	case Accounts:
-		return fmt.Sprintf("%s: %d set in Vault, old ones no longer work", r.Label, len(res.Passwords))
+		return r.Label + ": set in Vault, the old one no longer works"
 	case Asked:
 		return r.Label + ": the new one is kept in vault.yml"
 	}
@@ -679,9 +704,12 @@ func (m *Secrets) footer(width int) line {
 	case rotating:
 		keys = []span{text("making them anew…", amber)}
 	case rotated:
-		keys = []span{text("↵", key), text(" copy password   ", dim), text("d", key), text(" deploy now   ", dim), text("esc", key), text(" back   ", dim), text("q", key), text(" quit", dim)}
-		if len(m.passwords()) == 0 {
-			keys = keys[2:]
+		keys = []span{text("esc", key), text(" back   ", dim), text("q", key), text(" quit", dim)}
+		if m.needsDeploy() {
+			keys = append([]span{text("d", key), text(" deploy now   ", dim)}, keys...)
+		}
+		if len(m.passwords()) > 0 {
+			keys = append([]span{text("↵", key), text(" copy password   ", dim)}, keys...)
 		}
 	}
 	return line{left: keys}
