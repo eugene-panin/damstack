@@ -181,14 +181,19 @@ func installApp(ctx context.Context, s *cli, p *project.Project, url string) err
 		}
 		return nil
 	}
+	qs, secrets := formQuestions(am.Questions), formSecrets(am.Secrets)
 	form := tui.NewForm(fmt.Sprintf("Install %s %s on %s", am.Name, ref.Tag, p.Meta.Name), am.Name, appNeeds(pm, am), side,
-		am.Questions, am.Secrets, tui.FormActions{
-			Default: func(q manifest.Question, answers map[string]any) string {
-				return defaultText(q, answers)
+		qs.form, secrets.form, tui.FormActions{
+			Parse: func(q tui.FormQuestion, raw string) (any, error) { return ask.Parse(qs.of[q.Name], raw) },
+			Holds: manifest.Holds,
+			Default: func(q tui.FormQuestion, answers map[string]any) string {
+				return defaultText(qs.of[q.Name], answers)
 			},
-			Check: func(q manifest.Question, v any, answers map[string]any) error { return run(q.Checks, v, answers) },
-			Secret: func(sec manifest.Secret, v string, answers map[string]any) error {
-				return run(sec.Checks, v, answers)
+			Check: func(q tui.FormQuestion, v any, answers map[string]any) error {
+				return run(qs.of[q.Name].Checks, v, answers)
+			},
+			Secret: func(sec tui.FormSecret, v string, answers map[string]any) error {
+				return run(secrets.of[sec.Name].Checks, v, answers)
 			},
 			Open: openURL,
 		})
@@ -207,6 +212,32 @@ func installApp(ctx context.Context, s *cli, p *project.Project, url string) err
 		return err
 	}
 	return deployParts(ctx, s, p, pm, pdir, am.Name)
+}
+
+// formItems are a manifest's questions or secrets as the form shows them,
+// and each by its name.
+type formItems[M, F any] struct {
+	form []F
+	of   map[string]M
+}
+
+func formQuestions(qs []manifest.Question) formItems[manifest.Question, tui.FormQuestion] {
+	out := formItems[manifest.Question, tui.FormQuestion]{of: map[string]manifest.Question{}}
+	for _, q := range qs {
+		out.form = append(out.form, tui.FormQuestion{Name: q.Name, Prompt: q.Prompt, Type: q.Type, Options: q.Options,
+			Section: q.Section, Note: q.Note, Advanced: q.Advanced, When: q.When})
+		out.of[q.Name] = q
+	}
+	return out
+}
+
+func formSecrets(secrets []manifest.Secret) formItems[manifest.Secret, tui.FormSecret] {
+	out := formItems[manifest.Secret, tui.FormSecret]{of: map[string]manifest.Secret{}}
+	for _, s := range secrets {
+		out.form = append(out.form, tui.FormSecret{Name: s.Name, Ask: s.Ask, When: s.When, Optional: s.Optional, NewAt: s.NewAt, For: s.For})
+		out.of[s.Name] = s
+	}
+	return out
 }
 
 // defaultText is a question's default as the form shows it.

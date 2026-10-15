@@ -7,9 +7,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/eugene-panin/damstack/internal/ask"
-	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
 // The form (design: 9 · Install, 11b · Install keys, 10 · Review, and the
@@ -17,14 +14,44 @@ import (
 // them, then the keys it asks for, then a review; nothing changes until the
 // review is confirmed.
 
+// FormQuestion is a question of an install as the form asks it.
+type FormQuestion struct {
+	Name    string
+	Prompt  string
+	Type    string
+	Options []string
+	// Section is the page it is on; Note is said before it.
+	Section string
+	Note    string
+	// Advanced is a question hidden until asked for, its default kept.
+	Advanced bool
+	// When is the condition on earlier answers under which it is asked.
+	When string
+}
+
+// FormSecret is a key an install asks for.
+type FormSecret struct {
+	Name     string
+	Ask      string
+	When     string
+	Optional bool
+	// NewAt is the page where a new one is made; For the services that get it.
+	NewAt string
+	For   []string
+}
+
 // FormActions are what the form asks outside it.
 type FormActions struct {
+	// Parse reads the answer typed to a question; Holds is whether a
+	// condition holds for the answers so far.
+	Parse func(q FormQuestion, raw string) (any, error)
+	Holds func(when string, answers map[string]any) bool
 	// Default is a question's default for the answers so far, as text.
-	Default func(q manifest.Question, answers map[string]any) string
+	Default func(q FormQuestion, answers map[string]any) string
 	// Check runs a question's checks, those that ask the network too, on an
 	// answer; Secret on a key given.
-	Check  func(q manifest.Question, answer any, answers map[string]any) error
-	Secret func(s manifest.Secret, value string, answers map[string]any) error
+	Check  func(q FormQuestion, answer any, answers map[string]any) error
+	Secret func(s FormSecret, value string, answers map[string]any) error
 	Open   func(url string) error
 }
 
@@ -46,7 +73,7 @@ const (
 type formPage struct {
 	title     string
 	kind      pageKind
-	questions []manifest.Question
+	questions []FormQuestion
 }
 
 // Form is the form of an install.
@@ -57,7 +84,7 @@ type Form struct {
 	needs    []FormNeed
 	side     []string
 	pages    []formPage
-	secrets  []manifest.Secret
+	secrets  []FormSecret
 	raw      map[string]string
 	errs     map[string]string
 	advanced map[int]bool
@@ -73,7 +100,7 @@ type Form struct {
 
 // NewForm is the form of installing an app: title says what, needs what it
 // needs, side what to know (such as how long it takes).
-func NewForm(title, app string, needs []FormNeed, side []string, qs []manifest.Question, secrets []manifest.Secret, actions FormActions) *Form {
+func NewForm(title, app string, needs []FormNeed, side []string, qs []FormQuestion, secrets []FormSecret, actions FormActions) *Form {
 	m := &Form{actions: actions, title: title, app: app, needs: needs, side: side, raw: map[string]string{}, errs: map[string]string{},
 		advanced: map[int]bool{}, visited: map[int]bool{}, width: 100, height: 30}
 	m.pages = append(m.pages, formPage{title: "What it needs", kind: needsPage})
@@ -85,7 +112,7 @@ func NewForm(title, app string, needs []FormNeed, side []string, qs []manifest.Q
 		if n := len(m.pages); m.pages[n-1].kind == questionsPage && m.pages[n-1].title == title {
 			m.pages[n-1].questions = append(m.pages[n-1].questions, q)
 		} else {
-			m.pages = append(m.pages, formPage{title: title, kind: questionsPage, questions: []manifest.Question{q}})
+			m.pages = append(m.pages, formPage{title: title, kind: questionsPage, questions: []FormQuestion{q}})
 		}
 	}
 	for _, s := range secrets {
@@ -113,14 +140,14 @@ func (m *Form) answers() map[string]any {
 	out := map[string]any{}
 	for _, p := range m.pages {
 		for _, q := range p.questions {
-			if !manifest.Holds(q.When, out) {
+			if !m.actions.Holds(q.When, out) {
 				continue
 			}
 			raw, ok := m.raw[q.Name]
 			if !ok {
 				continue
 			}
-			if v, err := ask.Parse(q, raw); err == nil {
+			if v, err := m.actions.Parse(q, raw); err == nil {
 				out[q.Name] = v
 			}
 		}
@@ -138,11 +165,11 @@ func (m *Form) keys() map[string]string {
 	return out
 }
 
-func (m *Form) liveSecrets() []manifest.Secret {
+func (m *Form) liveSecrets() []FormSecret {
 	answers := m.answers()
-	var out []manifest.Secret
+	var out []FormSecret
 	for _, s := range m.secrets {
-		if manifest.Holds(s.When, answers) {
+		if m.actions.Holds(s.When, answers) {
 			out = append(out, s)
 		}
 	}
@@ -167,8 +194,8 @@ func (m *Form) enter(i int) {
 // row is a line of a page that takes the focus: a question, a key, or the
 // switch of the advanced questions.
 type row struct {
-	question *manifest.Question
-	secret   *manifest.Secret
+	question *FormQuestion
+	secret   *FormSecret
 	advanced bool
 }
 
@@ -185,7 +212,7 @@ func (m *Form) rows() []row {
 		var adv []row
 		for i := range p.questions {
 			q := &p.questions[i]
-			if !manifest.Holds(q.When, answers) {
+			if !m.actions.Holds(q.When, answers) {
 				continue
 			}
 			if q.Advanced {
@@ -276,7 +303,7 @@ func (m *Form) name(r *row) string {
 	return r.question.Name
 }
 
-func (m *Form) options(q *manifest.Question) []string {
+func (m *Form) options(q *FormQuestion) []string {
 	if q.Type == "bool" {
 		return []string{"yes", "no"}
 	}
@@ -377,8 +404,8 @@ func (m *Form) next() tea.Cmd {
 	}
 	page, answers := m.page, m.answers()
 	type item struct {
-		q   *manifest.Question
-		s   *manifest.Secret
+		q   *FormQuestion
+		s   *FormSecret
 		raw string
 	}
 	var items []item
@@ -386,13 +413,13 @@ func (m *Form) next() tea.Cmd {
 		items = append(items, item{r.question, r.secret, m.raw[m.name(&r)]})
 	}
 	m.checking = true
-	check, secret := m.actions.Check, m.actions.Secret
+	parse, check, secret := m.actions.Parse, m.actions.Check, m.actions.Secret
 	return func() tea.Msg {
 		errs := map[string]string{}
 		for _, it := range items {
 			switch {
 			case it.q != nil:
-				v, err := ask.Parse(*it.q, it.raw)
+				v, err := parse(*it.q, it.raw)
 				if err == nil && check != nil {
 					err = check(*it.q, v, answers)
 				}
@@ -542,7 +569,7 @@ func (m *Form) pageRows(width int) []line {
 	return out
 }
 
-func (m *Form) questionRows(q *manifest.Question, focus bool, width int) []line {
+func (m *Form) questionRows(q *FormQuestion, focus bool, width int) []line {
 	var out []line
 	if q.Note != "" {
 		for _, l := range wrap(q.Note, width) {
@@ -576,7 +603,7 @@ func (m *Form) questionRows(q *manifest.Question, focus bool, width int) []line 
 	return out
 }
 
-func (m *Form) secretRows(s *manifest.Secret, focus bool, width int) []line {
+func (m *Form) secretRows(s *FormSecret, focus bool, width int) []line {
 	name := "secret:" + s.Name
 	head := []span{text(keyLabel(s.Ask), plain)}
 	if s.Optional {

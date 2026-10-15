@@ -39,21 +39,38 @@ apps:
     console_hostname: sauron.twinmind.pro
 `
 
-func settingsScreen(t *testing.T, width, height int) *Settings {
+var settingsKinds = map[settings.Kind]SettingsKind{settings.Text: SettingText, settings.Number: SettingNumber, settings.Toggle: SettingToggle,
+	settings.List: SettingList, settings.Heading: SettingHeading, settings.Fixed: SettingFixed}
+
+func settingsScreen(t *testing.T, width, height int) (*Settings, *settings.Doc) {
 	t.Helper()
 	doc, err := settings.Parse([]byte(designStack))
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewSettings("twinmind", doc)
+	sections := func() []SettingsSection {
+		var out []SettingsSection
+		for _, s := range doc.Sections() {
+			var fields []SettingsField
+			for _, f := range s.Fields {
+				fields = append(fields, SettingsField{Path: f.Path, Label: f.Label, Help: f.Help, Kind: settingsKinds[f.Kind], Value: f.Value,
+					Items: f.Items, Depth: f.Depth, Once: f.Once})
+			}
+			out = append(out, SettingsSection{Title: s.Title, Path: s.Path, Help: s.Help, Fields: fields})
+		}
+		return out
+	}
+	original := string(doc.Bytes())
+	m := NewSettings("twinmind", SettingsActions{Sections: sections, Changed: func() bool { return string(doc.Bytes()) != original },
+		Set: doc.Set, SetList: doc.SetList})
 	m.Update(tea.WindowSizeMsg{Width: width, Height: height})
-	return m
+	return m, doc
 }
 
 func TestTheSettingsScreenAtTheSizesItIsMadeFor(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {100, 30}, {140, 40}} {
 		w, h := size[0], size[1]
-		m := settingsScreen(t, w, h)
+		m, _ := settingsScreen(t, w, h)
 		press(m, "tab")
 		frame := m.Frame()
 		checkShape(t, frame, w, h)
@@ -62,7 +79,7 @@ func TestTheSettingsScreenAtTheSizesItIsMadeFor(t *testing.T) {
 }
 
 func TestASettingIsChangedOnTheScreen(t *testing.T) {
-	m := settingsScreen(t, 100, 30)
+	m, doc := settingsScreen(t, 100, 30)
 	press(m, "tab") // server
 	press(m, "enter")
 	for range len("169.58.210.131") {
@@ -70,8 +87,8 @@ func TestASettingIsChangedOnTheScreen(t *testing.T) {
 	}
 	m.Update(tea.PasteMsg{Content: "5.6.7.8"})
 	press(m, "enter")
-	if !strings.Contains(string(m.Doc().Bytes()), "  address: 5.6.7.8\n") || m.editing {
-		t.Fatalf("enter keeps the typed value:\n%s", m.Doc().Bytes())
+	if !strings.Contains(string(doc.Bytes()), "  address: 5.6.7.8\n") || m.editing {
+		t.Fatalf("enter keeps the typed value:\n%s", doc.Bytes())
 	}
 	press(m, "down")
 	press(m, "enter")
@@ -81,16 +98,16 @@ func TestASettingIsChangedOnTheScreen(t *testing.T) {
 	press(m, "down", "enter", "a")
 	m.Update(tea.PasteMsg{Content: "25"})
 	press(m, "enter")
-	if !strings.Contains(string(m.Doc().Bytes()), "public_ports: [80, 443, 25]") {
-		t.Errorf("a adds an item:\n%s", m.Doc().Bytes())
+	if !strings.Contains(string(doc.Bytes()), "public_ports: [80, 443, 25]") {
+		t.Errorf("a adds an item:\n%s", doc.Bytes())
 	}
 	press(m, "x", "esc")
-	if !strings.Contains(string(m.Doc().Bytes()), "public_ports: [80, 443]") {
-		t.Errorf("x removes the item chosen:\n%s", m.Doc().Bytes())
+	if !strings.Contains(string(doc.Bytes()), "public_ports: [80, 443]") {
+		t.Errorf("x removes the item chosen:\n%s", doc.Bytes())
 	}
 	press(m, "tab", "tab", "enter") // vault: auto_unseal
-	if !strings.Contains(string(m.Doc().Bytes()), "auto_unseal: false") {
-		t.Errorf("↵ flips a yes or no:\n%s", m.Doc().Bytes())
+	if !strings.Contains(string(doc.Bytes()), "auto_unseal: false") {
+		t.Errorf("↵ flips a yes or no:\n%s", doc.Bytes())
 	}
 	press(m, "q")
 	if m.Result() != (SettingsResult{}) || !strings.Contains(m.flash, "q again") {
@@ -103,11 +120,11 @@ func TestASettingIsChangedOnTheScreen(t *testing.T) {
 }
 
 func TestAWrongValueIsRefusedWithWhy(t *testing.T) {
-	m := settingsScreen(t, 100, 30)
+	m, doc := settingsScreen(t, 100, 30)
 	press(m, "tab", "down", "down", "enter", "a")
 	m.Update(tea.PasteMsg{Content: "http"})
 	press(m, "enter")
-	if !strings.Contains(m.flash, "not a whole number") || strings.Contains(string(m.Doc().Bytes()), "http") {
+	if !strings.Contains(m.flash, "not a whole number") || strings.Contains(string(doc.Bytes()), "http") {
 		t.Errorf("a list of numbers takes a number: %q", m.flash)
 	}
 }

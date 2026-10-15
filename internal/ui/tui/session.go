@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io"
 	"os/exec"
-	"reflect"
-	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,7 +36,8 @@ var ErrSessionEnded = errors.New("the screen session ended")
 
 func (s *Session) start() {
 	s.once.Do(func() {
-		s.p = tea.NewProgram(&stage{}, tea.WithInput(s.in), tea.WithOutput(s.out))
+		st := &stage{}
+		s.p = tea.NewProgram(st, tea.WithInput(s.in), tea.WithOutput(s.out), tea.WithFilter(st.filter))
 		go func() {
 			_, s.err = s.p.Run()
 			close(s.done)
@@ -129,11 +128,6 @@ func (s *stage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			close(s.quit)
 		}
 		return s, nil
-	case screenMsg:
-		if msg.quit != s.quit || s.screen == nil {
-			return s, nil
-		}
-		return s.forward(msg.msg)
 	case tea.WindowSizeMsg:
 		s.size = &msg
 	}
@@ -149,10 +143,23 @@ func (s *stage) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, s.wrap(cmd, s.quit)
 }
 
+// filter opens a screen's message before Bubble Tea sees it, so what Bubble
+// Tea runs itself, such as ssh on the terminal, runs as on a program of the
+// screen's own; a message for a screen gone is dropped.
+func (s *stage) filter(_ tea.Model, msg tea.Msg) tea.Msg {
+	m, ok := msg.(screenMsg)
+	if !ok {
+		return msg
+	}
+	if m.quit != s.quit || s.screen == nil {
+		return nil
+	}
+	return m.msg
+}
+
 // wrap turns a screen's tea.Quit, also inside a batch, into the end of that
-// screen alone, and the screen's own messages into ones for it alone, so a
-// tick or a refresh of a screen gone does not reach the next. Bubble Tea's
-// messages go to the program as they are.
+// screen alone, and all else its commands send into messages for it alone, so
+// a tick or a refresh of a screen gone does not reach the next.
 func (s *stage) wrap(cmd tea.Cmd, quit chan struct{}) tea.Cmd {
 	if cmd == nil {
 		return nil
@@ -170,9 +177,6 @@ func (s *stage) wrap(cmd tea.Cmd, quit chan struct{}) tea.Cmd {
 		case nil:
 			return nil
 		default:
-			if strings.HasPrefix(reflect.TypeOf(msg).PkgPath(), "charm.land/") {
-				return msg
-			}
 			return screenMsg{quit: quit, msg: msg}
 		}
 	}
