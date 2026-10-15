@@ -20,7 +20,8 @@ import (
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
 
-func appKeysCommand(s *streams) *cobra.Command {
+func appKeysCommand(s *cli) *cobra.Command {
+	var plain bool
 	cmd := &cobra.Command{
 		Use:   "keys [app]",
 		Short: "The keys an app asks for, such as the API keys of an LLM: which are set, and setting one; a full screen on a terminal",
@@ -36,16 +37,17 @@ func appKeysCommand(s *streams) *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			}
-			return appKeys(cmd.Context(), s, p, name)
+			return appKeys(cmd.Context(), s, p, name, plain)
 		},
 	}
-	cmd.Flags().BoolVar(&s.plain, "plain", false, "list them as lines instead of the full-screen view on a terminal")
+	cmd.Flags().BoolVar(&plain, "plain", false, "list them as lines instead of the full-screen view on a terminal")
 	return cmd
 }
 
 // appKeys shows the keys of an app, the only one that asks for any when
 // name is empty, and sets the ones the person gives; asked, it deploys after.
-func appKeys(ctx context.Context, s *streams, p *project.Project, name string) error {
+// plain, --plain, lists them as lines.
+func appKeys(ctx context.Context, s *cli, p *project.Project, name string, plain bool) error {
 	asked := ops.AskedSecrets(p)
 	if name == "" {
 		var apps []string
@@ -96,7 +98,7 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 		keys = append(keys, tui.Key{Name: sec.Name, Label: keyLabel(sec.Ask), UsedBy: sec.For, Set: v != "",
 			Changed: rec.Set, Pending: rec.Set.After(deployed), Optional: sec.Optional, NewAt: sec.NewAt})
 	}
-	if !s.screen() {
+	if !s.screen(plain) {
 		tw := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "KEY\tSTATE\tUSED BY\tWHAT")
 		for _, k := range keys {
@@ -151,7 +153,7 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 	if name != "" && !pending {
 		return deployParts(ctx, s, p, m, dir, name)
 	}
-	return runSteps(ctx, s, p, m, dir, !pending)
+	return runSteps(ctx, s, p, m, dir, ops.Options{AppsOnly: !pending}, false)
 }
 
 // keyLabel is the name of a key in what an app asks for it with: "xAI API

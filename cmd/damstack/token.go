@@ -16,7 +16,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
-func tokenCommand(s *streams) *cobra.Command {
+func tokenCommand(s *cli) *cobra.Command {
 	var show bool
 	cmd := &cobra.Command{
 		Use:   "token [name]",

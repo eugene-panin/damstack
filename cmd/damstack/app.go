@@ -21,7 +21,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/stack"
 )
 
-func appCommand(s *streams) *cobra.Command {
+func appCommand(s *cli) *cobra.Command {
 	app := &cobra.Command{
 		Use:   "app",
 		Short: "Add apps to the project you are in, and list them",
@@ -41,8 +41,7 @@ func appCommand(s *streams) *cobra.Command {
 			if len(args) == 1 {
 				arg = args[0]
 			}
-			s.yes = yes
-			return addApp(cmd.Context(), s, arg, from, answers, appsOnly)
+			return addApp(cmd.Context(), s, arg, from, answers, yes, appsOnly)
 		},
 	}
 	add.Flags().StringVar(&from, "from", "", "add the app in this directory as it is, instead of a release; for writing an app")
@@ -78,7 +77,7 @@ func appCommand(s *streams) *cobra.Command {
 	return app
 }
 
-func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly bool) error {
+func addApp(ctx context.Context, s *cli, arg, from, answers string, yes, appsOnly bool) error {
 	p, err := pickProject(s, "")
 	if err != nil {
 		return err
@@ -122,7 +121,7 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly
 	}
 	fmt.Fprintf(s.out, "\nAdded %s to %s: its settings are under apps.%s in stack.yaml.\n\n", am.Name, p.Meta.Name, am.Name)
 	// Without a terminal and --yes, adding is all that was asked for.
-	ok := s.yes
+	ok := yes
 	if !ok && !s.prompt.NoTerminal {
 		if ok, err = s.prompt.Confirm("Deploy it now?", true); err != nil {
 			return err
@@ -132,12 +131,12 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly
 		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", p.Dir)
 		return nil
 	}
-	return runSteps(ctx, s, p, pm, pdir, appsOnly)
+	return runSteps(ctx, s, p, pm, pdir, ops.Options{Yes: yes, AppsOnly: appsOnly}, false)
 }
 
 // findApp fetches an app by what a person names it: a stack damstack knows,
 // an address, or a directory.
-func findApp(ctx context.Context, s *streams, arg, from string) (*manifest.Manifest, string, project.StackRef, error) {
+func findApp(ctx context.Context, s *cli, arg, from string) (*manifest.Manifest, string, project.StackRef, error) {
 	if from != "" {
 		dir, err := filepath.Abs(from)
 		if err != nil {

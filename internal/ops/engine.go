@@ -123,15 +123,21 @@ func NewEngine(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 	}
 	return &engine.Engine{
 		Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, KeyFile: runner.Key,
-		Color:  stdin != nil,
-		Events: event.SinkFunc(ui.Emit),
-		Approve: func(plan event.Plan) (event.Approval, error) {
-			if yes {
-				return event.Approval{Apply: true, Restart: true}, nil
-			}
-			return ui.Approve(plan)
-		},
+		Color:   stdin != nil,
+		Events:  event.SinkFunc(ui.Emit),
+		Approve: approver(ui, yes),
 	}, key, nil
+}
+
+// approver asks ui whether to apply a plan; with yes it applies every plan,
+// replacing allocations too, without asking.
+func approver(ui UI, yes bool) func(event.Plan) (event.Approval, error) {
+	return func(plan event.Plan) (event.Approval, error) {
+		if yes {
+			return event.Approval{Apply: true, Restart: true}, nil
+		}
+		return ui.Approve(plan)
+	}
 }
 
 // FetchToolbox is the toolbox the stack m runs with, fetched the first

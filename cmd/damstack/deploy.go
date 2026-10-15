@@ -22,52 +22,38 @@ import (
 	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/engine"
-	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/stack"
-	"github.com/eugene-panin/damstack/internal/ui/plain"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
 
-type streams struct {
+// terminal is what damstack reads from and writes to, and the prompter that
+// asks there.
+type terminal struct {
 	in     io.Reader
 	out    io.Writer
 	err    io.Writer
 	prompt *ask.Prompter
-	// verbose shows the output of the tools instead of keeping it in a log.
-	verbose bool
-	// yes is --yes: go ahead wherever damstack would ask to.
-	yes bool
-	// events gets what damstack says while it works: plain lines here, the
-	// TUI later.
-	events event.Sink
-	// plain is --plain: lines, never the TUI.
-	plain bool
-	// ask, when set, asks yes-or-no questions instead of the prompt: the TUI.
-	ask func(question string) (bool, error)
-	// planner, when set, asks whether to apply a plan: the TUI's plan screen.
-	planner func(event.Plan) (event.Approval, error)
-	// breakGlass is --break-glass: change a shared project without its lock,
-	// from the state on this machine, for when the platform itself is down.
-	breakGlass bool
-	// all is deploy --all: run every step, those whose inputs did not change too.
-	all bool
+}
+
+// cli is one run of damstack: its terminal, and the project -p names.
+type cli struct {
+	*terminal
+	// project is the project named with -p or --project, else empty.
+	project string
 	// session, on the home screen, keeps one program on the terminal while
 	// its screens follow one another (tui.Session).
 	session *tui.Session
-	// only, when set, is what a deploy runs: the platform's steps by name and
-	// the apps, all their steps, by theirs; it runs them though unchanged.
-	only map[string]bool
 }
 
-// newStreams asks its questions on stderr, so they reach the person when the
+// newCLI asks its questions on stderr, so they reach the person when the
 // output goes to a file, and only when stdin is a terminal. A question waiting
 // for an answer gives up when ctx ends, at the first Ctrl-C.
-func newStreams(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) *streams {
+func newCLI(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) *cli {
 	p := ask.NewPrompter(stdin, stderr)
 	p.NoTerminal = true
 	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
@@ -78,7 +64,7 @@ func newStreams(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) 
 		}
 		p.Hidden = func() (string, error) { return readPassword(ctx, int(f.Fd())) }
 	}
-	return &streams{in: stdin, out: stdout, err: stderr, prompt: p, events: plain.New(stdout)}
+	return &cli{terminal: &terminal{in: stdin, out: stdout, err: stderr, prompt: p}}
 }
 
 // readPassword reads a line from the terminal fd without echoing it, and gives
@@ -119,24 +105,9 @@ func (c cancelled) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// confirm asks a yes or no question, unless --yes answered it already;
-// without a terminal to ask in, only --yes goes ahead.
-func (s *streams) confirm(question string, def bool) (bool, error) {
-	if s.yes {
-		return true, nil
-	}
-	if s.ask != nil {
-		return s.ask(question)
-	}
-	if s.prompt.NoTerminal {
-		return false, fmt.Errorf("%q: %w; pass --yes to go ahead", question, ask.ErrNoTerminal)
-	}
-	return s.prompt.Confirm(question, def)
-}
-
-func (s *streams) tty() bool {
-	in, ok := s.in.(*os.File)
-	out, ok2 := s.out.(*os.File)
+func (t *terminal) tty() bool {
+	in, ok := t.in.(*os.File)
+	out, ok2 := t.out.(*os.File)
 	return ok && ok2 && term.IsTerminal(int(in.Fd())) && term.IsTerminal(int(out.Fd()))
 }
 
@@ -155,7 +126,7 @@ type deployOptions struct {
 	plain      bool
 }
 
-func deployCommand(s *streams) *cobra.Command {
+func deployCommand(s *cli) *cobra.Command {
 	var o deployOptions
 	cmd := &cobra.Command{
 		Use:   "deploy [project or stack]",
@@ -184,12 +155,12 @@ func deployCommand(s *streams) *cobra.Command {
 
 var projectNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
-func deploy(ctx context.Context, s *streams, o deployOptions) error {
-	s.verbose, s.yes, s.breakGlass, s.plain, s.all = o.verbose, o.yes, o.breakGlass, o.plain, o.all
+func deploy(ctx context.Context, s *cli, o deployOptions) error {
+	opts := ops.Options{Yes: o.yes, Verbose: o.verbose, BreakGlass: o.breakGlass, All: o.all}
 	if o.only != "" {
-		s.only = map[string]bool{}
+		opts.Only = map[string]bool{}
 		for _, part := range strings.Split(o.only, ",") {
-			s.only[strings.TrimSpace(part)] = true
+			opts.Only[strings.TrimSpace(part)] = true
 		}
 	}
 	cfg, err := ops.LoadConfig(ctx)
@@ -215,7 +186,8 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		if err != nil {
 			return err
 		}
-		return runSteps(ctx, s, p, m, dir, o.appsOnly)
+		opts.AppsOnly = o.appsOnly
+		return runSteps(ctx, s, p, m, dir, opts, o.plain)
 	}
 
 	m, dir, ref, err := chooseStack(ctx, s, cfg, o)
@@ -261,7 +233,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	}
 
 	p, _, err = setup.Create(setup.Options{Manifest: m, Stack: dir, Ref: ref, Name: name, Dir: path, Given: given,
-		Prompter: s.prompt, Review: review(s, m, name, path)})
+		Prompter: s.prompt, Review: review(s, o.yes, m, name, path)})
 	if err != nil {
 		return err
 	}
@@ -273,7 +245,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	fmt.Fprintf(s.out, "\nSet up %s in %s: stack.yaml is the one file to edit.\n"+
 		"The secrets are in vault.yml, encrypted; its password is %s.\n"+
 		"Keep a copy of the password somewhere safe, such as a password manager: nothing restores without it.\n", name, path, pass)
-	return runSteps(ctx, s, p, m, dir, false)
+	return runSteps(ctx, s, p, m, dir, opts, o.plain)
 }
 
 // taken is whether a name is a project already, or a stack, which deploy
@@ -289,8 +261,8 @@ func taken(cfg *config.Config, name string) bool {
 // pickOrNew is the project deploy works on when none and no stack is named:
 // the one the rules of pickProject find, else one picked from a list that
 // also offers a new one, which is nil.
-func pickOrNew(s *streams, cfg *config.Config, from string) (*project.Project, error) {
-	p, _, err := resolveProject("")
+func pickOrNew(s *cli, cfg *config.Config, from string) (*project.Project, error) {
+	p, _, err := resolveProject(s.project)
 	if err != nil || p != nil {
 		return p, err
 	}
@@ -322,7 +294,7 @@ func pickOrNew(s *streams, cfg *config.Config, from string) (*project.Project, e
 	}
 }
 
-func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOptions) (*manifest.Manifest, string, project.StackRef, error) {
+func chooseStack(ctx context.Context, s *cli, cfg *config.Config, o deployOptions) (*manifest.Manifest, string, project.StackRef, error) {
 	arg, from := o.stack, o.from
 	if arg == "" && from == "" {
 		if s.prompt.NoTerminal {
@@ -395,7 +367,7 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 	ref := project.StackRef{Name: name, URL: url, Tag: r.Tag, Commit: r.Commit}
 	if !library {
 		fmt.Fprintf(s.out, "\n%s is not in the library of damstack. It runs with your SSH key and the secrets of the project.\n", url)
-		ok, err := s.confirm("Use it only if you trust the people who wrote it. Go on?", false)
+		ok, err := s.ui(o.yes).Confirm("Use it only if you trust the people who wrote it. Go on?", false)
 		if err != nil {
 			return nil, "", project.StackRef{}, err
 		}
@@ -409,7 +381,7 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 
 // pickPlatform asks where a project starts from: a platform of the library,
 // or a stack of one's own.
-func pickPlatform(s *streams, cfg *config.Config) (string, error) {
+func pickPlatform(s *cli, cfg *config.Config) (string, error) {
 	var names []string
 	fmt.Fprintln(s.err, "Where your project starts from:")
 	fmt.Fprintln(s.err)
@@ -442,7 +414,7 @@ func pickPlatform(s *streams, cfg *config.Config) (string, error) {
 }
 
 // intro says what a stack sets up, what it needs, and how long it takes.
-func intro(s *streams, m *manifest.Manifest, ref project.StackRef) {
+func intro(s *cli, m *manifest.Manifest, ref project.StackRef) {
 	fmt.Fprintf(s.out, "\n%s %s: %s\n", ref.Name, ref.Tag, m.Description)
 	if len(m.Needs) == 0 {
 		fmt.Fprintln(s.out)
@@ -460,7 +432,7 @@ func intro(s *streams, m *manifest.Manifest, ref project.StackRef) {
 }
 
 // review shows the summary of a new project and asks whether to set it up.
-func review(s *streams, m *manifest.Manifest, name, path string) func(map[string]any) error {
+func review(s *cli, yes bool, m *manifest.Manifest, name, path string) func(map[string]any) error {
 	return func(answers map[string]any) error {
 		data := map[string]any{"project": name}
 		for k, v := range answers {
@@ -477,7 +449,7 @@ func review(s *streams, m *manifest.Manifest, name, path string) func(map[string
 			fmt.Fprintf(tw, "  %s\t%s\n", line.Label, value)
 		}
 		tw.Flush()
-		ok, err := s.confirm("Set it up?", true)
+		ok, err := s.ui(yes).Confirm("Set it up?", true)
 		if err != nil {
 			return err
 		}
@@ -488,26 +460,27 @@ func review(s *streams, m *manifest.Manifest, name, path string) func(map[string
 	}
 }
 
-// runSteps deploys a project: the steps of its platform, then those of each
-// app, then the platform's steps that come after the apps.
-func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string, appsOnly bool) error {
-	r, err := deployer(s, appsOnly).Deploy(ctx, p, m, dir)
+// runSteps deploys a project as opts say: the steps of its platform, then
+// those of each app, then the platform's steps that come after the apps; plain,
+// --plain, shows it as lines instead of the deploy screen.
+func runSteps(ctx context.Context, s *cli, p *project.Project, m *manifest.Manifest, dir string, opts ops.Options, plain bool) error {
+	r, err := deployer(s, opts, plain).Deploy(ctx, p, m, dir)
 	if err != nil {
 		return err
 	}
-	return deployed(ctx, s, p, m, dir, r)
+	return deployed(ctx, s, opts.Yes, p, m, dir, r)
 }
 
-// deployer deploys over the streams, as their flags say.
-func deployer(s *streams, appsOnly bool) *ops.Deployer {
-	return &ops.Deployer{UI: streamsUI{s}, Screen: streamsScreen{s}, Opts: ops.Options{
-		Yes: s.yes, Verbose: s.verbose, BreakGlass: s.breakGlass, All: s.all, AppsOnly: appsOnly, Only: s.only,
-	}}
+// deployer deploys on the terminal of s as opts say, on the deploy screen
+// unless plain or opts.Verbose asks for lines.
+func deployer(s *cli, opts ops.Options, plain bool) *ops.Deployer {
+	ui := s.ui(opts.Yes)
+	return &ops.Deployer{UI: ui, Screen: deployScreen{s: s, ui: ui, plain: plain || opts.Verbose}, Opts: opts}
 }
 
 // deployed says what a deploy of p set up and what it changed, and schedules
-// the pulls of its backups.
-func deployed(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string, r ops.Result) error {
+// the pulls of its backups; yes is --yes of the deploy.
+func deployed(ctx context.Context, s *cli, yes bool, p *project.Project, m *manifest.Manifest, dir string, r ops.Result) error {
 	keys := r.Keys
 	fmt.Fprintf(s.out, "\nDone. %s is running.\n", p.Meta.Name)
 	done(s.out, p, m, "")
@@ -515,7 +488,7 @@ func deployed(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		fmt.Fprintln(s.out, "\nNew WireGuard keys: each device needs its new configuration, and the old one no longer works.")
 		names := keys.Added
 		if keys.Server {
-			t, err := ops.OpenTunnel(streamsUI{s}, s.yes, p, m, dir)
+			t, err := ops.OpenTunnel(s.ui(yes), yes, p, m, dir)
 			if err == nil {
 				names = t.Names()
 			}
@@ -530,7 +503,7 @@ func deployed(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			done(s.out, p, am, ref.Name)
 		}
 	}
-	trustNotice(ctx, s, p, m)
+	trustNotice(ctx, s, yes, p, m)
 	if m.Backup == nil {
 		return nil
 	}
@@ -539,7 +512,7 @@ func deployed(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		return err
 	}
 	fmt.Fprintln(s.out)
-	return ops.ScheduleBackup(ctx, streamsUI{s}, p, b, true)
+	return ops.ScheduleBackup(ctx, s.ui(yes), p, b, true)
 }
 
 // done says what a stack serves, from its done lines.

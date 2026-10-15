@@ -21,7 +21,7 @@ import (
 
 // catalogScreen shows the apps a project can take, and installs, updates or
 // opens the one chosen.
-func catalogScreen(ctx context.Context, s *streams, p *project.Project) error {
+func catalogScreen(ctx context.Context, s *cli, p *project.Project) error {
 	for {
 		again, err := catalogRound(ctx, s, p)
 		if err != nil || !again {
@@ -32,7 +32,7 @@ func catalogScreen(ctx context.Context, s *streams, p *project.Project) error {
 
 // catalogRound shows the catalog once, and does what was chosen; again says
 // to show it once more, as after the sources.
-func catalogRound(ctx context.Context, s *streams, p *project.Project) (bool, error) {
+func catalogRound(ctx context.Context, s *cli, p *project.Project) (bool, error) {
 	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return false, err
@@ -153,7 +153,7 @@ func appNeeds(pm, am *manifest.Manifest) []tui.FormNeed {
 
 // installApp installs an app from its newest release: its questions and keys
 // on the form, then a deploy of it alone.
-func installApp(ctx context.Context, s *streams, p *project.Project, url string) error {
+func installApp(ctx context.Context, s *cli, p *project.Project, url string) error {
 	pm, pdir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
@@ -238,7 +238,7 @@ func defaultText(q manifest.Question, answers map[string]any) string {
 }
 
 // updateApp takes an app to its newest release, and deploys it alone.
-func updateApp(ctx context.Context, s *streams, p *project.Project, name string) error {
+func updateApp(ctx context.Context, s *cli, p *project.Project, name string) error {
 	pm, pdir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
@@ -260,16 +260,15 @@ func updateApp(ctx context.Context, s *streams, p *project.Project, name string)
 
 // deployParts deploys the named parts of a project, and the platform's steps
 // that come after the apps, such as its DNS records.
-func deployParts(ctx context.Context, s *streams, p *project.Project, pm *manifest.Manifest, pdir string, parts ...string) error {
-	s.only = map[string]bool{}
-	defer func() { s.only = nil }()
+func deployParts(ctx context.Context, s *cli, p *project.Project, pm *manifest.Manifest, pdir string, parts ...string) error {
+	only := map[string]bool{}
 	for _, part := range parts {
-		s.only[part] = true
+		only[part] = true
 	}
 	for _, step := range pm.Steps {
 		if step.AfterApps {
-			s.only[step.Name] = true
+			only[step.Name] = true
 		}
 	}
-	return runSteps(ctx, s, p, pm, pdir, false)
+	return runSteps(ctx, s, p, pm, pdir, ops.Options{Only: only}, false)
 }

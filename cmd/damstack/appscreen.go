@@ -223,7 +223,7 @@ func (n *nomad) restart(ctx context.Context, g tui.AppGroup) error {
 }
 
 // appScreen shows an app of a project, and does what its keys choose.
-func appScreen(ctx context.Context, s *streams, p *project.Project, name string) error {
+func appScreen(ctx context.Context, s *cli, p *project.Project, name string) error {
 	ref, ok := p.Meta.App(name)
 	if !ok {
 		return fmt.Errorf("%s is no app of %s", name, p.Meta.Name)
@@ -293,7 +293,7 @@ func appScreen(ctx context.Context, s *streams, p *project.Project, name string)
 		}
 		return deployParts(ctx, s, p, pm, pdir, name)
 	case "k":
-		return appKeys(ctx, s, p, name)
+		return appKeys(ctx, s, p, name, false)
 	}
 	return nil
 }

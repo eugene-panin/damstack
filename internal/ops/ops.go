@@ -32,10 +32,11 @@ type UI interface {
 	Terminal() io.Reader
 }
 
-// Screen runs work while a deploy is shown; stop is set when the person asks
-// to stop after the step running now.
+// Screen runs work while a deploy is shown: work reaches the person through ui
+// meanwhile, the screen's while it is up. stop is set when the person asks to
+// stop after the step running now.
 type Screen interface {
-	Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(ctx context.Context, stop *atomic.Bool) error) error
+	Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(ctx context.Context, ui UI, stop *atomic.Bool) error) error
 }
 
 // Options are how a deploy runs.
@@ -138,13 +139,14 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 		}
 	}
 	var keys wg.Change
-	err = d.Screen.Run(ctx, p, m, func(ctx context.Context, stop *atomic.Bool) error {
+	err = d.Screen.Run(ctx, p, m, func(ctx context.Context, ui UI, stop *atomic.Bool) error {
+		e.Events, e.Approve = event.SinkFunc(ui.Emit), approver(ui, d.Opts.Yes)
 		var err error
 		// A restore sets up a new server from a backup, the platform's state
 		// with it: there is no platform to lock yet.
 		var sh *Sharing
 		if restore == "" {
-			if sh, err = LockProject(ctx, d.UI, d.Opts.BreakGlass, p, m, dir, e.Password, "deploy"); err != nil {
+			if sh, err = LockProject(ctx, ui, d.Opts.BreakGlass, p, m, dir, e.Password, "deploy"); err != nil {
 				return err
 			}
 			defer sh.Release()
@@ -154,7 +156,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 		if keys, err = EnsureKeys(p, m, e.Password); err != nil {
 			return err
 		}
-		jobs, err := BuildJobs(ctx, d.UI, d.Opts.Yes, p, m, e, restore != "", d.Opts.AppsOnly)
+		jobs, err := BuildJobs(ctx, ui, d.Opts.Yes, p, m, e, restore != "", d.Opts.AppsOnly)
 		if err != nil {
 			return err
 		}
@@ -166,7 +168,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 		if restore != "" {
 			command = "restore"
 		}
-		d.UI.Emit(RunStarted(p, command, jobs))
+		ui.Emit(RunStarted(p, command, jobs))
 		for _, j := range jobs {
 			if restore != "" {
 				if j.Engine.BaseEnv == nil {
@@ -187,16 +189,16 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 			if err := sh.Check(); err != nil {
 				return err
 			}
-			if err := d.runJob(ctx, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
+			if err := d.runJob(ctx, ui, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
 				return lost(err)
 			}
 		}
 		if restore == "" {
-			if err := publish(ctx, d.UI, d.Opts.BreakGlass, p, m, dir, e.Password); err != nil {
+			if err := publish(ctx, ui, d.Opts.BreakGlass, p, m, dir, e.Password); err != nil {
 				return lost(err)
 			}
 		}
-		d.UI.Emit(RunDone(p, m))
+		ui.Emit(RunDone(p, m))
 		return nil
 	})
 	return Result{Keys: keys}, err
@@ -250,7 +252,7 @@ func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 	return append(jobs, after...), nil
 }
 
-func (d *Deployer) runJob(ctx context.Context, p *project.Project, j Job, n, total int, srv *manifest.Server, restore bool) error {
+func (d *Deployer) runJob(ctx context.Context, ui UI, p *project.Project, j Job, n, total int, srv *manifest.Server, restore bool) error {
 	step := event.Step{N: n, Total: total, Name: j.Name, Title: j.Title()}
 	if j.Step.Once && !restore {
 		done, err := p.Done(j.Name)
@@ -258,12 +260,12 @@ func (d *Deployer) runJob(ctx context.Context, p *project.Project, j Job, n, tot
 			return err
 		}
 		if done {
-			d.UI.Emit(event.StepSkipped{Step: step, Reason: "done before, runs once"})
+			ui.Emit(event.StepSkipped{Step: step, Reason: "done before, runs once"})
 			return nil
 		}
 	}
 	if why := Unchanged(p, j.Name, j.Inputs, time.Now()); why != "" {
-		d.UI.Emit(event.StepSkipped{Step: step, Reason: why})
+		ui.Emit(event.StepSkipped{Step: step, Reason: why})
 		return nil
 	}
 	log := ""
@@ -276,9 +278,9 @@ func (d *Deployer) runJob(ctx context.Context, p *project.Project, j Job, n, tot
 		defer restore()
 	}
 	kind, what := j.Kind()
-	d.UI.Emit(event.StepStarted{Step: step, Takes: j.Step.Takes, Kind: kind, What: what, Log: log})
+	ui.Emit(event.StepStarted{Step: step, Takes: j.Step.Takes, Kind: kind, What: what, Log: log})
 	if j.Step.Tunnel && srv != nil {
-		if err := WaitTunnel(ctx, d.UI, p, srv); err != nil {
+		if err := WaitTunnel(ctx, ui, p, srv); err != nil {
 			return err
 		}
 	}
@@ -299,9 +301,9 @@ func (d *Deployer) runJob(ctx context.Context, p *project.Project, j Job, n, tot
 		if log != "" {
 			failed.Log, failed.Tail = log, LastLines(log, 30)
 		}
-		d.UI.Emit(failed)
+		ui.Emit(failed)
 		return fmt.Errorf("the step %s failed: %w\nFix what it says above, then run damstack %s again in %s", j.Name, err, command, p.Dir)
 	}
-	d.UI.Emit(event.StepDone{Step: step, Took: time.Since(start)})
+	ui.Emit(event.StepDone{Step: step, Took: time.Since(start)})
 	return nil
 }

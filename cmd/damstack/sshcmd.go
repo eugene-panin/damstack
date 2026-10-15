@@ -13,7 +13,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/sshkey"
 )
 
-func sshCommand(s *streams) *cobra.Command {
+func sshCommand(s *cli) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ssh [project] [-- command]",
 		Short: "Open a shell on the server of a project, as its ops user, over its public address, or run a command there",
@@ -61,6 +61,7 @@ func sshCommand(s *streams) *cobra.Command {
 			return nil
 		},
 	}
+	var yes bool
 	rotate := &cobra.Command{
 		Use:   "rotate [project]",
 		Short: "Give the project a new SSH key; the server stops taking the old one at once",
@@ -70,10 +71,10 @@ func sshCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ops.RotateSSHKey(cmd.Context(), streamsUI{s}, s.yes, p)
+			return ops.RotateSSHKey(cmd.Context(), s.ui(yes), yes, p)
 		},
 	}
-	rotate.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
+	rotate.Flags().BoolVar(&yes, "yes", false, "go ahead without asking; needed without a terminal")
 	cmd.AddCommand(rotate)
 	return cmd
 }

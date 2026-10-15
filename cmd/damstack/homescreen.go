@@ -25,12 +25,14 @@ import (
 
 // homeScreen is damstack without a command on a terminal: the home screen,
 // and whatever its keys choose, until the person quits.
-func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool) error {
+func homeScreen(ctx context.Context, s *cli, cfg *config.Config, ready bool) error {
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	// One program for the home screen and every screen its keys open: the
 	// terminal never shows the shell between two of them.
-	s.session = tui.NewSession(s.in, s.out)
-	defer func() { s.session.Close(); s.session = nil }()
+	home := *s
+	home.session = tui.NewSession(s.in, s.out)
+	defer home.session.Close()
+	s = &home
 	note := ""
 	for {
 		projects := map[string]*project.Project{}
@@ -66,7 +68,7 @@ func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool)
 }
 
 // homeAction does what a key of the home screen chose, for a project.
-func homeAction(ctx context.Context, s *streams, p *project.Project, key string) error {
+func homeAction(ctx context.Context, s *cli, p *project.Project, key string) error {
 	switch key {
 	case "d":
 		m, dir, err := ops.ProjectStack(ctx, p, "")
@@ -77,15 +79,13 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 		if err != nil || !ok {
 			return err
 		}
-		s.only = parts
-		defer func() { s.only = nil }()
-		return runSteps(ctx, s, p, m, dir, false)
+		return runSteps(ctx, s, p, m, dir, ops.Options{Only: parts}, false)
 	case "a", "enter":
 		return catalogScreen(ctx, s, p)
 	case "k":
-		return appKeys(ctx, s, p, "")
+		return appKeys(ctx, s, p, "", false)
 	case "!":
-		return secretsScreen(ctx, s, p)
+		return secretsScreen(ctx, s, p, false)
 	case "u":
 		return linksScreen(ctx, s, p)
 	case "e":
@@ -322,7 +322,7 @@ func listJobs(ctx context.Context, env map[string]string) ([]nomadJob, error) {
 }
 
 // linksScreen shows every address a project serves.
-func linksScreen(ctx context.Context, s *streams, p *project.Project) error {
+func linksScreen(ctx context.Context, s *cli, p *project.Project) error {
 	m, _, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
@@ -368,7 +368,7 @@ func linksScreen(ctx context.Context, s *streams, p *project.Project) error {
 
 // pickParts asks, on the deploy choice, what of a project to deploy: the
 // platform's steps whose inputs changed and every app come picked.
-func pickParts(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) (map[string]bool, bool, error) {
+func pickParts(ctx context.Context, s *cli, p *project.Project, m *manifest.Manifest, dir string) (map[string]bool, bool, error) {
 	password, err := p.Password()
 	if err != nil {
 		return nil, false, err

@@ -56,7 +56,7 @@ var examples = map[string]string{
 var projectCommands = []string{"use", "edit", "status", "history", "backup status", "backup pull", "backup schedule", "backup kit"}
 
 // describe adds the examples and the completions to the commands under root.
-func describe(root *cobra.Command, s *streams) {
+func describe(root *cobra.Command, s *cli) {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		path := strings.TrimPrefix(c.CommandPath(), root.Name()+" ")

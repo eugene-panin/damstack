@@ -17,7 +17,7 @@ import (
 // settingsScreen changes a project's stack.yaml on the settings screen; the
 // file opens in the editor when the person asks, and comes back to it. It
 // says whether the person asked to deploy.
-func settingsScreen(ctx context.Context, s *streams, p *project.Project, focus ...string) (bool, error) {
+func settingsScreen(ctx context.Context, s *cli, p *project.Project, focus ...string) (bool, error) {
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	path := filepath.Join(p.Dir, project.ConfigFile)
 	for {

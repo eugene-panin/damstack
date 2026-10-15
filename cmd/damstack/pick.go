@@ -17,36 +17,36 @@ import (
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
-// projectArg is the project named with -p or --project anywhere in the
-// arguments; run takes it out before cobra parses them, so that it reaches
+// takeProjectFlag takes the project named with -p or --project anywhere in
+// args out of them; run does so before cobra parses them, so that it reaches
 // the commands of stacks too. Arguments after -- are not looked at.
-var projectArg string
-
-func takeProjectFlag(args []string) []string {
-	var rest []string
+func takeProjectFlag(args []string) (name string, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--":
-			return append(rest, args[i:]...)
+			return name, append(rest, args[i:]...)
 		case (a == "-p" || a == "--project") && i+1 < len(args):
-			projectArg = args[i+1]
+			name = args[i+1]
 			i++
 		case strings.HasPrefix(a, "--project="):
-			projectArg = strings.TrimPrefix(a, "--project=")
+			name = strings.TrimPrefix(a, "--project=")
 		case strings.HasPrefix(a, "-p="):
-			projectArg = strings.TrimPrefix(a, "-p=")
+			name = strings.TrimPrefix(a, "-p=")
 		default:
 			rest = append(rest, a)
 		}
 	}
-	return rest
+	return name, rest
 }
 
 // pickProject is the project a command works on: the one named, else the
-// one the working directory is in, else the current one, else the only one,
-// else the one picked from a list.
-func pickProject(s *streams, name string) (*project.Project, error) {
+// one -p names, else the one the working directory is in, else the current
+// one, else the only one, else the one picked from a list.
+func pickProject(s *cli, name string) (*project.Project, error) {
+	if name == "" {
+		name = s.project
+	}
 	p, cfg, err := resolveProject(name)
 	if p != nil || err != nil {
 		return p, err
@@ -54,7 +54,7 @@ func pickProject(s *streams, name string) (*project.Project, error) {
 	if len(cfg.Projects) == 0 {
 		return nil, errNoProject
 	}
-	if s == nil || !s.tty() {
+	if !s.tty() {
 		return nil, fmt.Errorf("there are %d projects: name one, such as damstack status %s, or make one current with damstack use",
 			len(cfg.Projects), cfg.Projects[0].Name)
 	}
@@ -85,9 +85,6 @@ func resolveProject(name string) (*project.Project, *config.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if name == "" {
-		name = projectArg
-	}
 	if name != "" {
 		entry, ok := cfg.Project(name)
 		if !ok {
@@ -112,7 +109,7 @@ func resolveProject(name string) (*project.Project, *config.Config, error) {
 	return nil, cfg, nil
 }
 
-func useCommand(s *streams) *cobra.Command {
+func useCommand(s *cli) *cobra.Command {
 	return &cobra.Command{
 		Use:   "use <project>",
 		Short: "Make a project current: commands work on it unless another is named",
@@ -135,7 +132,7 @@ func useCommand(s *streams) *cobra.Command {
 	}
 }
 
-func editCommand(s *streams) *cobra.Command {
+func editCommand(s *cli) *cobra.Command {
 	var asYAML bool
 	cmd := &cobra.Command{
 		Use:   "edit [project]",
@@ -150,7 +147,7 @@ func editCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !asYAML && s.screen() {
+			if !asYAML && s.screen(false) {
 				deploy, err := settingsScreen(cmd.Context(), s, p)
 				if err != nil || !deploy {
 					return err
@@ -159,7 +156,7 @@ func editCommand(s *streams) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return runSteps(cmd.Context(), s, p, m, dir, false)
+				return runSteps(cmd.Context(), s, p, m, dir, ops.Options{}, false)
 			}
 			path := filepath.Join(p.Dir, project.ConfigFile)
 			before, err := os.ReadFile(path)
@@ -200,14 +197,14 @@ func editCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runSteps(cmd.Context(), s, p, m, dir, false)
+			return runSteps(cmd.Context(), s, p, m, dir, ops.Options{}, false)
 		},
 	}
 	cmd.Flags().BoolVar(&asYAML, "yaml", false, "open stack.yaml in your editor, $VISUAL or $EDITOR, instead of the settings screen")
 	return cmd
 }
 
-func openEditor(s *streams, path string) error {
+func openEditor(s *cli, path string) error {
 	editor := os.Getenv("VISUAL")
 	if editor == "" {
 		editor = os.Getenv("EDITOR")
