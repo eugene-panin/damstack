@@ -124,11 +124,14 @@ func (m *Home) lookAll() tea.Cmd {
 		name := r.Name
 		cmds = append(cmds, func() tea.Msg { return lookedMsg{name, m.look(name), time.Now()} })
 	}
-	cmds = append(cmds, tea.Tick(30*time.Second, func(t time.Time) tea.Msg { return refreshMsg(t) }))
 	return tea.Batch(cmds...)
 }
 
-func (m *Home) Init() tea.Cmd { return m.lookAll() }
+func refresh() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg { return refreshMsg(t) })
+}
+
+func (m *Home) Init() tea.Cmd { return tea.Batch(m.lookAll(), refresh()) }
 
 // SetState says how a project is, as a look found.
 func (m *Home) SetState(project string, s ProjectState, at time.Time) {
@@ -145,7 +148,7 @@ func (m *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.now = msg.at
 	case refreshMsg:
 		m.now = time.Time(msg)
-		return m, m.lookAll()
+		return m, tea.Batch(m.lookAll(), refresh())
 	case tea.KeyPressMsg:
 		k := msg.String()
 		switch k {
@@ -154,7 +157,7 @@ func (m *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up":
 			m.cursor = max(m.cursor-1, 0)
 		case "down", "j":
-			m.cursor = min(m.cursor+1, len(m.rows)-1)
+			m.cursor = max(min(m.cursor+1, len(m.rows)-1), 0)
 		case "r":
 			return m, m.lookAll()
 		}

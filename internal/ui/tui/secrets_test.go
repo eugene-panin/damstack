@@ -205,3 +205,10 @@ func TestCtrlCDoesNotLoseTheNewPasswords(t *testing.T) {
 		t.Fatal("ctrl+c twice must leave")
 	}
 }
+
+func TestAnEmptyListTakesEveryKey(t *testing.T) {
+	m := NewSecrets("twinmind", nil, 90, start, SecretActions{})
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	press(m, "j", "j", "k", "p", "space", "enter", "s")
+	m.Frame()
+}

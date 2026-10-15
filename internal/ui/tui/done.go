@@ -39,7 +39,7 @@ func (m *Deploy) doneKey(k string) tea.Cmd {
 	case "up", "k":
 		m.cursor = max(m.cursor-1, 0)
 	case "down", "j":
-		m.cursor = min(m.cursor+1, len(links)-1)
+		m.cursor = max(min(m.cursor+1, len(links)-1), 0)
 	case "enter":
 		if m.cursor < len(links) && m.actions.Open != nil {
 			u := links[m.cursor].URL

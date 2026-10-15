@@ -390,15 +390,15 @@ func (c *Client) Restart(ctx context.Context, id, group string, report func(Prog
 		return err
 	}
 	ns := url.Values{"namespace": {j.Namespace}}
-	all, err := c.allocs(ctx, j, ns)
-	if err != nil {
+	var all []alloc
+	if err := c.get(ctx, "/v1/job/"+url.PathEscape(j.ID)+"/allocations", ns, &all); err != nil {
 		return err
 	}
 	var old []alloc
 	seen := map[string]bool{}
 	for _, a := range all {
 		seen[a.ID] = true
-		if a.TaskGroup == group && a.ClientStatus == "running" {
+		if a.JobVersion == j.Version && a.TaskGroup == group && a.ClientStatus == "running" {
 			old = append(old, a)
 		}
 	}
@@ -423,7 +423,7 @@ func (c *Client) Restart(ctx context.Context, id, group string, report func(Prog
 			}
 			up := false
 			for _, n := range now {
-				if seen[n.ID] || n.TaskGroup != group {
+				if seen[n.ID] || n.TaskGroup != group || n.JobVersion != j.Version {
 					continue
 				}
 				switch n.ClientStatus {

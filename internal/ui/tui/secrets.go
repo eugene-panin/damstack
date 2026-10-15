@@ -245,7 +245,7 @@ func (m *Secrets) listKey(k string) tea.Cmd {
 	case "up", "k":
 		m.cursor = max(m.cursor-1, 0)
 	case "down", "j":
-		m.cursor = min(m.cursor+1, len(m.rows)-1)
+		m.cursor = max(min(m.cursor+1, len(m.rows)-1), 0)
 	case "space", " ":
 		if len(m.rows) == 0 {
 			return nil
@@ -256,7 +256,7 @@ func (m *Secrets) listKey(k string) tea.Cmd {
 			return nil
 		}
 		m.picked[r.Name] = !m.picked[r.Name]
-		m.cursor = min(m.cursor+1, len(m.rows)-1)
+		m.cursor = max(min(m.cursor+1, len(m.rows)-1), 0)
 	case "s":
 		if len(m.rows) == 0 {
 			return nil
@@ -342,7 +342,8 @@ func (m *Secrets) reviewKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.nextAsked(m.asking + 1)
 		case "backspace":
 			if m.input != "" {
-				m.input = m.input[:len(m.input)-1]
+				v := []rune(m.input)
+				m.input = string(v[:len(v)-1])
 			}
 		case "ctrl+o":
 			return m.open(m.review[m.asking].NewAt)
@@ -411,7 +412,7 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 		}
 		m.copied[p.User] = true
 		m.flash = "the password of " + p.User + " is in the clipboard: send it before copying the next"
-		m.copyAt = min(m.copyAt+1, len(ps)-1)
+		m.copyAt = max(min(m.copyAt+1, len(ps)-1), 0)
 	case "d":
 		if !m.needsDeploy() {
 			return nil

@@ -45,6 +45,10 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 	if err != nil {
 		return err
 	}
+	if p.Meta.Shared {
+		return fmt.Errorf("%s is shared on its platform, where its lock and state are kept under its name, "+
+			"and the others know it by that name: a shared project keeps its name", from)
+	}
 	oldPass, err := project.PasswordPath(from)
 	if err != nil {
 		return err

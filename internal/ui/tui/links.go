@@ -114,7 +114,7 @@ func (m *Links) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.cursor = max(m.cursor-1, 0)
 		case "down", "j":
-			m.cursor = min(m.cursor+1, len(m.links)-1)
+			m.cursor = max(min(m.cursor+1, len(m.links)-1), 0)
 		case "r":
 			m.answers = map[string]answer{}
 			return m, m.checkAll()

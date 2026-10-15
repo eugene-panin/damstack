@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 )
@@ -38,6 +39,10 @@ type Remote struct {
 	Prefix string
 }
 
+// RequestTimeout bounds each request to Consul, so a tunnel gone mid-request
+// does not hang a renewal or a release; it outlasts the longest wait of Lock.
+const RequestTimeout = 30 * time.Second
+
 // ErrUnreachable is returned when the platform's Consul does not answer.
 var ErrUnreachable = errors.New("the platform's Consul does not answer")
 
@@ -52,6 +57,12 @@ func Open(project string, env map[string]string) (*Remote, error) {
 	cfg.Address = addr
 	cfg.Token = env["CONSUL_HTTP_TOKEN"]
 	cfg.TLSConfig.CAFile = env["CONSUL_CACERT"]
+	httpClient, err := api.NewHttpClient(cfg.Transport, cfg.TLSConfig)
+	if err != nil {
+		return nil, fmt.Errorf("the platform's Consul at %s: %w", addr, err)
+	}
+	httpClient.Timeout = RequestTimeout
+	cfg.HttpClient = httpClient
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("the platform's Consul at %s: %w", addr, err)

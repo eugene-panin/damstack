@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"reflect"
+	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -148,7 +150,9 @@ func (s *stage) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // wrap turns a screen's tea.Quit, also inside a batch, into the end of that
-// screen alone.
+// screen alone, and the screen's own messages into ones for it alone, so a
+// tick or a refresh of a screen gone does not reach the next. Bubble Tea's
+// messages go to the program as they are.
 func (s *stage) wrap(cmd tea.Cmd, quit chan struct{}) tea.Cmd {
 	if cmd == nil {
 		return nil
@@ -163,8 +167,13 @@ func (s *stage) wrap(cmd tea.Cmd, quit chan struct{}) tea.Cmd {
 				out[i] = s.wrap(c, quit)
 			}
 			return out
+		case nil:
+			return nil
 		default:
-			return msg
+			if strings.HasPrefix(reflect.TypeOf(msg).PkgPath(), "charm.land/") {
+				return msg
+			}
+			return screenMsg{quit: quit, msg: msg}
 		}
 	}
 }

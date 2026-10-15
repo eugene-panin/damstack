@@ -307,11 +307,13 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			} else {
 				sh = readProject(s, p, platform, pdir, e.Password)
 			}
-			if sh != nil {
+			if sh != nil && sh.store != nil {
 				e.State = sh.store
 			}
+			ctx, lost, cancel := sh.watch(cmd.Context())
+			defer cancel()
 			start := time.Now()
-			err = e.Run(cmd.Context(), step, args)
+			err = lost(e.Run(ctx, step, args))
 			if rerr := record(p, command, "", start, err); rerr != nil && err == nil {
 				err = rerr
 			}

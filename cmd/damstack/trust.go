@@ -108,7 +108,8 @@ func trust(ctx context.Context, s *streams, p *project.Project, m *manifest.Mani
 			"Make a CA that signs for the private network only, and trust that one: "+
 			"damstack secret rotate %s -p %s, then damstack deploy %s", p.Meta.Name, caSecret(m), p.Meta.Name, p.Meta.Name)
 	}
-	if err := untrust(ctx, p); err != nil {
+	old, err := trustedCert(p)
+	if err != nil {
 		return err
 	}
 	keychain, err := loginKeychain()
@@ -127,39 +128,56 @@ func trust(ctx context.Context, s *streams, p *project.Project, m *manifest.Mani
 	if err := os.WriteFile(filepath.Join(p.Dir, trustFile), append(rec, '\n'), 0o644); err != nil {
 		return err
 	}
+	if old != "" && old != string(data) {
+		removeCert(ctx, old)
+	}
 	fmt.Fprintf(s.out, "This Mac trusts the CA of %s, for the servers of its private network only.\n", p.Meta.Name)
 	return nil
 }
 
 // untrust takes back the CA damstack made this Mac trust for p, if any.
 func untrust(ctx context.Context, p *project.Project) error {
+	cert, err := trustedCert(p)
+	if err != nil || cert == "" {
+		return err
+	}
+	removeCert(ctx, cert)
+	return os.Remove(filepath.Join(p.Dir, trustFile))
+}
+
+// trustedCert is the CA damstack made this Mac trust for p, empty if none.
+func trustedCert(p *project.Project) (string, error) {
 	data, err := os.ReadFile(filepath.Join(p.Dir, trustFile))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return "", nil
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	var t trusted
 	if err := json.Unmarshal(data, &t); err != nil {
-		return err
+		return "", err
 	}
-	block, _ := pem.Decode([]byte(t.Cert))
-	if block != nil {
-		tmp, err := os.CreateTemp("", "damstack-ca-*.pem")
-		if err != nil {
-			return err
-		}
-		defer os.Remove(tmp.Name())
-		tmp.WriteString(t.Cert)
-		tmp.Close()
-		exec.CommandContext(ctx, "security", "remove-trusted-cert", tmp.Name()).Run()
-		sum := sha1.Sum(block.Bytes)
-		if keychain, err := loginKeychain(); err == nil {
-			exec.CommandContext(ctx, "security", "delete-certificate", "-Z", strings.ToUpper(hex.EncodeToString(sum[:])), keychain).Run()
-		}
+	return t.Cert, nil
+}
+
+func removeCert(ctx context.Context, cert string) {
+	block, _ := pem.Decode([]byte(cert))
+	if block == nil {
+		return
 	}
-	return os.Remove(filepath.Join(p.Dir, trustFile))
+	tmp, err := os.CreateTemp("", "damstack-ca-*.pem")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmp.Name())
+	tmp.WriteString(cert)
+	tmp.Close()
+	exec.CommandContext(ctx, "security", "remove-trusted-cert", tmp.Name()).Run()
+	sum := sha1.Sum(block.Bytes)
+	if keychain, err := loginKeychain(); err == nil {
+		exec.CommandContext(ctx, "security", "delete-certificate", "-Z", strings.ToUpper(hex.EncodeToString(sum[:])), keychain).Run()
+	}
 }
 
 func loginKeychain() (string, error) {
@@ -186,6 +204,10 @@ func trustNotice(ctx context.Context, s *streams, p *project.Project, m *manifes
 		var t trusted
 		if json.Unmarshal(data, &t) == nil && t.Cert != string(current) {
 			fmt.Fprintf(s.out, "\nThe CA of %s changed, and this Mac trusts the old one.\n", p.Meta.Name)
+			if !s.tty() {
+				fmt.Fprintf(s.out, "damstack trust %s, on a terminal, trusts the new one instead.\n", p.Meta.Name)
+				return
+			}
 			ok, err := s.confirm("Trust the new one instead?", true)
 			if err == nil && ok {
 				if err := trust(ctx, s, p, m); err != nil {

@@ -155,6 +155,25 @@ func serverLogin(p *project.Project, m *manifest.Manifest) (string, string, erro
 	return address, user, err
 }
 
+// takesKey is whether the server of p lets k log in.
+func takesKey(ctx context.Context, p *project.Project, m *manifest.Manifest, k *sshkey.Key) bool {
+	address, user, err := serverLogin(p, m)
+	if err != nil {
+		return false
+	}
+	path := filepath.Join(p.Dir, projectKeyFile+".new")
+	if err := k.Write(path); err != nil {
+		return false
+	}
+	defer os.Remove(path)
+	defer os.Remove(path + ".pub")
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "ssh", "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes",
+		"-o", "UserKnownHostsFile="+filepath.Join(p.Dir, project.KnownHosts), "-o", "StrictHostKeyChecking=accept-new",
+		"-i", path, user+"@"+address, "true").Run() == nil
+}
+
 // rotateSSHKey authorizes a new key of the project on the server, logging in
 // with the old one, so that losing the race leaves the old key working; when
 // the server does not take the new key, the old one stays in vault.yml.
@@ -209,15 +228,20 @@ func rotateSSHKey(ctx context.Context, s *streams, p *project.Project) error {
 	}
 	start := time.Now()
 	err = e.Run(ctx, m.Commands[m.Server.SSHKey.Apply], nil)
-	if rerr := record(p, "ssh rotate", "", start, err); rerr != nil && err == nil {
-		err = rerr
-	}
+	rerr := record(p, "ssh rotate", "", start, err)
 	if err != nil {
+		if takesKey(ctx, p, m, k) {
+			return fmt.Errorf("%w; the server takes the new key already, so it stays in vault.yml, "+
+				"and the old one may no longer work: run damstack ssh rotate %s again to finish", err, p.Meta.Name)
+		}
 		secrets[name] = old
 		if serr := p.SaveSecrets(password, secrets); serr != nil {
 			return errors.Join(err, serr)
 		}
 		return fmt.Errorf("%w; the old key stays, nothing changed on this Mac", err)
+	}
+	if rerr != nil {
+		return rerr
 	}
 	if _, err := keyFor(p, m, password); err != nil {
 		return err

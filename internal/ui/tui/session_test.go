@@ -106,3 +106,35 @@ func TestScreensFollowOneAnotherWithoutLeavingTheTerminal(t *testing.T) {
 		t.Error("closing the session must give the terminal back")
 	}
 }
+
+// leaving is a screen that quits at once and leaves a late message behind,
+// as a tick does.
+type leaving struct{ quitting }
+
+func (l *leaving) Init() tea.Cmd {
+	late := func() tea.Msg { time.Sleep(100 * time.Millisecond); return pokeMsg{} }
+	return tea.Batch(tea.Quit, late)
+}
+
+func TestALateMessageOfAScreenGoneReachesNoOther(t *testing.T) {
+	in, w := io.Pipe()
+	defer w.Close()
+	s := NewSession(in, &syncBuffer{})
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Show(ctx, &leaving{quitting{name: "first"}}); err != nil {
+		t.Fatal(err)
+	}
+	next := &quitting{name: "next", wait: true}
+	done := make(chan error, 1)
+	go func() { done <- s.Show(ctx, next) }()
+	time.Sleep(300 * time.Millisecond)
+	if len(next.got) != 0 {
+		t.Error("the tick of the screen gone reached the next")
+	}
+	s.p.Send(pokeMsg{})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
