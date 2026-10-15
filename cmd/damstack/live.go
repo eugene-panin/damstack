@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -17,15 +18,15 @@ var changedRe = regexp.MustCompile(`changed=([0-9]+)`)
 // liveCheck compares the server with what each step makes it, changing
 // nothing: playbooks run in check mode, OpenTofu plans.
 func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
-	e, _, err := newEngine(ctx, s, p, m, dir)
+	e, _, err := ops.NewEngine(ctx, streamsUI{s}, s.yes, p, m, dir)
 	if err != nil {
 		return err
 	}
-	jobs, err := buildJobs(ctx, s, p, m, e, false, false)
+	jobs, err := ops.BuildJobs(ctx, streamsUI{s}, s.yes, p, m, e, false, false)
 	if err != nil {
 		return err
 	}
-	readProject(s, p, m, dir, e.Password).Attach(jobs)
+	ops.ReadProject(s.err, p, m, dir, e.Password).Attach(jobs)
 	quiet := *s
 	quiet.in = nil
 	fmt.Fprintf(s.out, "Checking %s against the server, changing nothing.\n\n", p.Meta.Name)
@@ -58,7 +59,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 
 type liveResult struct{ state, text string }
 
-func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *manifest.Server) liveResult {
+func liveStep(ctx context.Context, s *streams, p *project.Project, j ops.Job, srv *manifest.Server) liveResult {
 	switch {
 	case j.Step.Once:
 		return liveResult{"skipped", "runs once, not checked"}
@@ -68,18 +69,18 @@ func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *m
 		return liveResult{"skipped", "not checked"}
 	}
 	if j.Step.Tunnel && srv != nil {
-		if err := waitTunnel(ctx, s, p, srv); err != nil {
+		if err := ops.WaitTunnel(ctx, streamsUI{s}, p, srv); err != nil {
 			return liveResult{"unknown", "not checked: the tunnel is off"}
 		}
 	}
-	log, restore, err := logTo(p, j)
+	log, restore, err := ops.LogTo(p, j)
 	if err != nil {
 		return liveResult{"unknown", err.Error()}
 	}
 	defer restore()
 	if j.Step.Ansible != nil {
 		if err := j.Engine.Run(ctx, j.Step, []string{"--check", "--diff"}); err != nil {
-			return liveResult{"unknown", "the check failed: " + firstLine(err.Error()) + "; see " + log}
+			return liveResult{"unknown", "the check failed: " + ops.FirstLine(err.Error()) + "; see " + log}
 		}
 		data, _ := os.ReadFile(log)
 		changed := 0
@@ -94,7 +95,7 @@ func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *m
 	}
 	counts, err := j.Engine.Drift(ctx, j.Step)
 	if err != nil {
-		return liveResult{"unknown", "the check failed: " + firstLine(err.Error()) + "; see " + log}
+		return liveResult{"unknown", "the check failed: " + ops.FirstLine(err.Error()) + "; see " + log}
 	}
 	if counts != "" {
 		return liveResult{"differs", "differs: " + counts}

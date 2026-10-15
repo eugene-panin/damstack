@@ -3,20 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/ask"
-	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/manifest"
-	"github.com/eugene-panin/damstack/internal/project"
-	"github.com/eugene-panin/damstack/internal/secret"
+	"github.com/eugene-panin/damstack/internal/ops"
 )
 
 func secretCommand(s *streams) *cobra.Command {
@@ -47,115 +42,16 @@ func secretCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m, _, err := projectStack(cmd.Context(), p, "")
+			m, _, err := ops.ProjectStack(cmd.Context(), p, "")
 			if err != nil {
 				return err
 			}
-			var rotatable []string
-			var spec *manifest.Secret
-			for i, sec := range m.Secrets {
-				if sec.Rotate {
-					rotatable = append(rotatable, sec.Name)
-				}
-				if sec.Name == args[0] {
-					spec = &m.Secrets[i]
-				}
-			}
-			switch {
-			case spec == nil:
-				return fmt.Errorf("%s is not a secret of the stack %s", args[0], m.Name)
-			case !spec.Rotate:
-				msg := fmt.Sprintf("the stack %s does not allow making %s anew", m.Name, args[0])
-				if len(rotatable) > 0 {
-					msg += "; it allows " + strings.Join(slices.Sorted(slices.Values(rotatable)), ", ")
-				}
-				return fmt.Errorf("%s", msg)
-			}
-			ok, err := s.confirm(fmt.Sprintf("Make %s of %s anew? The old one stops working once damstack deploy %s puts the new one in place.",
-				spec.Name, p.Meta.Name, p.Meta.Name), false)
-			if err != nil || !ok {
-				return err
-			}
-			password, err := p.Password()
-			if err != nil {
-				return err
-			}
-			secrets, err := p.Secrets(password)
-			if err != nil {
-				return err
-			}
-			put, err := makeAnew(p, *spec, secrets)
-			if err != nil {
-				return err
-			}
-			if err := p.SaveSecrets(password, secrets); err != nil {
-				return err
-			}
-			if err := put(); err != nil {
-				return err
-			}
-			fmt.Fprintf(s.out, "%s of %s is new. damstack deploy %s puts it in place; until then the server keeps the old one.\n",
-				spec.Name, p.Meta.Name, p.Meta.Name)
-			if spec.Cert != "" {
-				fmt.Fprintf(s.out, "The certificate is in %s; the old one is next to it, as %s.old.\n", spec.Cert, spec.Cert)
-			}
-			return nil
+			return ops.RotateSecret(streamsUI{s}, p, m, args[0])
 		},
 	}
 	rotate.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
 	cmd.AddCommand(rotate, secretSetCommand(s), secretListCommand(s))
 	return cmd
-}
-
-// makeAnew puts a new value of a generated secret in secrets; put writes its
-// certificate, when it has one, in the project, the old one next to it, once
-// the secret is kept.
-func makeAnew(p *project.Project, spec manifest.Secret, secrets map[string]any) (put func() error, err error) {
-	g, err := secret.Generate(spec.Generate, spec.Bytes, p.Meta.Name)
-	if err != nil {
-		return nil, err
-	}
-	secrets[spec.Name] = g.Value
-	return func() error {
-		if spec.Cert == "" {
-			return nil
-		}
-		path := filepath.Join(p.Dir, spec.Cert)
-		if err := os.Rename(path, path+".old"); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return atomicfile.Write(path, g.Cert, 0o644)
-	}, nil
-}
-
-// askedSecret is an asked secret of a project's platform or one of its apps,
-// and the app it is of ("" for the platform).
-type askedSecret struct {
-	spec manifest.Secret
-	app  string
-}
-
-// askedSecrets are the secrets a person gives a project: those its platform and
-// its apps ask for.
-func askedSecrets(p *project.Project) []askedSecret {
-	var out []askedSecret
-	if m, _ := cachedStack(p); m != nil {
-		for _, sec := range m.Secrets {
-			if sec.Ask != "" {
-				out = append(out, askedSecret{sec, ""})
-			}
-		}
-	}
-	for _, ref := range p.Meta.Apps {
-		if am, _ := cachedRef(ref); am != nil {
-			for _, sec := range am.Secrets {
-				if sec.Ask != "" {
-					out = append(out, askedSecret{sec, ref.Name})
-				}
-			}
-		}
-	}
-	return out
 }
 
 func secretSetCommand(s *streams) *cobra.Command {
@@ -172,52 +68,30 @@ func secretSetCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			asked := askedSecrets(p)
-			i := slices.IndexFunc(asked, func(a askedSecret) bool { return a.spec.Name == args[0] })
-			if i < 0 {
-				names := make([]string, len(asked))
-				for j, a := range asked {
-					names[j] = a.spec.Name
-				}
-				return fmt.Errorf("%s is no secret %s asks for; damstack secret list shows them: %s", args[0], p.Meta.Name, strings.Join(names, ", "))
-			}
-			spec := asked[i].spec
-			password, err := p.Password()
-			if err != nil {
-				return err
-			}
-			secrets, err := p.Secrets(password)
-			if err != nil {
-				return err
-			}
-			if unset {
-				if !spec.Optional {
-					return fmt.Errorf("%s is needed; it can be replaced, not unset", spec.Name)
-				}
-				delete(secrets, spec.Name)
-			} else {
+			a, err := ops.SetSecret(p, args[0], unset, func(spec manifest.Secret) (string, error) {
 				value, err := readSecret(s, spec)
 				if err != nil {
-					return err
+					return "", err
 				}
 				check := func(specs []manifest.CheckSpec, v any, answers map[string]any) []checks.Result {
 					return checks.Default().Run(cmd.Context(), specs, v, answers)
 				}
 				if failed := ask.Report(s.prompt, check, spec.Checks, value, nil); failed != "" {
-					return fmt.Errorf("%s: %s", spec.Name, failed)
+					return "", fmt.Errorf("%s: %s", spec.Name, failed)
 				}
-				secrets[spec.Name] = value
-			}
-			if err := p.SaveSecrets(password, secrets); err != nil {
+				return value, nil
+			})
+			if err != nil {
 				return err
 			}
+			spec := a.Spec
 			what := "set"
 			if unset {
 				what = "unset"
 			}
 			fmt.Fprintf(s.out, "%s of %s is %s, kept encrypted. damstack deploy %s puts it in place", spec.Name, p.Meta.Name, what, p.Meta.Name)
 			if spec.Env != "" {
-				fmt.Fprintf(s.out, ": %s restarts with it", servicesOf(spec, asked[i].app))
+				fmt.Fprintf(s.out, ": %s restarts with it", servicesOf(spec, a.App))
 			}
 			fmt.Fprintln(s.out, ".")
 			return nil
@@ -272,26 +146,26 @@ func secretListCommand(s *streams) *cobra.Command {
 			}
 			tw := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "SECRET\tSTATE\tTAKEN BY\tWHAT")
-			for _, a := range askedSecrets(p) {
+			for _, a := range ops.AskedSecrets(p) {
 				state := "set"
-				if v, _ := secrets[a.spec.Name].(string); v == "" {
+				if v, _ := secrets[a.Spec.Name].(string); v == "" {
 					switch {
-					case a.spec.When != "":
-						state = "only if " + a.spec.When
-					case a.spec.Optional:
+					case a.Spec.When != "":
+						state = "only if " + a.Spec.When
+					case a.Spec.Optional:
 						state = "not set (optional)"
 					default:
 						state = "not set"
 					}
 				}
 				by := "the platform"
-				if a.app != "" {
-					by = a.app
-					if a.spec.Env != "" {
-						by = servicesOf(a.spec, a.app) + " as " + a.spec.Env
+				if a.App != "" {
+					by = a.App
+					if a.Spec.Env != "" {
+						by = servicesOf(a.Spec, a.App) + " as " + a.Spec.Env
 					}
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.spec.Name, state, by, a.spec.Ask)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.Spec.Name, state, by, a.Spec.Ask)
 			}
 			return tw.Flush()
 		},

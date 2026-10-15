@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -154,11 +155,11 @@ func editCommand(s *streams) *cobra.Command {
 				if err != nil || !deploy {
 					return err
 				}
-				m, dir, err := projectStack(cmd.Context(), p, "")
+				m, dir, err := ops.ProjectStack(cmd.Context(), p, "")
 				if err != nil {
 					return err
 				}
-				return runSteps(cmd.Context(), s, p, m, dir, "", false)
+				return runSteps(cmd.Context(), s, p, m, dir, false)
 			}
 			path := filepath.Join(p.Dir, project.ConfigFile)
 			before, err := os.ReadFile(path)
@@ -195,11 +196,11 @@ func editCommand(s *streams) *cobra.Command {
 			if err != nil || !ok {
 				return err
 			}
-			m, dir, err := projectStack(cmd.Context(), p, "")
+			m, dir, err := ops.ProjectStack(cmd.Context(), p, "")
 			if err != nil {
 				return err
 			}
-			return runSteps(cmd.Context(), s, p, m, dir, "", false)
+			return runSteps(cmd.Context(), s, p, m, dir, false)
 		},
 	}
 	cmd.Flags().BoolVar(&asYAML, "yaml", false, "open stack.yaml in your editor, $VISUAL or $EDITOR, instead of the settings screen")

@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,4 +78,24 @@ func RecordRun(p *project.Project, command, step, inputs string, start time.Time
 		e.Result, e.Error = project.Failed, err.Error()
 	}
 	return p.Record(e)
+}
+
+// Ago says how long ago t was, roughly.
+func Ago(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+}
+
+// FirstLine is the first line of text.
+func FirstLine(text string) string {
+	line, _, _ := strings.Cut(text, "\n")
+	return line
 }

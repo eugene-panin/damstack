@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/sources"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
@@ -15,7 +16,7 @@ import (
 // sourcesScreen shows where apps come from, and adds, syncs and removes
 // sources; it says whether the person asked for the catalog after.
 func sourcesScreen(ctx context.Context, s *streams) (bool, error) {
-	cfg, err := loadConfig(ctx)
+	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return false, err
 	}

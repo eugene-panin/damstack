@@ -17,6 +17,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/backup"
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
@@ -58,7 +59,7 @@ func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool)
 			note = err.Error()
 		}
 		var err error
-		if cfg, err = loadConfig(ctx); err != nil {
+		if cfg, err = ops.LoadConfig(ctx); err != nil {
 			return err
 		}
 	}
@@ -68,7 +69,7 @@ func homeScreen(ctx context.Context, s *streams, cfg *config.Config, ready bool)
 func homeAction(ctx context.Context, s *streams, p *project.Project, key string) error {
 	switch key {
 	case "d":
-		m, dir, err := projectStack(ctx, p, "")
+		m, dir, err := ops.ProjectStack(ctx, p, "")
 		if err != nil {
 			return err
 		}
@@ -78,7 +79,7 @@ func homeAction(ctx context.Context, s *streams, p *project.Project, key string)
 		}
 		s.only = parts
 		defer func() { s.only = nil }()
-		return runSteps(ctx, s, p, m, dir, "", false)
+		return runSteps(ctx, s, p, m, dir, false)
 	case "a", "enter":
 		return catalogScreen(ctx, s, p)
 	case "k":
@@ -143,10 +144,10 @@ func lookAt(ctx context.Context, p *project.Project) tui.ProjectState {
 		case last == nil:
 			st.Notes = append(st.Notes, "deploy  not yet")
 		case last.Result == project.Failed:
-			st.Notes = append(st.Notes, "deploy  "+last.Step+" failed "+ago(last.Time))
+			st.Notes = append(st.Notes, "deploy  "+last.Step+" failed "+ops.Ago(last.Time))
 			st.Needs = append(st.Needs, tui.Need{Text: "the last deploy failed at " + last.Step, Urgent: true, Key: "d"})
 		default:
-			st.Notes = append(st.Notes, "deploy  last "+ago(last.Time))
+			st.Notes = append(st.Notes, "deploy  last "+ops.Ago(last.Time))
 		}
 		if !restored {
 			st.Needs = append(st.Needs, tui.Need{Text: "backups never restored", Urgent: true})
@@ -173,7 +174,7 @@ func lookAt(ctx context.Context, p *project.Project) tui.ProjectState {
 		}
 	}
 	if b, err := backup.LoadState(p.Dir); err == nil {
-		if m, _ := cachedStack(p); m != nil && m.Backup != nil && staleWarning(b) != "" {
+		if m, _ := ops.CachedStack(p); m != nil && m.Backup != nil && ops.StaleWarning(b) != "" {
 			st.Needs = append(st.Needs, tui.Need{Text: "the backups here are old, or none"})
 		}
 	}
@@ -194,12 +195,12 @@ func keysSet(p *project.Project, password string) (set, all int) {
 	if err != nil {
 		return 0, 0
 	}
-	for _, a := range askedSecrets(p) {
-		if a.app == "" {
+	for _, a := range ops.AskedSecrets(p) {
+		if a.App == "" {
 			continue
 		}
 		all++
-		if v, _ := secrets[a.spec.Name].(string); v != "" {
+		if v, _ := secrets[a.Spec.Name].(string); v != "" {
 			set++
 		}
 	}
@@ -213,12 +214,12 @@ func appKeysPending(p *project.Project) bool {
 	if err != nil {
 		return false
 	}
-	for _, a := range askedSecrets(p) {
-		if a.app == "" {
+	for _, a := range ops.AskedSecrets(p) {
+		if a.App == "" {
 			continue
 		}
-		deployed := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, a.app+"/") })
-		if rec, ok := r.Secrets[a.spec.Name]; ok && rec.Set.After(deployed) {
+		deployed := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, a.App+"/") })
+		if rec, ok := r.Secrets[a.Spec.Name]; ok && rec.Set.After(deployed) {
 			return true
 		}
 	}
@@ -243,7 +244,7 @@ func appStates(ctx context.Context, p *project.Project) (tui.State, string, []tu
 	for _, a := range p.Meta.Apps {
 		apps = append(apps, tui.AppState{Name: a.Name})
 	}
-	m, dir, err := projectStack(ctx, p, "")
+	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return tui.Unknown, "stack not fetched", apps
 	}
@@ -251,7 +252,7 @@ func appStates(ctx context.Context, p *project.Project) (tui.State, string, []tu
 	if err != nil {
 		return tui.Unknown, "unknown", apps
 	}
-	env, err := appEnv(p, m, dir, password)
+	env, err := ops.AppEnv(p, m, dir, password)
 	if err != nil || env["NOMAD_ADDR"] == "" {
 		return tui.Unknown, "unknown", apps
 	}
@@ -300,7 +301,7 @@ func appStates(ctx context.Context, p *project.Project) (tui.State, string, []tu
 }
 
 func listJobs(ctx context.Context, env map[string]string) ([]nomadJob, error) {
-	c := caClient(env["NOMAD_CACERT"])
+	c := ops.CAClient(env["NOMAD_CACERT"])
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(env["NOMAD_ADDR"], "/")+"/v1/jobs", nil)
@@ -322,14 +323,14 @@ func listJobs(ctx context.Context, env map[string]string) ([]nomadJob, error) {
 
 // linksScreen shows every address a project serves.
 func linksScreen(ctx context.Context, s *streams, p *project.Project) error {
-	m, _, err := projectStack(ctx, p, "")
+	m, _, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
 	config, _ := p.Config()
 	infra, _ := config["infra_domain"].(string)
 	var links []tui.Link
-	for _, l := range runDone(p, m).Links {
+	for _, l := range ops.RunDone(p, m).Links {
 		u, _ := url.Parse(l.URL)
 		tunnel := infra != "" && u != nil && strings.HasSuffix(u.Hostname(), "."+infra)
 		links = append(links, tui.Link{URL: l.URL, Admin: l.Admin, Tunnel: tunnel, Token: l.Token})
@@ -383,26 +384,26 @@ func pickParts(ctx context.Context, s *streams, p *project.Project, m *manifest.
 		case step.Once && ran && last.Result == project.OK:
 			row.Note, row.Picked = "done once", false
 		case step.Ansible != nil:
-			inputs, err := platformInputs(p, dir, step.Ansible.Playbook, password)
+			inputs, err := ops.PlatformInputs(p, dir, step.Ansible.Playbook, password)
 			if err != nil {
 				return nil, false, err
 			}
-			if why := unchanged(p, step.Name, inputs, time.Now()); why != "" {
+			if why := ops.Unchanged(p, step.Name, inputs, time.Now()); why != "" {
 				row.Note, row.Picked = strings.TrimSuffix(why, "; --all runs it"), false
 			} else {
 				row.Note, row.Changed = "changed since it last ran well", true
 			}
 		case ran:
-			row.Note = "ran " + ago(last.Time)
+			row.Note = "ran " + ops.Ago(last.Time)
 		}
 		rows = append(rows, row)
 	}
 	pending := map[string]bool{}
 	if r, err := p.Records(); err == nil {
-		for _, a := range askedSecrets(p) {
-			deployed := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, a.app+"/") })
-			if rec, ok := r.Secrets[a.spec.Name]; a.app != "" && ok && rec.Set.After(deployed) {
-				pending[a.app] = true
+		for _, a := range ops.AskedSecrets(p) {
+			deployed := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, a.App+"/") })
+			if rec, ok := r.Secrets[a.Spec.Name]; a.App != "" && ok && rec.Set.After(deployed) {
+				pending[a.App] = true
 			}
 		}
 	}
@@ -411,7 +412,7 @@ func pickParts(ctx context.Context, s *streams, p *project.Project, m *manifest.
 		if pending[ref.Name] {
 			row.Note, row.Changed = "keys changed", true
 		} else if at := lastStepDone(p, func(step string) bool { return strings.HasPrefix(step, ref.Name+"/") }); !at.IsZero() {
-			row.Note = "deployed " + ago(at)
+			row.Note = "deployed " + ops.Ago(at)
 		}
 		rows = append(rows, row)
 	}

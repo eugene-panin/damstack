@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/secret"
 )
@@ -43,7 +44,7 @@ func trustCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m, _, err := projectStack(cmd.Context(), p, "")
+			m, _, err := ops.ProjectStack(cmd.Context(), p, "")
 			if err != nil {
 				return err
 			}

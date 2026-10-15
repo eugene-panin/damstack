@@ -192,7 +192,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 			s.only[strings.TrimSpace(part)] = true
 		}
 	}
-	cfg, err := loadConfig(ctx)
+	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -211,11 +211,11 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 		}
 	}
 	if p != nil {
-		m, dir, err := projectStack(ctx, p, o.from)
+		m, dir, err := ops.ProjectStack(ctx, p, o.from)
 		if err != nil {
 			return err
 		}
-		return runSteps(ctx, s, p, m, dir, "", o.appsOnly)
+		return runSteps(ctx, s, p, m, dir, o.appsOnly)
 	}
 
 	m, dir, ref, err := chooseStack(ctx, s, cfg, o)
@@ -273,7 +273,7 @@ func deploy(ctx context.Context, s *streams, o deployOptions) error {
 	fmt.Fprintf(s.out, "\nSet up %s in %s: stack.yaml is the one file to edit.\n"+
 		"The secrets are in vault.yml, encrypted; its password is %s.\n"+
 		"Keep a copy of the password somewhere safe, such as a password manager: nothing restores without it.\n", name, path, pass)
-	return runSteps(ctx, s, p, m, dir, "", false)
+	return runSteps(ctx, s, p, m, dir, false)
 }
 
 // taken is whether a name is a project already, or a stack, which deploy
@@ -350,7 +350,7 @@ func chooseStack(ctx context.Context, s *streams, cfg *config.Config, o deployOp
 		if m.IsApp() {
 			return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add --from %s in it", m.Name, dir)
 		}
-		ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}
+		ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: ops.DevTag}
 		intro(s, m, ref)
 		return m, dir, ref, nil
 	}
@@ -490,17 +490,24 @@ func review(s *streams, m *manifest.Manifest, name, path string) func(map[string
 
 // runSteps deploys a project: the steps of its platform, then those of each
 // app, then the platform's steps that come after the apps.
-// runSteps deploys a project; with restore, the snapshot of a backup, it sets
-// up a new server from it, running the steps that run once and those of a
-// restore too.
-func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, restore string, appsOnly bool) error {
-	d := &ops.Deployer{UI: streamsUI{s}, Screen: streamsScreen{s}, Opts: ops.Options{
-		Yes: s.yes, Verbose: s.verbose, BreakGlass: s.breakGlass, All: s.all, AppsOnly: appsOnly, Only: s.only, Restore: restore,
-	}}
-	r, err := d.Deploy(ctx, p, m, dir)
+func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string, appsOnly bool) error {
+	r, err := deployer(s, appsOnly).Deploy(ctx, p, m, dir)
 	if err != nil {
 		return err
 	}
+	return deployed(ctx, s, p, m, dir, r)
+}
+
+// deployer deploys over the streams, as their flags say.
+func deployer(s *streams, appsOnly bool) *ops.Deployer {
+	return &ops.Deployer{UI: streamsUI{s}, Screen: streamsScreen{s}, Opts: ops.Options{
+		Yes: s.yes, Verbose: s.verbose, BreakGlass: s.breakGlass, All: s.all, AppsOnly: appsOnly, Only: s.only,
+	}}
+}
+
+// deployed says what a deploy of p set up and what it changed, and schedules
+// the pulls of its backups.
+func deployed(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string, r ops.Result) error {
 	keys := r.Keys
 	fmt.Fprintf(s.out, "\nDone. %s is running.\n", p.Meta.Name)
 	done(s.out, p, m, "")
@@ -508,9 +515,9 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		fmt.Fprintln(s.out, "\nNew WireGuard keys: each device needs its new configuration, and the old one no longer works.")
 		names := keys.Added
 		if keys.Server {
-			t, err := newTunnel(s, p, m, dir)
+			t, err := ops.OpenTunnel(streamsUI{s}, s.yes, p, m, dir)
 			if err == nil {
-				names = t.names
+				names = t.Names()
 			}
 		}
 		for _, name := range names {
@@ -518,7 +525,7 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		}
 	}
 	for _, ref := range p.Meta.Apps {
-		if am, _ := cachedRef(ref); am != nil && len(am.Done) > 0 {
+		if am, _ := ops.CachedRef(ref); am != nil && len(am.Done) > 0 {
 			fmt.Fprintf(s.out, "%s:\n", ref.Name)
 			done(s.out, p, am, ref.Name)
 		}
@@ -527,17 +534,17 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 	if m.Backup == nil {
 		return nil
 	}
-	b, err := loadBackup(ctx, p)
+	b, err := ops.LoadBackup(ctx, p)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(s.out)
-	return scheduleBackup(ctx, s, p, b, true)
+	return ops.ScheduleBackup(ctx, streamsUI{s}, p, b, true)
 }
 
 // done says what a stack serves, from its done lines.
 func done(w io.Writer, p *project.Project, m *manifest.Manifest, app string) {
-	for _, line := range doneLines(p, m, app) {
+	for _, line := range ops.DoneLines(p, m, app) {
 		fmt.Fprintf(w, "  %s\n", line)
 	}
 }

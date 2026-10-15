@@ -19,8 +19,8 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
-	"github.com/eugene-panin/damstack/internal/library"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 )
@@ -264,7 +264,7 @@ func runDoctor(ctx context.Context, w io.Writer) error {
 			return err
 		}
 		dp = &doctor.Project{Dir: p.Dir, Password: password}
-		if m, _ := cachedStack(p); m != nil && m.Server != nil && m.Server.Tunnel != "" {
+		if m, _ := ops.CachedStack(p); m != nil && m.Server != nil && m.Server.Tunnel != "" {
 			if config, err := p.Config(); err == nil {
 				dp.Tunnel, _ = manifest.Render("server.tunnel", m.Server.Tunnel, config, nil)
 				dp.Public, _ = manifest.RenderLogin("server.address", m.Server.Address, config, nil)
@@ -306,16 +306,4 @@ func markChecked() {
 	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
 		_ = os.WriteFile(path, nil, 0o644)
 	}
-}
-
-// loadConfig is the config of damstack with the library fetched.
-func loadConfig(ctx context.Context) (*config.Config, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	if l, err := library.Default(); err == nil {
-		cfg.Library = l.Get(ctx)
-	}
-	return cfg, nil
 }
