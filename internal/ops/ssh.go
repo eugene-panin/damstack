@@ -32,6 +32,9 @@ func ServerLogin(p *project.Project, m *manifest.Manifest) (string, string, erro
 	return address, user, err
 }
 
+// serverTakesKey is takesKey; tests answer in its place.
+var serverTakesKey = takesKey
+
 // takesKey is whether the server of p lets k log in.
 func takesKey(ctx context.Context, p *project.Project, m *manifest.Manifest, k *sshkey.Key) bool {
 	address, user, err := ServerLogin(p, m)
@@ -74,7 +77,7 @@ func RotateSSHKey(ctx context.Context, ui UI, yes bool, p *project.Project) erro
 	if _, err := EnsureSSHKey(p, m, password); err != nil {
 		return err
 	}
-	e, _, err := NewEngine(ctx, ui, yes, p, m, dir)
+	e, _, err := newEngine(ctx, ui, yes, p, m, dir)
 	if err != nil {
 		return err
 	}
@@ -108,7 +111,7 @@ func RotateSSHKey(ctx context.Context, ui UI, yes bool, p *project.Project) erro
 	err = e.Run(ctx, m.Commands[m.Server.SSHKey.Apply], nil)
 	rerr := Record(p, "ssh rotate", "", start, err)
 	if err != nil {
-		if takesKey(ctx, p, m, k) {
+		if serverTakesKey(ctx, p, m, k) {
 			return fmt.Errorf("%w; the server takes the new key already, so it stays in vault.yml, "+
 				"and the old one may no longer work: run damstack ssh rotate %s again to finish", err, p.Meta.Name)
 		}
