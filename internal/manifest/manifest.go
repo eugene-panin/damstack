@@ -436,6 +436,7 @@ type checker struct {
 	server   *Server
 	app      bool
 	prefix   string
+	units    map[string]string
 	problems []Problem
 }
 
@@ -624,6 +625,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 				c.add(path, "the name must be lowercase letters, digits and hyphens, what a platform provides")
 			}
 			t := m.Targets[name]
+			c.units = nil
 			if len(t.Steps) == 0 {
 				c.add(path+".steps", "at least one step is required")
 			}
@@ -685,6 +687,21 @@ func (c *checker) checkCommands(path string, commands map[string]Step, dir strin
 	}
 }
 
+// checkUnit keeps two OpenTofu directories from sharing the name their state
+// is kept under, the last part of the path.
+func (c *checker) checkUnit(path, dir string) {
+	clean := filepath.Clean(dir)
+	base := filepath.Base(clean)
+	if c.units == nil {
+		c.units = map[string]string{}
+	}
+	if other, ok := c.units[base]; !ok {
+		c.units[base] = clean
+	} else if other != clean {
+		c.add(path, "%s and %s end in the same name, %s, which their state is kept under", other, clean, base)
+	}
+}
+
 func (c *checker) checkStep(path string, s Step, dir string) {
 	if s.Tunnel && !c.app && (c.server == nil || c.server.Tunnel == "") {
 		c.add(path+".tunnel", "needs server.tunnel, the address of the server over the private network")
@@ -710,6 +727,7 @@ func (c *checker) checkStep(path string, s Step, dir string) {
 			c.add(path+".tofu.dir", "is required")
 		} else {
 			c.checkFile(path+".tofu.dir", s.Tofu.Dir, dir, true)
+			c.checkUnit(path+".tofu.dir", s.Tofu.Dir)
 		}
 		if !slices.Contains(Actions, s.Tofu.Action) {
 			c.add(path+".tofu.action", "%q is not an action; one of %s", s.Tofu.Action, strings.Join(Actions, ", "))

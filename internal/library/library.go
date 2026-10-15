@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/config"
 )
 
@@ -59,7 +60,7 @@ func (l *Library) Get(ctx context.Context) []config.Stack {
 	if data, err := l.fetch(ctx); err == nil {
 		if stacks, err := parse(data); err == nil {
 			if os.MkdirAll(filepath.Dir(l.Cache), 0o755) == nil {
-				_ = os.WriteFile(l.Cache, data, 0o644)
+				_ = atomicfile.Write(l.Cache, data, 0o644)
 			}
 			return stacks
 		}

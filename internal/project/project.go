@@ -19,6 +19,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/release"
@@ -153,6 +154,9 @@ func Create(dir string, meta Meta, files map[string][]byte) (*Project, error) {
 // PasswordPath is where the vault password of a project is, outside the
 // project, so that the project can go to git.
 func PasswordPath(name string) (string, error) {
+	if name == "" || name == "." || name == ".." || name != filepath.Base(name) {
+		return "", fmt.Errorf("%q cannot be the name of a project", name)
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return "", err
@@ -236,13 +240,13 @@ func (p *Project) Secrets(password string) (map[string]any, error) {
 func (p *Project) SaveSecrets(password string, secrets map[string]any) error {
 	before, err := p.Secrets(password)
 	if err != nil {
-		before = map[string]any{}
+		return fmt.Errorf("%w; it is left as it is", err)
 	}
 	data, err := EncryptSecrets(password, secrets)
 	if err != nil {
 		return err
 	}
-	if err := writeFile(filepath.Join(p.Dir, VaultFile), data, 0o644); err != nil {
+	if err := writeFile(filepath.Join(p.Dir, VaultFile), data, 0o600); err != nil {
 		return err
 	}
 	return p.stamp(before, secrets, time.Now())
@@ -301,9 +305,15 @@ func (p *Project) Record(e Entry) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(p.Dir, historyFile), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(filepath.Join(p.Dir, historyFile), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
+	}
+	if info, err := f.Stat(); err == nil && info.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, info.Size()-1); err == nil && last[0] != '\n' {
+			line = append([]byte{'\n'}, line...)
+		}
 	}
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		f.Close()
@@ -323,10 +333,11 @@ func (p *Project) History() ([]Entry, error) {
 	defer f.Close()
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
-	for n := 1; scanner.Scan(); n++ {
+	scanner.Buffer(nil, 16<<20)
+	for scanner.Scan() {
 		var e Entry
-		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-			return nil, fmt.Errorf("%s line %d: %w", historyFile, n, err)
+		if json.Unmarshal(scanner.Bytes(), &e) != nil {
+			continue
 		}
 		entries = append(entries, e)
 	}
@@ -373,11 +384,7 @@ func (p *Project) SaveMeta() error {
 }
 
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, data, mode)
 }
 
 // SetApp puts block, the YAML settings of an app, under apps.<name> of

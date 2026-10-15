@@ -9,6 +9,9 @@ on:
     paths-ignore: ["**.md", LICENSE]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,10 +20,11 @@ jobs:
   test:
     name: test and e2e (macOS)
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
 
@@ -29,6 +33,9 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -race -count=1 ./...
+
+      - name: Static checks
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
       - name: Known vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

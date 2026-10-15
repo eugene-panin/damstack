@@ -81,7 +81,7 @@ func (r *Remote) Lock(ctx context.Context, who Holder, wait func(Waiting)) (*Hel
 	if ok, _, err := r.KV.Acquire(&api.KVPair{Key: r.key("queue", session), Value: value, Session: session}, nil); err != nil || !ok {
 		h.Release()
 		if err == nil {
-			err = errors.New("Consul refused the place in the queue")
+			err = errors.New("the platform's Consul refused the place in the queue")
 		}
 		return nil, fmt.Errorf("joining the queue for the lock: %w", err)
 	}

@@ -197,10 +197,10 @@ func loadTunnel(s *streams, p *project.Project, m *manifest.Manifest, dir, passw
 			return nil, fmt.Errorf("server.wireguard.%s of the stack: %w", field, err)
 		}
 	}
-	if t.public, err = manifest.Render("server.address", m.Server.Address, config, nil); err != nil {
+	if t.public, err = manifest.RenderLogin("server.address", m.Server.Address, config, nil); err != nil {
 		return nil, err
 	}
-	if t.user, err = manifest.Render("server.ops_user", m.Server.OpsUser, config, nil); err != nil {
+	if t.user, err = manifest.RenderLogin("server.ops_user", m.Server.OpsUser, config, nil); err != nil {
 		return nil, err
 	}
 	return t, nil

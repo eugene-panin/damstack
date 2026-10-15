@@ -200,6 +200,7 @@ func TestProblems(t *testing.T) {
 		{"backup without a password", "  password: '{{ secret \"backup_password\" }}'\n", "", "backup.password: is required", "backup:"},
 		{"backup keeping an unknown count", "weekly: \"{{", "fortnightly: \"{{", "not a count restic keeps", "  keep:"},
 		{"backup template that does not parse", "to: ~/Backups/{{ .config.name }}", "to: ~/Backups/{{ .config.name", "unclosed action", "  to:"},
+		{"two tofu dirs of one name", "tofu: {dir: infra, action: output}", "tofu: {dir: policy/infra, action: output}", "end in the same name, infra", "tofu: {dir: policy/infra"},
 		{"no steps", "steps:\n", "steps: []\nold_steps:\n", "unknown field old_steps", "old_steps"},
 	}
 	for _, tc := range tests {
@@ -391,5 +392,15 @@ func TestAnAppsKeysGoToTheServicesThatUseThem(t *testing.T) {
 	platform := strings.Replace(valid, "secrets:\n", "secrets:\n  - name: relay_key\n    ask: a key\n    env: RELAY_KEY\n", 1)
 	if _, err := Load(stackDir(t, platform), "0.1.0"); err == nil || !strings.Contains(err.Error(), "is for an app's secrets") {
 		t.Errorf("a platform's secret goes to no service: got %v", err)
+	}
+}
+
+func TestALoginSSHWouldTakeForAnOptionIsRefused(t *testing.T) {
+	for v, ok := range map[string]bool{"ops": true, "169.58.210.131": true, "[2001:db8::1]": true, "mail.example.org": true,
+		"-oProxyCommand=x": false, "ops ops": false, "root@x": false, "": false} {
+		_, err := RenderLogin("server.address", v, nil, nil)
+		if (err == nil) != ok {
+			t.Errorf("%q: %v", v, err)
+		}
 	}
 }

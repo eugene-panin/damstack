@@ -133,3 +133,18 @@ func TestAFilterStandsBetweenTheCommandAndItsOutput(t *testing.T) {
 		t.Errorf("a command's own Stdout is filtered too: %q", own.String())
 	}
 }
+
+func TestAChainOfLinksDoesNotLeadOutOfTheToolbox(t *testing.T) {
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "toolbox")
+	os.Mkdir(dest, 0o755)
+	unpack(archive(t,
+		&tar.Header{Name: "d/", Typeflag: tar.TypeDir, Mode: 0o755},
+		&tar.Header{Name: "d/a", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		&tar.Header{Name: "d/a/l", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		&tar.Header{Name: "d/a/l/x", Typeflag: tar.TypeReg, Mode: 0o644},
+	), dest)
+	if _, err := os.Stat(filepath.Join(parent, "x")); err == nil {
+		t.Fatal("a file was written outside the toolbox")
+	}
+}
