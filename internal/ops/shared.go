@@ -29,6 +29,9 @@ type Sharing struct {
 	local *os.File
 }
 
+// openRemote is remote.Open; tests put a Consul in memory in its place.
+var openRemote = remote.Open
+
 // platformRemote is the platform's Consul a project's state is shared on, from
 // its app_env; nil when the platform gives none.
 func platformRemote(p *project.Project, m *manifest.Manifest, dir, password string) (*remote.Remote, error) {
@@ -39,7 +42,7 @@ func platformRemote(p *project.Project, m *manifest.Manifest, dir, password stri
 	if err != nil {
 		return nil, err
 	}
-	return remote.Open(p.Meta.Name, env)
+	return openRemote(p.Meta.Name, env)
 }
 
 // me is who holds the lock, as the others see it.

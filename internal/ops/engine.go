@@ -89,6 +89,9 @@ func EnsureSSHKey(p *project.Project, m *manifest.Manifest, password string) (bo
 	return true, p.SaveSecrets(password, secrets)
 }
 
+// newEngine is NewEngine; tests put an engine with a fake runner in its place.
+var newEngine = NewEngine
+
 // NewEngine is the engine that runs the steps of the stack m for p, and the
 // SSH key it logs in with. Its events go to ui as they come; with yes it
 // applies every plan, replacing allocations too, without asking.
