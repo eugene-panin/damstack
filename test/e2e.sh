@@ -196,6 +196,14 @@ grep -Eq '^apply +.* ok' "$work/out" && grep -Eq '^hello/apply +.* ok' "$work/ou
 [[ $(grep -c ' deploy ' "$work/out") -ge 12 ]] || fail "history is short"
 grep -q ' failed ' "$work/out" || { cat "$work/out"; fail "history lost the failed apply"; }
 
+step "secret rotate makes a generated secret anew, and a deploy puts it in place"
+"$damstack" secret rotate ca_key --yes >"$work/out" 2>&1 && fail "a secret the stack does not allow was made anew"
+grep -q 'does not allow making ca_key anew; it allows token' "$work/out" || { cat "$work/out"; fail "no reason for refusing a rotation"; }
+cp vault.yml "$work/vault.before"
+"$damstack" secret rotate token --yes >"$work/out" 2>&1 || { cat "$work/out"; fail "secret rotate"; }
+cmp -s vault.yml "$work/vault.before" && fail "vault.yml did not change"
+"$damstack" deploy --yes </dev/null >"$work/out" 2>&1 || { cat "$work/out"; fail "the deploy after a rotation"; }
+
 step "rename: the project answers to its new name, with its password, state and history"
 "$damstack" rename demo1 hashi >"$work/out" 2>&1 && fail "a project took the name of a stack"
 "$damstack" rename demo1 demo3 >"$work/out" 2>&1 || { cat "$work/out"; fail "rename"; }

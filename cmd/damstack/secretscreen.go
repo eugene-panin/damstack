@@ -214,7 +214,7 @@ func orDefault(s, otherwise string) string {
 func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values map[string]string) []tui.Rotated {
 	var out []tui.Rotated
 	var renewed []int
-	changed := false
+	changed, puts := false, map[int]func() error{}
 	for _, r := range rows {
 		res := tui.Rotated{Name: r.Name}
 		switch r.Kind {
@@ -239,8 +239,10 @@ func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values m
 				v.secrets[r.Name], changed = values[r.Name], true
 			}
 		default:
-			if res.Err = makeAnew(v.p, v.sources[r.Name].spec, v.secrets); res.Err == nil {
+			var put func() error
+			if put, res.Err = makeAnew(v.p, v.sources[r.Name].spec, v.secrets); res.Err == nil {
 				changed = true
+				puts[len(out)] = put
 			}
 		}
 		out = append(out, res)
@@ -265,6 +267,10 @@ func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values m
 					out[i].Err = err
 				}
 			}
+			return out
+		}
+		for i, put := range puts {
+			out[i].Err = put()
 		}
 	}
 	return out
