@@ -368,3 +368,33 @@ func TestAPlanIsAnsweredWithItsChoice(t *testing.T) {
 		t.Errorf("n must not apply: %+v", a)
 	}
 }
+
+func TestCtrlCWhileAskedSaysNoAndStops(t *testing.T) {
+	stopped := false
+	m := midDeploy(100, 30)
+	m.actions = Actions{Stop: func() { stopped = true }}
+	answer := make(chan bool, 1)
+	m.Update(confirmMsg{question: "Go?", answer: answer})
+	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if <-answer || m.confirm != nil || !stopped {
+		t.Error("ctrl+c on a question must answer no and stop")
+	}
+}
+
+func TestCtrlCWhileTypingLeaves(t *testing.T) {
+	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	sources := designSources(100, 30, SourceActions{})
+	sources.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if _, cmd := sources.Update(ctrlC); cmd == nil {
+		t.Error("ctrl+c while adding a source must leave")
+	} else if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Error("ctrl+c while adding a source must leave")
+	}
+	catalog := designCatalog(100, 30)
+	catalog.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	if _, cmd := catalog.Update(ctrlC); cmd == nil {
+		t.Error("ctrl+c while searching must leave")
+	} else if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Error("ctrl+c while searching must leave")
+	}
+}

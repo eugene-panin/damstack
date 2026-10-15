@@ -178,6 +178,8 @@ func (m *Catalog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Catalog) searchKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
+	case "ctrl+c":
+		return tea.Quit
 	case "esc", "enter", "down":
 		m.search = false
 	case "backspace":

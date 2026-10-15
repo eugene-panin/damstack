@@ -23,6 +23,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/release"
+	"github.com/eugene-panin/damstack/internal/settings"
 	"github.com/eugene-panin/damstack/internal/vault"
 )
 
@@ -177,15 +178,22 @@ func NewPassword(name string) (string, error) {
 	b := make([]byte, 32)
 	rand.Read(b)
 	password := base64.RawURLEncoding.EncodeToString(b)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".vault-pass-*")
 	if err != nil {
-		return "", fmt.Errorf("a vault password for %s is already there, at %s: %w", name, path, err)
-	}
-	if _, err := f.WriteString(password + "\n"); err != nil {
-		f.Close()
 		return "", err
 	}
-	return password, f.Close()
+	defer os.Remove(tmp.Name())
+	_, err = tmp.WriteString(password + "\n")
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if err := errors.Join(err, tmp.Close()); err != nil {
+		return "", err
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
+		return "", fmt.Errorf("a vault password for %s is already there, at %s: %w", name, path, err)
+	}
+	return password, nil
 }
 
 // Work is the project's WorkDir, made if missing; only its owner may read it,
@@ -212,7 +220,11 @@ func (p *Project) Password() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	password := strings.TrimSpace(string(data))
+	if password == "" {
+		return "", fmt.Errorf("the vault password at %s is empty: copy it there again from where you keep it", path)
+	}
+	return password, nil
 }
 
 // Secrets reads vault.yml; a project without one has no secrets.
@@ -504,48 +516,12 @@ func (p *Project) SetList(path string, names []string) error {
 	if err != nil {
 		return err
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	doc, err := settings.Parse(data)
+	if err != nil {
 		return fmt.Errorf("%s: %w", file, err)
 	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return fmt.Errorf("%s is empty", file)
+	if err := doc.SetList(strings.Split(path, "."), names); err != nil {
+		return fmt.Errorf("%s: %w", file, err)
 	}
-	node := doc.Content[0]
-	for _, key := range strings.Split(path, ".") {
-		var next *yaml.Node
-		if node.Kind == yaml.MappingNode {
-			for i := 0; i+1 < len(node.Content); i += 2 {
-				if node.Content[i].Value == key {
-					next = node.Content[i+1]
-				}
-			}
-		}
-		if next == nil {
-			return fmt.Errorf("%s is not in stack.yaml", path)
-		}
-		node = next
-	}
-	if node.Kind != yaml.SequenceNode {
-		return fmt.Errorf("%s in stack.yaml is not a list", path)
-	}
-	lines := strings.SplitAfter(string(data), "\n")
-	if node.Style&yaml.FlowStyle != 0 {
-		line := lines[node.Line-1]
-		start := node.Column - 1
-		end := strings.Index(line[start:], "]")
-		if end < 0 {
-			return fmt.Errorf("%s in stack.yaml spans lines; edit it by hand", path)
-		}
-		lines[node.Line-1] = line[:start] + "[" + strings.Join(names, ", ") + "]" + line[start+end+1:]
-	} else {
-		first, last := node.Content[0], node.Content[len(node.Content)-1]
-		indent := strings.Repeat(" ", first.Column-3)
-		var block []string
-		for _, name := range names {
-			block = append(block, indent+"- "+name+"\n")
-		}
-		lines = append(lines[:first.Line-1], append(block, lines[last.Line:]...)...)
-	}
-	return writeFile(file, []byte(strings.Join(lines, "")), 0o644)
+	return writeFile(file, doc.Bytes(), 0o644)
 }

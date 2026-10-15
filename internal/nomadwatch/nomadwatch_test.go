@@ -222,3 +222,19 @@ func TestARestartReplacesOneAllocationAtATime(t *testing.T) {
 		t.Errorf("both fetcher allocations, one after the other, and nothing else: %v", stopped)
 	}
 }
+
+func TestAJobWithoutADeploymentIsUpWithoutItsStoppedAllocations(t *testing.T) {
+	f := &fakeNomad{
+		job:         map[string]any{"ID": "web", "Namespace": "default", "Type": "service", "Version": 4},
+		deployments: []any{nil},
+		allocs: [][]map[string]any{{
+			{"ID": "a1", "TaskGroup": "web", "JobVersion": 4, "ClientStatus": "running", "DesiredStatus": "run"},
+			{"ID": "a0", "TaskGroup": "web", "JobVersion": 4, "ClientStatus": "complete", "DesiredStatus": "stop"},
+		}},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client(t, f).Wait(ctx, "web", func(Progress) {}); err != nil {
+		t.Fatalf("a stopped allocation must not be waited for: %v", err)
+	}
+}

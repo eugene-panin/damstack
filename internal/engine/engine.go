@@ -28,6 +28,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/nomadwatch"
 	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/sshkey"
 	"github.com/eugene-panin/damstack/internal/tofujson"
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
@@ -210,11 +211,17 @@ func (e *Engine) unit(dir string) string {
 	return filepath.Base(dir)
 }
 
+// shellQuote is s as one word of a shell's command line, as Ansible splits
+// its ssh arguments.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
 func (e *Engine) ansible(ctx context.Context, a *manifest.Ansible, env map[string]string, args []string) error {
 	env["ANSIBLE_COLLECTIONS_PATH"] = filepath.Join(e.work(), "collections")
 	env["ANSIBLE_VAULT_PASSWORD_FILE"] = e.PasswordFile
 	env["ANSIBLE_SSH_ARGS"] = "-F /dev/null -C -o ControlMaster=auto -o ControlPersist=60s " +
-		"-o UserKnownHostsFile=" + e.knownHosts() + " -o StrictHostKeyChecking=accept-new"
+		"-o " + shellQuote(sshkey.KnownHostsOption(e.knownHosts())) + " -o StrictHostKeyChecking=accept-new"
 	if cfg := e.ansibleConfig(a.Playbook); cfg != "" {
 		env["ANSIBLE_CONFIG"] = filepath.Join(e.Stack, cfg)
 	}
@@ -452,6 +459,9 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	// allocations replaced, as Nomad would not.
 	approval := event.Approval{Apply: true}
 	if s.Confirm || len(pl.Restarts) > 0 {
+		if e.Approve == nil {
+			return errors.New("the step asks before it applies, and nothing here answers")
+		}
 		if approval, err = e.Approve(pl); err != nil {
 			return err
 		}

@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/eugene-panin/damstack/internal/sshkey"
 )
 
 type Server struct {
@@ -65,7 +67,7 @@ func (l *Login) Ensure(ctx context.Context, s Server) error {
 	fmt.Fprintf(l.Out, "\nYour SSH key does not log in to %s yet. damstack puts it there for %s now:\n"+
 		"type the password of %s your provider gave you. It is not kept.\n\n", s.Address, s.FirstUser, s.FirstUser)
 	target := s.FirstUser + "@" + s.Address
-	if err := l.Interactive(ctx, "ssh-copy-id", "-i", l.Key+".pub", "-o", "UserKnownHostsFile="+l.KnownHosts,
+	if err := l.Interactive(ctx, "ssh-copy-id", "-i", l.Key+".pub", "-o", sshkey.KnownHostsOption(l.KnownHosts),
 		"-o", "StrictHostKeyChecking=accept-new", target); err != nil {
 		return fmt.Errorf("ssh-copy-id %s: %w; check the address and the password, or ask your provider how %s logs in", target, err, s.FirstUser)
 	}
@@ -77,7 +79,7 @@ func (l *Login) Ensure(ctx context.Context, s Server) error {
 
 func (l *Login) try(ctx context.Context, user, address string) error {
 	out, err := l.Probe(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes",
-		"-i", l.Key, "-o", "UserKnownHostsFile="+l.KnownHosts, "-o", "StrictHostKeyChecking=accept-new",
+		"-i", l.Key, "-o", sshkey.KnownHostsOption(l.KnownHosts), "-o", "StrictHostKeyChecking=accept-new",
 		user+"@"+address, "true")
 	if err == nil {
 		return nil

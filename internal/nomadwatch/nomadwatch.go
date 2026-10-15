@@ -104,6 +104,7 @@ type alloc struct {
 	TaskGroup        string
 	JobVersion       uint64
 	ClientStatus     string
+	DesiredStatus    string
 	DeploymentStatus *struct{ Healthy *bool }
 	TaskStates       map[string]struct {
 		State  string
@@ -192,6 +193,9 @@ func (c *Client) running(ctx context.Context, j job, ns url.Values, report func(
 	if err != nil {
 		return false, err
 	}
+	allocs = slices.DeleteFunc(allocs, func(a alloc) bool {
+		return a.ClientStatus == "complete" || (a.DesiredStatus != "" && a.DesiredStatus != "run")
+	})
 	p := Progress{Job: j.ID, Desired: len(allocs), Detail: "allocations starting"}
 	for _, a := range allocs {
 		switch a.ClientStatus {
