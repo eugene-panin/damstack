@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -128,4 +129,20 @@ func RenderData(name, text string, data, secrets map[string]any) (string, error)
 		return "", err
 	}
 	return out.String(), nil
+}
+
+var loginRe = regexp.MustCompile(`^[A-Za-z0-9_\[][A-Za-z0-9_.:%\[\]-]*$`)
+
+// RenderLogin renders a user or an address damstack logs in to the server
+// with, such as server.address, and refuses one ssh would take for something
+// else, such as an option.
+func RenderLogin(name, text string, config, secrets map[string]any) (string, error) {
+	v, err := Render(name, text, config, secrets)
+	if err != nil {
+		return "", err
+	}
+	if !loginRe.MatchString(v) {
+		return "", fmt.Errorf("%s is %q, which is not a user or an address ssh logs in with", name, v)
+	}
+	return v, nil
 }

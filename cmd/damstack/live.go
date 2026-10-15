@@ -47,6 +47,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	switch {
 	case differs > 0:
 		fmt.Fprintf(s.out, "%d step(s) differ from stack.yaml: damstack deploy %s brings them back, asking first.\n", differs, p.Meta.Name)
+		return exitStatus(exitDiffers)
 	case unknown > 0:
 		fmt.Fprintln(s.out, "Nothing differs where it could be checked.")
 	default:

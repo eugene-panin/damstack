@@ -116,6 +116,11 @@ func unpack(r io.Reader, dest string) error {
 	if err != nil {
 		return err
 	}
+	root, err := os.OpenRoot(dest)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -132,18 +137,17 @@ func unpack(r io.Reader, dest string) error {
 		if !filepath.IsLocal(name) {
 			return fmt.Errorf("%q is outside the toolbox", hdr.Name)
 		}
-		target := filepath.Join(dest, name)
 		mode := fs.FileMode(hdr.Mode).Perm()
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, mode|0o700); err != nil {
+			if err := root.MkdirAll(name, mode|0o700); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+			f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 			if err != nil {
 				return err
 			}
@@ -156,10 +160,10 @@ func unpack(r io.Reader, dest string) error {
 			if filepath.IsAbs(hdr.Linkname) || !filepath.IsLocal(link) {
 				return fmt.Errorf("%q links outside the toolbox, to %q", hdr.Name, hdr.Linkname)
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 				return err
 			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
+			if err := root.Symlink(hdr.Linkname, name); err != nil {
 				return err
 			}
 		default:

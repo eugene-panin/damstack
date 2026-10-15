@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -124,11 +125,7 @@ func (c *Config) Save() error {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
 		return err
 	}
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, c.path)
+	return atomicfile.Write(c.path, data, 0o644)
 }
 
 func (c *Config) Path() string { return c.path }

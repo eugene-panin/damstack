@@ -75,7 +75,7 @@ func statusCommand(s *streams) *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().BoolVar(&live, "live", false, "check the server now: playbooks in check mode and OpenTofu plans, changing nothing")
+	cmd.Flags().BoolVar(&live, "live", false, "check the server now: playbooks in check mode and OpenTofu plans, changing nothing; exits 3 when a step differs")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the project and the last run of each step as JSON")
 	return cmd
 }
@@ -258,6 +258,9 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 		Short:              short,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+				return cmd.Help()
+			}
 			p, err := pickProject(s, "")
 			if err != nil {
 				return err

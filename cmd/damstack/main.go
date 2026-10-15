@@ -32,6 +32,7 @@ const (
 	exitFailure   = 1
 	exitUsage     = 2   // a malformed command line
 	exitInterrupt = 130 // stopped with Ctrl-C
+	exitDiffers   = 3   // status --live found the server not as stack.yaml says
 )
 
 func main() {
@@ -266,7 +267,7 @@ func runDoctor(ctx context.Context, w io.Writer) error {
 		if m, _ := cachedStack(p); m != nil && m.Server != nil && m.Server.Tunnel != "" {
 			if config, err := p.Config(); err == nil {
 				dp.Tunnel, _ = manifest.Render("server.tunnel", m.Server.Tunnel, config, nil)
-				dp.Public, _ = manifest.Render("server.address", m.Server.Address, config, nil)
+				dp.Public, _ = manifest.RenderLogin("server.address", m.Server.Address, config, nil)
 				dp.KnownHosts = filepath.Join(p.Dir, project.KnownHosts)
 			}
 		}

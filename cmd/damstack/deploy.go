@@ -1002,7 +1002,7 @@ func ensureLogin(ctx context.Context, s *streams, e *engine.Engine, key string) 
 		{"server.first_user", e.Manifest.Server.FirstUser, &server.FirstUser},
 		{"server.ops_user", e.Manifest.Server.OpsUser, &server.OpsUser},
 	} {
-		if *f.into, err = manifest.Render(f.name, f.text, config, secrets); err != nil {
+		if *f.into, err = manifest.RenderLogin(f.name, f.text, config, secrets); err != nil {
 			return fmt.Errorf("%s of the stack: %w", f.name, err)
 		}
 	}
@@ -1041,7 +1041,7 @@ func waitTunnel(ctx context.Context, s *streams, p *project.Project, srv *manife
 	if err != nil {
 		return fmt.Errorf("server.tunnel_help of the stack: %w", err)
 	}
-	public, err := manifest.Render("server.address", srv.Address, config, nil)
+	public, err := manifest.RenderLogin("server.address", srv.Address, config, nil)
 	if err != nil {
 		return fmt.Errorf("server.address of the stack: %w", err)
 	}

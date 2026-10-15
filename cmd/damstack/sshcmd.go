@@ -108,7 +108,7 @@ func sshCommand(s *streams) *cobra.Command {
 			switch {
 			case !errors.As(err, &exit):
 				return err
-			case len(remote) > 0:
+			case len(remote) > 0, exit.ExitCode() == 255:
 				return exitStatus(exit.ExitCode())
 			}
 			return nil
@@ -147,11 +147,11 @@ func serverLogin(p *project.Project, m *manifest.Manifest) (string, string, erro
 	if err != nil {
 		return "", "", err
 	}
-	address, err := manifest.Render("server.address", m.Server.Address, config, nil)
+	address, err := manifest.RenderLogin("server.address", m.Server.Address, config, nil)
 	if err != nil {
 		return "", "", err
 	}
-	user, err := manifest.Render("server.ops_user", m.Server.OpsUser, config, nil)
+	user, err := manifest.RenderLogin("server.ops_user", m.Server.OpsUser, config, nil)
 	return address, user, err
 }
 

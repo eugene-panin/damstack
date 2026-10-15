@@ -206,3 +206,19 @@ func TestTheWorkDirIsTheOwnersAlone(t *testing.T) {
 		t.Fatalf("got %v", info.Mode().Perm())
 	}
 }
+
+func TestAHistoryLineCutShortIsPassedOver(t *testing.T) {
+	p, err := Create(t.TempDir(), Meta{Name: "demo"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Record(Entry{Command: "deploy", Step: "init", Result: OK})
+	f, _ := os.OpenFile(filepath.Join(p.Dir, historyFile), os.O_WRONLY|os.O_APPEND, 0o644)
+	f.WriteString(`{"command":"deploy","st`)
+	f.Close()
+	p.Record(Entry{Command: "deploy", Step: "apply", Result: OK})
+	entries, err := p.History()
+	if err != nil || len(entries) != 2 || entries[1].Step != "apply" {
+		t.Fatalf("got %+v, %v", entries, err)
+	}
+}

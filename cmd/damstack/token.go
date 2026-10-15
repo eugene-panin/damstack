@@ -46,10 +46,11 @@ func tokenCommand(s *streams) *cobra.Command {
 				return err
 			}
 			if !show {
-				if err := copyText(value); err == nil {
-					fmt.Fprintf(s.out, "The %s token is in the clipboard; paste it where the page asks.\n", args[0])
-					return nil
+				if err := copyText(value); err != nil {
+					return fmt.Errorf("the clipboard: %w; damstack token %s --print prints it instead", err, args[0])
 				}
+				fmt.Fprintf(s.out, "The %s token is in the clipboard; paste it where the page asks.\n", args[0])
+				return nil
 			}
 			fmt.Fprintln(s.out, value)
 			if s.tty() {

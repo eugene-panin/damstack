@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
+	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/settings"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
@@ -50,9 +51,5 @@ func settingsScreen(ctx context.Context, s *streams, p *project.Project, focus .
 
 // writeConfig writes stack.yaml whole or not at all.
 func writeConfig(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, data, 0o644)
 }

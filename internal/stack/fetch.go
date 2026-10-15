@@ -146,6 +146,9 @@ func Latest(ctx context.Context, url string) (Release, error) {
 // checkout already there is reused when it is at the release's commit; one at
 // another commit means the tag was moved, and is an error.
 func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error) {
+	if rel := filepath.Join(slug(url), r.Tag); r.Tag == "" || r.Tag != filepath.Base(r.Tag) || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("%s %s is not a release damstack takes", url, r.Tag)
+	}
 	dir := Dir(cacheDir, url, r.Tag)
 	if repo, err := git.PlainOpen(dir); err == nil {
 		head, err := repo.Head()
@@ -188,6 +191,11 @@ func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error)
 		return "", fmt.Errorf("the tag %s of %s points at %s while fetching, not %s; it was moved meanwhile", r.Tag, url, head.Hash(), r.Commit)
 	}
 	if err := os.Rename(tmp, dir); err != nil {
+		if other, oerr := git.PlainOpen(dir); oerr == nil {
+			if h, herr := other.Head(); herr == nil && h.Hash().String() == r.Commit {
+				return dir, nil
+			}
+		}
 		return "", err
 	}
 	return dir, nil

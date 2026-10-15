@@ -168,7 +168,18 @@ func openKit(ctx context.Context, s *streams, file, into string) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(home, fmt.Sprintf(".opening-%d", time.Now().UnixNano()))
+	near := home
+	if into != "" {
+		abs, err := filepath.Abs(into)
+		if err != nil {
+			return err
+		}
+		near = filepath.Dir(abs)
+	}
+	if err := os.MkdirAll(near, 0o755); err != nil {
+		return err
+	}
+	tmp := filepath.Join(near, fmt.Sprintf(".opening-%d", time.Now().UnixNano()))
 	password, err := kit.Unpack(f, strings.ToUpper(strings.TrimSpace(passphrase)), tmp)
 	if err != nil {
 		return err
@@ -346,11 +357,11 @@ func serverSource(ctx context.Context, s *streams, p *project.Project, srv *mani
 	if err != nil {
 		return backup.Source{}, fmt.Errorf("server.tunnel of the stack: %w", err)
 	}
-	public, err := manifest.Render("server.address", srv.Address, cfg, nil)
+	public, err := manifest.RenderLogin("server.address", srv.Address, cfg, nil)
 	if err != nil {
 		return backup.Source{}, fmt.Errorf("server.address of the stack: %w", err)
 	}
-	user, err := manifest.Render("server.ops_user", srv.OpsUser, cfg, nil)
+	user, err := manifest.RenderLogin("server.ops_user", srv.OpsUser, cfg, nil)
 	if err != nil {
 		return backup.Source{}, fmt.Errorf("server.ops_user of the stack: %w", err)
 	}
