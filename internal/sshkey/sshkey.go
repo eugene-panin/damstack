@@ -90,3 +90,9 @@ func (k *Key) Write(path string) error {
 	}
 	return atomicfile.Write(path+".pub", []byte(k.PublicKey+"\n"), 0o644)
 }
+
+// KnownHostsOption is the -o of ssh for the known hosts file at path, the
+// path quoted: ssh splits the value at spaces, as for a list of files.
+func KnownHostsOption(path string) string {
+	return `UserKnownHostsFile="` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path) + `"`
+}

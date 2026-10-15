@@ -104,7 +104,7 @@ func TestAnsible(t *testing.T) {
 	}
 	env := r.env(2)
 	if env["ANSIBLE_CONFIG"] != "/stack/ansible/ansible.cfg" || env["NOMAD_ADDR"] != "https://10.77.0.1:4646" || env["NOMAD_CACERT"] != "/work/ca.pem" ||
-		!strings.Contains(env["ANSIBLE_SSH_ARGS"], "UserKnownHostsFile=/work/.damstack/known_hosts") || !r.cmds[0].Quiet {
+		!strings.Contains(env["ANSIBLE_SSH_ARGS"], `-o 'UserKnownHostsFile="/work/.damstack/known_hosts"'`) || !r.cmds[0].Quiet {
 		t.Errorf("env %v", env)
 	}
 }
@@ -663,5 +663,23 @@ func TestAnAppsKeysReachItsStackAsTheirServicesNeed(t *testing.T) {
 	}
 	if _, ok := before["fetcher"]; ok {
 		t.Error("an unset key gives its service no version")
+	}
+}
+
+func TestAStepThatAsksWithNoOneToAskStops(t *testing.T) {
+	e, r := setup(t)
+	e.Approve = nil
+	r.reply = func(c toolbox.Cmd) error {
+		switch {
+		case slices.Contains(c.Args, "plan"):
+			return &toolbox.ExitError{Name: "tofu", Code: 2}
+		case slices.Contains(c.Args, "show"):
+			c.Stdout.Write([]byte(`{"resource_changes":[{"change":{"actions":["create"]}}]}`))
+		}
+		return nil
+	}
+	step := manifest.Step{Tofu: &manifest.Tofu{Dir: "infra", Action: "apply"}, Confirm: true}
+	if err := e.Run(t.Context(), step, nil); err == nil || !strings.Contains(err.Error(), "nothing here answers") {
+		t.Fatalf("got %v", err)
 	}
 }

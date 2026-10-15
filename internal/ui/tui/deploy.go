@@ -209,6 +209,10 @@ func (m *Deploy) key(k string) tea.Cmd {
 		case "n", "esc":
 			m.confirm.answer <- false
 			m.confirm = nil
+		case "ctrl+c":
+			m.confirm.answer <- false
+			m.confirm = nil
+			m.stop()
 		}
 		return nil
 	}

@@ -8,21 +8,36 @@ import (
 )
 
 func TestSetList(t *testing.T) {
-	for name, tc := range map[string]struct{ before, after string }{
+	for name, tc := range map[string]struct {
+		before, after string
+		names         []string
+	}{
+		"block emptied": {
+			"network:\n  clients:\n    - laptop\n  cidr: 10.77.0.0/24\n",
+			"network:\n  clients: []\n  cidr: 10.77.0.0/24\n", []string{},
+		},
+		"block with a comment before its first item, emptied": {
+			"network:\n  clients:\n    # devices\n    - laptop\n  cidr: 10.77.0.0/24\n",
+			"network:\n  clients: []\n    # devices\n  cidr: 10.77.0.0/24\n", []string{},
+		},
 		"flow": {
 			"# the network\nnetwork:\n  cidr: 10.77.0.0/24\n  clients: [laptop]  # devices\napps: {}\n",
-			"# the network\nnetwork:\n  cidr: 10.77.0.0/24\n  clients: [laptop, phone]  # devices\napps: {}\n",
+			"# the network\nnetwork:\n  cidr: 10.77.0.0/24\n  clients: [laptop, phone]  # devices\napps: {}\n", nil,
 		},
 		"block": {
 			"network:\n  clients:\n    - laptop\n  # the next\n  cidr: 10.77.0.0/24\n",
-			"network:\n  clients:\n    - laptop\n    - phone\n  # the next\n  cidr: 10.77.0.0/24\n",
+			"network:\n  clients:\n    - laptop\n    - phone\n  # the next\n  cidr: 10.77.0.0/24\n", nil,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			os.WriteFile(filepath.Join(dir, ConfigFile), []byte(tc.before), 0o644)
 			p := &Project{Dir: dir}
-			if err := p.SetList("network.clients", []string{"laptop", "phone"}); err != nil {
+			want := tc.names
+			if want == nil {
+				want = []string{"laptop", "phone"}
+			}
+			if err := p.SetList("network.clients", want); err != nil {
 				t.Fatal(err)
 			}
 			got, _ := os.ReadFile(filepath.Join(dir, ConfigFile))
@@ -30,7 +45,7 @@ func TestSetList(t *testing.T) {
 				t.Errorf("got\n%s\nwant\n%s", got, tc.after)
 			}
 			config, _ := p.Config()
-			if names, err := List(config, "network.clients"); err != nil || !slices.Equal(names, []string{"laptop", "phone"}) {
+			if names, err := List(config, "network.clients"); err != nil || !slices.Equal(names, want) {
 				t.Errorf("read back %v, %v", names, err)
 			}
 		})

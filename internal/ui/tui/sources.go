@@ -104,6 +104,8 @@ func (m *Sources) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Sources) addKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
+	case "ctrl+c":
+		return tea.Quit
 	case "esc":
 		m.adding, m.input = false, ""
 	case "enter":

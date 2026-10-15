@@ -68,7 +68,7 @@ func TestSFTP(t *testing.T) {
 		t.Errorf("repo: %s", s.Repo)
 	}
 	cmd := strings.Join(s.Options, " ")
-	for _, want := range []string{"UserKnownHostsFile='/home/me/my projects/known_hosts'", "StrictHostKeyChecking=accept-new",
+	for _, want := range []string{`'UserKnownHostsFile="/home/me/my projects/known_hosts"'`, "StrictHostKeyChecking=accept-new",
 		"-i /home/me/.ssh/id_ed25519", "ops@10.77.0.1 sudo /usr/lib/openssh/sftp-server"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("no %q in %s", want, cmd)

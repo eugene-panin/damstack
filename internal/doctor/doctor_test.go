@@ -218,6 +218,10 @@ func TestProject(t *testing.T) {
 	if r, _ := find(Run(t.Context(), m.Env()), "answers another server than 34.1.2.3"); r.Status != Fail {
 		t.Errorf("another server through the tunnel: %+v", r)
 	}
+	m.other = errors.New("read known_hosts: permission denied")
+	if r, _ := find(Run(t.Context(), m.Env()), "which one is not known: read known_hosts"); r.Status != Warn {
+		t.Errorf("a check of the server that fails is no ok: %+v", r)
+	}
 	m.other = nil
 
 	delete(m.paths, "/home/u/.config/damstack/projects/demo/vault-pass")

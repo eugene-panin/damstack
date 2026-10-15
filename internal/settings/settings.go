@@ -210,23 +210,30 @@ func help(k *yaml.Node) string {
 
 // find is the value at path.
 func (d *Doc) find(path []string) (*yaml.Node, error) {
+	_, n, err := d.pair(path)
+	return n, err
+}
+
+// pair is the key at path and its value; no key for the root.
+func (d *Doc) pair(path []string) (*yaml.Node, *yaml.Node, error) {
+	var k *yaml.Node
 	n := d.root
 	for _, key := range path {
 		if n.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("%s: not a block of settings", strings.Join(path, "."))
+			return nil, nil, fmt.Errorf("%s: not a block of settings", strings.Join(path, "."))
 		}
 		var next *yaml.Node
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			if n.Content[i].Value == key {
-				next = n.Content[i+1]
+				k, next = n.Content[i], n.Content[i+1]
 			}
 		}
 		if next == nil {
-			return nil, fmt.Errorf("%s: no such setting", strings.Join(path, "."))
+			return nil, nil, fmt.Errorf("%s: no such setting", strings.Join(path, "."))
 		}
 		n = next
 	}
-	return n, nil
+	return k, n, nil
 }
 
 // Set changes the value at path, a text, number or true or false.
@@ -251,7 +258,7 @@ func (d *Doc) Set(path []string, value string) error {
 
 // SetList changes the list at path.
 func (d *Doc) SetList(path []string, items []string) error {
-	n, err := d.find(path)
+	k, n, err := d.pair(path)
 	if err != nil {
 		return err
 	}
@@ -279,7 +286,7 @@ func (d *Doc) SetList(path []string, items []string) error {
 		return d.replaceInLine(line, start, start+end+1, "["+strings.Join(tokens, ", ")+"]")
 	}
 	// One item per line: those lines give way to the new ones, indented as
-	// the first was; none left makes it [] after its key.
+	// the first was; none left makes it [] right after the colon of its key.
 	first, last := n.Content[0].Line-1, n.Content[len(n.Content)-1].Line-1
 	firstLine := d.line(first)
 	indent := string(firstLine[:len(firstLine)-len(bytes.TrimLeft(firstLine, " "))])
@@ -290,11 +297,14 @@ func (d *Doc) SetList(path []string, items []string) error {
 	}
 	out := append(append(append([][]byte{}, lines[:first]...), repl...), lines[last+1:]...)
 	if len(tokens) == 0 {
-		key := first - 1
-		for key > 0 && len(bytes.TrimSpace(out[key])) == 0 {
-			key--
+		line := out[k.Line-1]
+		at := runeOffset(line, k.Column-1)
+		colon := bytes.IndexByte(line[at:], ':')
+		if colon < 0 {
+			return fmt.Errorf("%s: the key and its list are not on one line", strings.Join(path, "."))
 		}
-		out[key] = append(bytes.TrimRight(out[key], " "), []byte(" []")...)
+		at += colon + 1
+		out[k.Line-1] = append(append(append([]byte{}, line[:at]...), " []"...), line[at:]...)
 	}
 	return d.reparse(bytes.Join(out, []byte("\n")))
 }

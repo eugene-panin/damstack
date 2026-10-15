@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/sshkey"
 )
 
 // Plan is the backup section of a stack, rendered over a project.
@@ -135,7 +136,7 @@ type Source struct {
 // the server's backups are root's.
 func SFTP(user, host, path, knownHosts, key string) Source {
 	ssh := []string{"ssh", "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-		"-o", "UserKnownHostsFile=" + quote(knownHosts), "-o", "StrictHostKeyChecking=accept-new"}
+		"-o", quote(sshkey.KnownHostsOption(knownHosts)), "-o", "StrictHostKeyChecking=accept-new"}
 	if key != "" {
 		ssh = append(ssh, "-i", quote(key))
 	}

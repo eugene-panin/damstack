@@ -19,6 +19,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/sshkey"
 	"github.com/eugene-panin/damstack/internal/wg"
 )
 
@@ -425,7 +426,7 @@ func (t *tunnel) handshakes(ctx context.Context) (map[string]time.Time, error) {
 		iface = "wg0"
 	}
 	out, err := exec.CommandContext(ctx, "ssh", "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-		"-o", "UserKnownHostsFile="+filepath.Join(t.p.Dir, project.KnownHosts), "-o", "StrictHostKeyChecking=accept-new",
+		"-o", sshkey.KnownHostsOption(filepath.Join(t.p.Dir, project.KnownHosts)), "-o", "StrictHostKeyChecking=accept-new",
 		"-i", key, t.user+"@"+t.public, "sudo", "wg", "show", iface, "latest-handshakes").Output()
 	if err != nil {
 		var exit *exec.ExitError

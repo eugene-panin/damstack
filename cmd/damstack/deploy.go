@@ -961,12 +961,19 @@ func logTo(p *project.Project, j job) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
+	secrets, err := p.Secrets(j.e.Password)
+	if err != nil {
+		f.Close()
+		return "", nil, err
+	}
+	out := newMasker(f, secrets)
 	stdout, stderr, stdin, tty := runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY
-	runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY = f, f, nil, false
+	runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY = out, out, nil, false
 	j.e.Brief = true
 	return path, func() {
 		runner.Stdout, runner.Stderr, runner.Stdin, runner.TTY = stdout, stderr, stdin, tty
 		j.e.Brief = false
+		out.Flush()
 		f.Close()
 	}, nil
 }

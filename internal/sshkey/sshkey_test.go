@@ -42,3 +42,10 @@ func TestKey(t *testing.T) {
 		t.Errorf("ssh-keygen reads %q, %v", out, err)
 	}
 }
+
+func TestAKnownHostsPathWithASpaceStaysOnePath(t *testing.T) {
+	got := KnownHostsOption(`/Users/me/Library/Mobile Documents/p/.damstack/known_hosts`)
+	if got != `UserKnownHostsFile="/Users/me/Library/Mobile Documents/p/.damstack/known_hosts"` {
+		t.Fatalf("got %s", got)
+	}
+}

@@ -235,9 +235,14 @@ func checkProject(ctx context.Context, env Env) []Result {
 	}
 	conn.Close()
 	if p.Public != "" && p.KnownHosts != "" {
-		if err := env.SameServer(ctx, p.KnownHosts, p.Public, net.JoinHostPort(p.Tunnel, "22")); errors.Is(err, login.ErrOtherServer) {
+		err := env.SameServer(ctx, p.KnownHosts, p.Public, net.JoinHostPort(p.Tunnel, "22"))
+		switch {
+		case errors.Is(err, login.ErrOtherServer):
 			return append(results, Result{group, Fail, "at " + p.Tunnel + " answers another server than " + p.Public,
 				"the tunnel of another project is on: turn it off, and this project's on"})
+		case err != nil:
+			return append(results, Result{group, Warn, "the server answers at " + p.Tunnel + ", but which one is not known: " + err.Error(),
+				"damstack ssh, from the project, checks the server's key and says what is wrong with it"})
 		}
 	}
 	return append(results, Result{group, OK, "the server answers at " + p.Tunnel + " through WireGuard", ""})

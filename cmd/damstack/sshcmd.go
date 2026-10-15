@@ -97,7 +97,7 @@ func sshCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ssh := exec.CommandContext(cmd.Context(), "ssh", "-F", "/dev/null", "-o", "UserKnownHostsFile="+filepath.Join(p.Dir, project.KnownHosts),
+			ssh := exec.CommandContext(cmd.Context(), "ssh", "-F", "/dev/null", "-o", sshkey.KnownHostsOption(filepath.Join(p.Dir, project.KnownHosts)),
 				"-o", "StrictHostKeyChecking=accept-new", "-i", key, user+"@"+address)
 			if len(remote) > 0 {
 				ssh.Args = append(append(ssh.Args, "--"), remote...)
@@ -170,7 +170,7 @@ func takesKey(ctx context.Context, p *project.Project, m *manifest.Manifest, k *
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	return exec.CommandContext(ctx, "ssh", "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes",
-		"-o", "UserKnownHostsFile="+filepath.Join(p.Dir, project.KnownHosts), "-o", "StrictHostKeyChecking=accept-new",
+		"-o", sshkey.KnownHostsOption(filepath.Join(p.Dir, project.KnownHosts)), "-o", "StrictHostKeyChecking=accept-new",
 		"-i", path, user+"@"+address, "true").Run() == nil
 }
 

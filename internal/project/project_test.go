@@ -222,3 +222,27 @@ func TestAHistoryLineCutShortIsPassedOver(t *testing.T) {
 		t.Fatalf("got %+v, %v", entries, err)
 	}
 }
+
+func TestAVaultPasswordIsMadeOnceAndWhole(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	password, err := NewPassword("demo")
+	if err != nil || len(password) < 40 {
+		t.Fatalf("got %q, %v", password, err)
+	}
+	if _, err := NewPassword("demo"); err == nil {
+		t.Fatal("a second password must not replace the first")
+	}
+	p := &Project{Meta: Meta{Name: "demo"}}
+	if got, err := p.Password(); err != nil || got != password {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	path, _ := p.PasswordPath()
+	os.WriteFile(path, []byte("\n"), 0o600)
+	if _, err := p.Password(); err == nil {
+		t.Fatal("an empty password must not be taken")
+	}
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	if len(entries) != 1 {
+		t.Fatalf("no temporary file must stay: %v", entries)
+	}
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/engine"
+	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
@@ -408,6 +409,7 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		PublicKey: "ssh-ed25519 AAAA damstack-check", Stdout: s.out, Stderr: s.err,
 	}
 	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Events: s.events}
+	e.Approve = func(event.Plan) (event.Approval, error) { return event.Approval{Apply: true}, nil }
 	if m.IsApp() {
 		e.App = m.Name
 	}
