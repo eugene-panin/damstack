@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/ask"
@@ -189,7 +191,7 @@ type AppOptions struct {
 
 // AddApp adds an app to a project: its settings under apps of stack.yaml,
 // its secrets in vault.yml, and its release in the project's record.
-func AddApp(o AppOptions) error {
+func AddApp(o AppOptions) (err error) {
 	m, p := o.Manifest, o.Project
 	if _, ok := p.Meta.App(m.Name); ok {
 		return fmt.Errorf("%s is already an app of %s; damstack deploy deploys it", m.Name, p.Meta.Name)
@@ -213,28 +215,49 @@ func AddApp(o AppOptions) error {
 			return err
 		}
 	}
-	for name, content := range files {
-		path := filepath.Join(p.Dir, filepath.FromSlash(name))
-		if _, err := os.Stat(path); err == nil {
+	for name := range files {
+		if _, err := os.Stat(filepath.Join(p.Dir, filepath.FromSlash(name))); err == nil {
 			return fmt.Errorf("%s is in the project already; the app %s cannot write it", name, m.Name)
 		}
+	}
+	config := filepath.Join(p.Dir, project.ConfigFile)
+	before, err := os.ReadFile(config)
+	if err != nil {
+		return err
+	}
+	var undo []func()
+	defer func() {
+		if err != nil {
+			for i := len(undo) - 1; i >= 0; i-- {
+				undo[i]()
+			}
+		}
+	}()
+	for name, content := range files {
+		path := filepath.Join(p.Dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
+		undo = append(undo, func() { os.Remove(path) })
 		if err := os.WriteFile(path, content, 0o644); err != nil {
 			return err
 		}
 	}
+	kept := maps.Clone(existing)
 	for name, v := range secrets {
 		existing[name] = v
 	}
 	if err := p.SaveSecrets(o.Password, existing); err != nil {
 		return err
 	}
+	undo = append(undo, func() { p.SaveSecrets(o.Password, kept) })
+	undo = append(undo, func() { os.WriteFile(config, before, 0o644) })
 	if err := p.SetApp(m.Name, block); err != nil {
 		return err
 	}
-	p.Meta.Apps = append(p.Meta.Apps, o.Ref)
+	apps := p.Meta.Apps
+	undo = append(undo, func() { p.Meta.Apps = apps })
+	p.Meta.Apps = append(slices.Clip(p.Meta.Apps), o.Ref)
 	return p.SaveMeta()
 }
 

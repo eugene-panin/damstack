@@ -33,6 +33,7 @@ secrets:
   - name: token
     generate: hex
     bytes: 16
+    rotate: true
   - name: api_token
     ask: An API token
 config: template/stack.yaml.tmpl

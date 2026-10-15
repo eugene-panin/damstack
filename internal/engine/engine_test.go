@@ -615,6 +615,19 @@ func TestAPlanThatNomadWouldApplyInPlaceAsksToRestart(t *testing.T) {
 	}
 }
 
+func TestAnAppsKeysReachOnlyItsOpenTofu(t *testing.T) {
+	e, _ := setup(t)
+	e.App = "sauron"
+	e.Manifest = &manifest.Manifest{Secrets: []manifest.Secret{{Name: "sauron_xai_api_key", Ask: "xAI", Env: "XAI_API_KEY"}}}
+	env, err := e.env(manifest.Step{Run: []string{"bin/x"}}, map[string]any{}, map[string]any{"sauron_xai_api_key": "xai-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["TF_VAR_app_secrets"]; ok {
+		t.Error("a program of the app got the values of its keys")
+	}
+}
+
 func TestAnAppsKeysReachItsStackAsTheirServicesNeed(t *testing.T) {
 	e, _ := setup(t)
 	e.App = "sauron"
@@ -624,7 +637,7 @@ func TestAnAppsKeysReachItsStackAsTheirServicesNeed(t *testing.T) {
 		{Name: "sauron_db", Generate: "password"},
 	}}
 	envOf := func(xai string) map[string]string {
-		env, err := e.env(manifest.Step{}, map[string]any{}, map[string]any{"sauron_xai_api_key": xai, "sauron_db": "pw"})
+		env, err := e.env(manifest.Step{Tofu: &manifest.Tofu{Dir: "infra"}}, map[string]any{}, map[string]any{"sauron_xai_api_key": xai, "sauron_db": "pw"})
 		if err != nil {
 			t.Fatal(err)
 		}

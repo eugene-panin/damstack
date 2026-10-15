@@ -149,3 +149,30 @@ func TestAddApp(t *testing.T) {
 		t.Errorf("a secret of the platform taken: %v", err)
 	}
 }
+
+func TestAnAppThatFailsToGoInLeavesNothingBehind(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p, password, err := Create(Options{
+		Manifest: stackManifest, Stack: stack(t), Name: "demo", Dir: filepath.Join(t.TempDir(), "demo"),
+		Given: map[string]any{"address": "1.2.3.4", "api_token": "tok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &manifest.Manifest{
+		Name: "mail", Kind: manifest.KindApp,
+		Secrets: []manifest.Secret{{Name: "mail_admin_password", Generate: "password"}},
+	}
+	o := AppOptions{Manifest: app, Stack: t.TempDir(), Ref: project.StackRef{Name: "mail", Tag: "v0.1.0"}, Project: p, Password: password}
+	config := filepath.Join(p.Dir, project.ConfigFile)
+	os.WriteFile(config, []byte("- not a mapping\n"), 0o644)
+	if err := AddApp(o); err == nil {
+		t.Fatal("stack.yaml that is no mapping takes no app")
+	}
+	if secrets, _ := p.Secrets(password); secrets["mail_admin_password"] != nil {
+		t.Error("the secrets of the app that failed to go in stayed")
+	}
+	if len(p.Meta.Apps) != 0 {
+		t.Error("the app that failed to go in stayed in the record")
+	}
+}

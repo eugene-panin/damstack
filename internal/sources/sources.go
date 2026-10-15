@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -211,21 +212,37 @@ func (g *gitHub) get(ctx context.Context, path string, out any) (int, error) {
 // repos are an owner's repositories this machine may read: an organization's,
 // or a user's, the private ones too when the user is the one signed in.
 func (g *gitHub) repos(ctx context.Context, owner string) ([]repo, error) {
-	var out []repo
 	q := "?per_page=100&type=all"
-	code, err := g.get(ctx, "/orgs/"+url.PathEscape(owner)+"/repos"+q, &out)
+	out, code, err := g.pages(ctx, "/orgs/"+url.PathEscape(owner)+"/repos"+q)
 	if code != http.StatusNotFound {
 		return out, err
 	}
 	if g.login(ctx) == owner {
-		_, err = g.get(ctx, "/user/repos?per_page=100&affiliation=owner", &out)
+		out, _, err = g.pages(ctx, "/user/repos?per_page=100&affiliation=owner")
 		return out, err
 	}
-	code, err = g.get(ctx, "/users/"+url.PathEscape(owner)+"/repos"+q, &out)
+	out, code, err = g.pages(ctx, "/users/"+url.PathEscape(owner)+"/repos"+q)
 	if code == http.StatusNotFound {
 		return nil, fmt.Errorf("no owner %s on github.com", owner)
 	}
 	return out, err
+}
+
+// pages are the repositories of a listing, page after page, up to 1000.
+func (g *gitHub) pages(ctx context.Context, path string) ([]repo, int, error) {
+	var all []repo
+	for page := 1; page <= 10; page++ {
+		var out []repo
+		code, err := g.get(ctx, path+"&page="+strconv.Itoa(page), &out)
+		if err != nil {
+			return all, code, err
+		}
+		all = append(all, out...)
+		if len(out) < 100 {
+			break
+		}
+	}
+	return all, http.StatusOK, nil
 }
 
 func (g *gitHub) private(ctx context.Context, fullName string) bool {

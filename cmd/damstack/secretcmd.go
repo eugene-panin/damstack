@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/ask"
+	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -83,10 +84,14 @@ func secretCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := makeAnew(p, *spec, secrets); err != nil {
+			put, err := makeAnew(p, *spec, secrets)
+			if err != nil {
 				return err
 			}
 			if err := p.SaveSecrets(password, secrets); err != nil {
+				return err
+			}
+			if err := put(); err != nil {
 				return err
 			}
 			fmt.Fprintf(s.out, "%s of %s is new. damstack deploy %s puts it in place; until then the server keeps the old one.\n",
@@ -102,24 +107,25 @@ func secretCommand(s *streams) *cobra.Command {
 	return cmd
 }
 
-// makeAnew puts a new value of a generated secret in secrets, and its
-// certificate, when it has one, in the project, the old one next to it.
-func makeAnew(p *project.Project, spec manifest.Secret, secrets map[string]any) error {
+// makeAnew puts a new value of a generated secret in secrets; put writes its
+// certificate, when it has one, in the project, the old one next to it, once
+// the secret is kept.
+func makeAnew(p *project.Project, spec manifest.Secret, secrets map[string]any) (put func() error, err error) {
 	g, err := secret.Generate(spec.Generate, spec.Bytes, p.Meta.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if spec.Cert != "" {
+	secrets[spec.Name] = g.Value
+	return func() error {
+		if spec.Cert == "" {
+			return nil
+		}
 		path := filepath.Join(p.Dir, spec.Cert)
 		if err := os.Rename(path, path+".old"); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		if err := os.WriteFile(path, g.Cert, 0o644); err != nil {
-			return err
-		}
-	}
-	secrets[spec.Name] = g.Value
-	return nil
+		return atomicfile.Write(path, g.Cert, 0o644)
+	}, nil
 }
 
 // askedSecret is an asked secret of a project's platform or one of its apps,

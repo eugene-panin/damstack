@@ -139,7 +139,7 @@ func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[strin
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
 	}
-	if e.App != "" && e.Manifest != nil {
+	if e.App != "" && e.Manifest != nil && s.Tofu != nil {
 		maps.Copy(env, e.appSecrets(secrets))
 	}
 	return env, nil
@@ -160,7 +160,8 @@ const AllServices = "*"
 //     (an HMAC of them, keyed by the project's password): it changes, and the
 //     service restarts, only when one of its own secrets does.
 //
-// A stack that declares none of these variables is not given them.
+// Only the OpenTofu steps of the app get them, and OpenTofu passes over those
+// its stack does not declare.
 func (e *Engine) appSecrets(secrets map[string]any) map[string]string {
 	type envOf struct {
 		Env string   `json:"env"`
