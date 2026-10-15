@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"bytes"
 	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/eugene-panin/damstack/internal/settings"
 )
 
 // The settings screen (design: 4 · Settings, as the wizard asks): stack.yaml
@@ -21,12 +18,57 @@ type SettingsResult struct {
 	Save, Deploy, Raw bool
 }
 
+// SettingsKind is how a field is changed: typed, flipped, as items added and
+// removed, or not here (a heading, or a value only the file changes).
+type SettingsKind int
+
+const (
+	SettingText SettingsKind = iota
+	SettingNumber
+	SettingToggle
+	SettingList
+	SettingHeading
+	SettingFixed
+)
+
+// SettingsField is a value of stack.yaml as the settings screen shows it.
+type SettingsField struct {
+	// Path is the keys to the value from the top of the file.
+	Path  []string
+	Label string
+	Help  string
+	Kind  SettingsKind
+	Value string
+	Items []string
+	Depth int
+	// Once is a value chosen once, not to be changed.
+	Once bool
+}
+
+// SettingsSection is a block of stack.yaml, its help and fields.
+type SettingsSection struct {
+	Title  string
+	Path   []string
+	Help   string
+	Fields []SettingsField
+}
+
+// SettingsActions are what the settings screen asks of the file it changes.
+type SettingsActions struct {
+	// Sections are the file's sections as it is now; Changed is whether it
+	// differs from the file read.
+	Sections func() []SettingsSection
+	Changed  func() bool
+	// Set changes a value; SetList the items of a list.
+	Set     func(path []string, value string) error
+	SetList func(path []string, items []string) error
+}
+
 // Settings is the settings screen of a project.
 type Settings struct {
-	doc      *settings.Doc
-	original []byte
+	actions  SettingsActions
 	project  string
-	sections []settings.Section
+	sections []SettingsSection
 	touched  map[string]bool
 	width    int
 	height   int
@@ -46,9 +88,9 @@ type Settings struct {
 }
 
 // NewSettings is the settings screen of a project's stack.yaml.
-func NewSettings(project string, doc *settings.Doc) *Settings {
-	m := &Settings{doc: doc, original: doc.Bytes(), project: project, touched: map[string]bool{}, width: 100, height: 30}
-	m.sections = doc.Sections()
+func NewSettings(project string, actions SettingsActions) *Settings {
+	m := &Settings{actions: actions, project: project, touched: map[string]bool{}, width: 100, height: 30}
+	m.sections = actions.Sections()
 	m.cursor = m.next(0, 1)
 	return m
 }
@@ -62,20 +104,19 @@ func (m *Settings) Focus(path []string) {
 	}
 }
 
-// Result is what the person chose; Doc the file as they left it.
+// Result is what the person chose.
 func (m *Settings) Result() SettingsResult { return m.result }
-func (m *Settings) Doc() *settings.Doc     { return m.doc }
 
-func (m *Settings) dirty() bool { return !bytes.Equal(m.doc.Bytes(), m.original) }
+func (m *Settings) dirty() bool { return m.actions.Changed() }
 
-func (m *Settings) fields() []settings.Field {
+func (m *Settings) fields() []SettingsField {
 	if m.sec >= len(m.sections) {
 		return nil
 	}
 	return m.sections[m.sec].Fields
 }
 
-func (m *Settings) field() *settings.Field {
+func (m *Settings) field() *SettingsField {
 	fs := m.fields()
 	if m.cursor < 0 || m.cursor >= len(fs) {
 		return nil
@@ -87,7 +128,7 @@ func (m *Settings) field() *settings.Field {
 func (m *Settings) next(i, step int) int {
 	fs := m.fields()
 	for ; i >= 0 && i < len(fs); i += step {
-		if fs[i].Kind != settings.Heading {
+		if fs[i].Kind != SettingHeading {
 			return i
 		}
 	}
@@ -175,17 +216,17 @@ func (m *Settings) change() {
 		return
 	}
 	switch f.Kind {
-	case settings.Toggle:
+	case SettingToggle:
 		v := "true"
 		if f.Value == "true" {
 			v = "false"
 		}
-		m.set(func() error { return m.doc.Set(f.Path, v) })
-	case settings.Text, settings.Number:
+		m.set(func() error { return m.actions.Set(f.Path, v) })
+	case SettingText, SettingNumber:
 		m.editing, m.input = true, f.Value
-	case settings.List:
+	case SettingList:
 		m.listing, m.item = true, 0
-	case settings.Fixed:
+	case SettingFixed:
 		if f.Once {
 			m.say(f.Label+" is chosen once: changing it breaks what runs. E opens the file if you must.", true)
 		} else {
@@ -201,7 +242,7 @@ func (m *Settings) set(change func() error) bool {
 		return false
 	}
 	m.touched[m.sections[m.sec].Title] = true
-	m.sections = m.doc.Sections()
+	m.sections = m.actions.Sections()
 	return true
 }
 
@@ -215,18 +256,18 @@ func (m *Settings) inputKey(msg tea.KeyPressMsg) {
 		switch {
 		case m.adding:
 			items := append(append([]string{}, f.Items...), value)
-			if value != "" && m.set(func() error { return m.doc.SetList(f.Path, items) }) {
+			if value != "" && m.set(func() error { return m.actions.SetList(f.Path, items) }) {
 				m.item = len(items) - 1
 			}
 			m.adding, m.input = false, ""
 		case m.listing:
 			items := append([]string{}, f.Items...)
 			items[m.item] = value
-			if m.set(func() error { return m.doc.SetList(f.Path, items) }) {
+			if m.set(func() error { return m.actions.SetList(f.Path, items) }) {
 				m.editing, m.input = false, ""
 			}
 		default:
-			if m.set(func() error { return m.doc.Set(f.Path, value) }) {
+			if m.set(func() error { return m.actions.Set(f.Path, value) }) {
 				m.editing, m.input = false, ""
 			}
 		}
@@ -264,7 +305,7 @@ func (m *Settings) listKey(k string) {
 			return
 		}
 		items := append(append([]string{}, f.Items[:m.item]...), f.Items[m.item+1:]...)
-		if m.set(func() error { return m.doc.SetList(f.Path, items) }) {
+		if m.set(func() error { return m.actions.SetList(f.Path, items) }) {
 			m.item = max(min(m.item, len(items)-1), 0)
 		}
 	}
@@ -366,10 +407,10 @@ func (m *Settings) fieldRows(width, height int) []line {
 	return append(rows, list...)
 }
 
-func (m *Settings) fieldLine(i int, f settings.Field, width int) []line {
+func (m *Settings) fieldLine(i int, f SettingsField, width int) []line {
 	indent := strings.Repeat("  ", f.Depth)
 	cursor := i == m.cursor
-	if f.Kind == settings.Heading {
+	if f.Kind == SettingHeading {
 		return []line{{left: []span{text("  "+indent+f.Label, dim)}}}
 	}
 	mark, name := text("  ", plain), text(padTo(indent+f.Label, 24), plain)
@@ -380,15 +421,15 @@ func (m *Settings) fieldLine(i int, f settings.Field, width int) []line {
 	switch {
 	case cursor && m.editing && !m.listing:
 		value = []span{text(m.input, plain), text("▌", blue)}
-	case f.Kind == settings.Toggle && f.Value == "true":
+	case f.Kind == SettingToggle && f.Value == "true":
 		value = []span{text("● yes", green)}
-	case f.Kind == settings.Toggle:
+	case f.Kind == SettingToggle:
 		value = []span{text("○ no", dim)}
-	case f.Kind == settings.List && len(f.Items) == 0:
+	case f.Kind == SettingList && len(f.Items) == 0:
 		value = []span{text("none", dim)}
 	case f.Once:
 		value = []span{text(f.Value, dim), text("  chosen once", amber)}
-	case f.Kind == settings.Fixed:
+	case f.Kind == SettingFixed:
 		value = []span{text(f.Value, dim), text("  in the file", dim)}
 	default:
 		value = []span{text(f.Value, plain)}

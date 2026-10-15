@@ -8,23 +8,40 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/manifest"
 )
+
+var mailQuestions = []manifest.Question{
+	{Name: "domains", Prompt: "Mail domains", Type: "list", Section: "Domains", Pattern: `^[a-z0-9.-]+$`},
+	{Name: "hostname", Prompt: "Host name of the server", Section: "Domains", Default: "mail.{{ index .domains 0 }}"},
+	{Name: "database", Prompt: "Database", Type: "enum", Options: []string{"shared", "bundled"}, Default: "shared", Section: "Domains"},
+	{Name: "memory", Prompt: "Memory, in MB", Default: "512", Section: "Domains", Advanced: true},
+	{Name: "accounts", Prompt: "Mailboxes to make", Type: "list", Section: "Accounts", Default: "postmaster"},
+}
+
+func mailQuestion(name string) manifest.Question {
+	for _, q := range mailQuestions {
+		if q.Name == name {
+			return q
+		}
+	}
+	return manifest.Question{}
+}
 
 // mailForm is the design's install of mail: domains, the host name, the
 // database, an advanced memory, and a key.
 func mailForm(width, height int, actions FormActions) *Form {
-	qs := []manifest.Question{
-		{Name: "domains", Prompt: "Mail domains", Type: "list", Section: "Domains", Pattern: `^[a-z0-9.-]+$`},
-		{Name: "hostname", Prompt: "Host name of the server", Section: "Domains", Default: "mail.{{ index .domains 0 }}"},
-		{Name: "database", Prompt: "Database", Type: "enum", Options: []string{"shared", "bundled"}, Default: "shared", Section: "Domains"},
-		{Name: "memory", Prompt: "Memory, in MB", Default: "512", Section: "Domains", Advanced: true},
-		{Name: "accounts", Prompt: "Mailboxes to make", Type: "list", Section: "Accounts", Default: "postmaster"},
+	var qs []FormQuestion
+	for _, q := range mailQuestions {
+		qs = append(qs, FormQuestion{Name: q.Name, Prompt: q.Prompt, Type: q.Type, Options: q.Options, Section: q.Section, Advanced: q.Advanced})
 	}
-	secrets := []manifest.Secret{
-		{Name: "mail_admin_password", Generate: "password"},
+	secrets := []FormSecret{
+		{Name: "mail_admin_password"},
 		{Name: "mail_relay_key", Ask: "Relay API key (Mailgun), for mail to big providers", Optional: true, NewAt: "https://app.mailgun.com"},
 	}
+	actions.Parse = func(q FormQuestion, raw string) (any, error) { return ask.Parse(mailQuestion(q.Name), raw) }
+	actions.Holds = manifest.Holds
 	m := NewForm("Install mail v0.4.1 on twinmind", "mail",
 		[]FormNeed{{Text: "postgres, installed", Met: true}, {Text: "public ports 25 465 587 993, opened on install", Met: true}},
 		[]string{"takes about 4 minutes", "nothing changes until you confirm the review"}, qs, secrets, actions)
@@ -39,7 +56,8 @@ func settle(m *Form, cmd tea.Cmd) {
 	}
 }
 
-func defaults(q manifest.Question, answers map[string]any) string {
+func defaults(fq FormQuestion, answers map[string]any) string {
+	q := mailQuestion(fq.Name)
 	if q.Name == "hostname" {
 		if d, ok := answers["domains"].([]any); ok && len(d) > 0 {
 			return fmt.Sprint("mail.", d[0])
@@ -68,7 +86,7 @@ func TestAnInstallIsAskedPageByPageThenReviewed(t *testing.T) {
 	var checked []string
 	m := mailForm(100, 30, FormActions{
 		Default: defaults,
-		Check: func(q manifest.Question, v any, _ map[string]any) error {
+		Check: func(q FormQuestion, v any, _ map[string]any) error {
 			checked = append(checked, q.Name)
 			if q.Name == "hostname" && v == "mail.example.com" {
 				return errors.New("port 25 is closed at your provider")
