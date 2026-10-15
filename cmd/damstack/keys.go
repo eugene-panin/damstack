@@ -15,6 +15,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/checks"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
@@ -45,12 +46,12 @@ func appKeysCommand(s *streams) *cobra.Command {
 // appKeys shows the keys of an app, the only one that asks for any when
 // name is empty, and sets the ones the person gives; asked, it deploys after.
 func appKeys(ctx context.Context, s *streams, p *project.Project, name string) error {
-	asked := askedSecrets(p)
+	asked := ops.AskedSecrets(p)
 	if name == "" {
 		var apps []string
 		for _, a := range asked {
-			if a.app != "" && !slices.Contains(apps, a.app) {
-				apps = append(apps, a.app)
+			if a.App != "" && !slices.Contains(apps, a.App) {
+				apps = append(apps, a.App)
 			}
 		}
 		if len(apps) != 1 {
@@ -62,7 +63,7 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 	if !ok {
 		return fmt.Errorf("%s is no app of %s; damstack app list shows them", name, p.Meta.Name)
 	}
-	am, _, err := refStack(ctx, ref)
+	am, _, err := ops.RefStack(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -142,7 +143,7 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 	}
 	// Here, on the same terminal: the app whose keys these are, or every app;
 	// the platform too while a change of it waits for a deploy.
-	m, dir, err := projectStack(ctx, p, "")
+	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
@@ -150,7 +151,7 @@ func appKeys(ctx context.Context, s *streams, p *project.Project, name string) e
 	if name != "" && !pending {
 		return deployParts(ctx, s, p, m, dir, name)
 	}
-	return runSteps(ctx, s, p, m, dir, "", !pending)
+	return runSteps(ctx, s, p, m, dir, !pending)
 }
 
 // keyLabel is the name of a key in what an app asks for it with: "xAI API
@@ -182,7 +183,7 @@ func platformPending(p *project.Project, password string) bool {
 	if err != nil {
 		return true
 	}
-	apps := appSecretNames(p)
+	apps := ops.AppSecretNames(p)
 	deployed := lastStepDone(p, func(step string) bool { return !strings.Contains(step, "/") })
 	for name, rec := range records.Secrets {
 		if !apps[name] && !strings.HasPrefix(name, "account:") && rec.Set.After(deployed) {

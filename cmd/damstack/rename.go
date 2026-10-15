@@ -12,6 +12,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/backup"
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -73,7 +74,7 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 			return fmt.Errorf("%s is there already; move it away, or choose another name", path)
 		}
 	}
-	b, _ := loadBackup(ctx, p)
+	b, _ := ops.LoadBackup(ctx, p)
 	scheduled := b != nil && backup.Scheduled(ctx, from)
 
 	var undo []func()
@@ -88,7 +89,7 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 		if _, err := backup.Install(ctx, backup.Job{Project: from}); err != nil {
 			return err
 		}
-		undo = append(undo, func() { scheduleBackup(ctx, s, p, b, false) })
+		undo = append(undo, func() { ops.ScheduleBackup(ctx, streamsUI{s}, p, b, false) })
 	}
 	if err := move(filepath.Dir(oldPass), filepath.Dir(newPass), &undo); err != nil {
 		return err
@@ -117,11 +118,11 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 	}
 	fmt.Fprintf(s.out, "%s is now %s, in %s.\n", from, to, dir)
 	if scheduled {
-		if err := scheduleBackup(ctx, s, p, b, true); err != nil {
+		if err := ops.ScheduleBackup(ctx, streamsUI{s}, p, b, true); err != nil {
 			return fmt.Errorf("%w; damstack backup schedule %s schedules the pulls again", err, to)
 		}
 	}
-	if m, _, merr := projectStack(ctx, p, ""); merr == nil && m.Server != nil && m.Server.WireGuard != nil {
+	if m, _, merr := ops.ProjectStack(ctx, p, ""); merr == nil && m.Server != nil && m.Server.WireGuard != nil {
 		fmt.Fprintf(s.out, "The WireGuard app keeps the tunnel under the name %s: rename it there to %s, so that damstack tunnel finds it.\n", from, to)
 	}
 	return nil

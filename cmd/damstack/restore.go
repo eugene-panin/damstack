@@ -2,16 +2,11 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"slices"
 
 	"github.com/spf13/cobra"
 
-	"github.com/eugene-panin/damstack/internal/backup"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -39,75 +34,15 @@ func restoreCommand(s *streams) *cobra.Command {
 }
 
 func restore(ctx context.Context, s *streams, p *project.Project) error {
-	m, dir, err := projectStack(ctx, p, "")
+	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
-	if m.Backup == nil {
-		return fmt.Errorf("the stack %s of %s makes no backups, so nothing to restore", m.Name, p.Meta.Name)
-	}
-	b, err := loadBackup(ctx, p)
+	r, when, err := ops.Restore(ctx, deployer(s, false), p, m, dir)
 	if err != nil {
 		return err
 	}
-	repo, err := b.repo(ctx, s)
-	if err != nil {
-		return err
-	}
-	if !repo.Exists() {
-		return fmt.Errorf("no backups of %s are on this machine, at %s: damstack backup pull copies them here, while the server is there", p.Meta.Name, b.plan.To)
-	}
-	snaps, err := repo.Snapshots(ctx)
-	if err != nil {
-		return err
-	}
-	snaps = slices.DeleteFunc(snaps, func(sn backup.Snapshot) bool { return !slices.Contains(sn.Tags, "scheduled") })
-	if len(snaps) == 0 {
-		return fmt.Errorf("the backups of %s at %s hold no snapshot of the server yet", p.Meta.Name, b.plan.To)
-	}
-	snap := snaps[len(snaps)-1]
-	when := snap.Time.Local().Format("2006-01-02 15:04")
-	question := fmt.Sprintf("Restore %s from the backup of %s?", p.Meta.Name, when)
-	if m.Server != nil {
-		address, _, err := serverLogin(p, m)
-		if err != nil {
-			return err
-		}
-		question = fmt.Sprintf("Set up the server at %s for %s from the backup of %s? Whatever is on that server is replaced.", address, p.Meta.Name, when)
-	}
-	ok, err := s.confirm(question, false)
-	if err != nil || !ok {
-		return err
-	}
-
-	root, err := p.Work()
-	if err != nil {
-		return err
-	}
-	work := filepath.Join(root, "restore")
-	if err := os.MkdirAll(work, 0o700); err != nil {
-		return err
-	}
-	defer os.RemoveAll(work)
-	tar := filepath.Join(work, "snapshot.tar")
-	f, err := os.OpenFile(tar, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	err = repo.Dump(ctx, snap.ID, f)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(s.out, "Took the backup of %s out of %s.\n", when, b.plan.To)
-
-	known := filepath.Join(p.Dir, project.KnownHosts)
-	if err := os.Rename(known, known+".old"); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	if err := runSteps(ctx, s, p, m, dir, tar, false); err != nil {
+	if err := deployed(ctx, s, p, m, dir, r); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "\n%s is back from the backup of %s.\n", p.Meta.Name, when)

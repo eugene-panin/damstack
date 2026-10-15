@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/eugene-panin/damstack/internal/backup"
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/doctor"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -22,7 +22,7 @@ import (
 // screen.
 func home(ctx context.Context, s *streams) error {
 	w := s.out
-	cfg, err := loadConfig(ctx)
+	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -134,12 +134,12 @@ func projects(w io.Writer, cfg *config.Config) {
 		}
 		st, _ := backup.LoadState(p.Dir)
 		var warns []string
-		if m, _ := cachedStack(p); m != nil && m.Backup != nil {
-			if warn := staleWarning(st); warn != "" {
+		if m, _ := ops.CachedStack(p); m != nil && m.Backup != nil {
+			if warn := ops.StaleWarning(st); warn != "" {
 				warns = append(warns, p.Meta.Name+": "+warn)
 			}
 		}
-		warns = append(warns, kitWarning(p, st))
+		warns = append(warns, ops.KitWarning(p, st))
 		for _, warn := range warns {
 			if warn != "" {
 				fmt.Fprintf(w, "! %s\n", warn)
@@ -179,22 +179,9 @@ func lastDeploy(p *project.Project) string {
 			continue
 		}
 		if e.Result == project.Failed {
-			return e.Step + " failed " + ago(e.Time)
+			return e.Step + " failed " + ops.Ago(e.Time)
 		}
-		return "deployed " + ago(e.Time)
+		return "deployed " + ops.Ago(e.Time)
 	}
 	return "not deployed yet"
-}
-
-func ago(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%d min ago", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%d h ago", int(d.Hours()))
-	}
-	return fmt.Sprintf("%d days ago", int(d.Hours()/24))
 }

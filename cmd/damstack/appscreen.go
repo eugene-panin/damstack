@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/stack"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
@@ -27,7 +28,7 @@ type nomad struct {
 // projectNomad is the Nomad of a project's platform, as its app_env reaches
 // it.
 func projectNomad(ctx context.Context, p *project.Project) (*nomad, error) {
-	m, dir, err := projectStack(ctx, p, "")
+	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return nil, err
 	}
@@ -35,14 +36,14 @@ func projectNomad(ctx context.Context, p *project.Project) (*nomad, error) {
 	if err != nil {
 		return nil, err
 	}
-	env, err := appEnv(p, m, dir, password)
+	env, err := ops.AppEnv(p, m, dir, password)
 	if err != nil {
 		return nil, err
 	}
 	if env["NOMAD_ADDR"] == "" {
 		return nil, fmt.Errorf("the platform of %s gives no Nomad address", p.Meta.Name)
 	}
-	return &nomad{addr: strings.TrimRight(env["NOMAD_ADDR"], "/"), token: env["NOMAD_TOKEN"], http: caClient(env["NOMAD_CACERT"])}, nil
+	return &nomad{addr: strings.TrimRight(env["NOMAD_ADDR"], "/"), token: env["NOMAD_TOKEN"], http: ops.CAClient(env["NOMAD_CACERT"])}, nil
 }
 
 func (n *nomad) do(ctx context.Context, method, path string, body any, out any) error {
@@ -227,14 +228,14 @@ func appScreen(ctx context.Context, s *streams, p *project.Project, name string)
 	if !ok {
 		return fmt.Errorf("%s is no app of %s", name, p.Meta.Name)
 	}
-	am, _, err := refStack(ctx, ref)
+	am, _, err := ops.RefStack(ctx, ref)
 	if err != nil {
 		return err
 	}
 	n, nerr := projectNomad(ctx, p)
 	var links []tui.Link
-	for _, l := range doneLines(p, am, name) {
-		for _, raw := range urlRe.FindAllString(l, -1) {
+	for _, l := range ops.DoneLines(p, am, name) {
+		for _, raw := range ops.URLRe.FindAllString(l, -1) {
 			u := strings.TrimRight(raw, ".")
 			if !slices.ContainsFunc(links, func(x tui.Link) bool { return x.URL == u }) {
 				links = append(links, tui.Link{URL: u})
@@ -286,7 +287,7 @@ func appScreen(ctx context.Context, s *streams, p *project.Project, name string)
 		if err != nil || !deploy {
 			return err
 		}
-		pm, pdir, err := projectStack(ctx, p, "")
+		pm, pdir, err := ops.ProjectStack(ctx, p, "")
 		if err != nil {
 			return err
 		}

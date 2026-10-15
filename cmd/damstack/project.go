@@ -21,6 +21,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/engine"
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
@@ -44,7 +45,7 @@ func statusCommand(s *streams) *cobra.Command {
 				return err
 			}
 			if live {
-				m, dir, err := projectStack(cmd.Context(), p, "")
+				m, dir, err := ops.ProjectStack(cmd.Context(), p, "")
 				if err != nil {
 					return err
 				}
@@ -104,7 +105,7 @@ func lastRuns(p *project.Project) ([]stepRun, error) {
 		}
 		last[e.Step] = e
 	}
-	if m, _ := cachedStack(p); m != nil {
+	if m, _ := ops.CachedStack(p); m != nil {
 		order = stepOrder(p, m)
 	}
 	steps := make([]stepRun, 0, len(order))
@@ -150,7 +151,7 @@ func historyCommand(s *streams) *cobra.Command {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%.1f\t%s\t%s\n", e.Time.Local().Format(time.DateTime), e.Command, step,
 					e.Result, e.Seconds, e.Stack, e.Damstack)
 				if e.Error != "" {
-					fmt.Fprintf(w, "\t\t\t%s\t\t\t\n", firstLine(e.Error))
+					fmt.Fprintf(w, "\t\t\t%s\t\t\t\n", ops.FirstLine(e.Error))
 				}
 			}
 			return w.Flush()
@@ -174,7 +175,7 @@ func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 		}
 	}
 	for _, ref := range p.Meta.Apps {
-		am, _ := cachedRef(ref)
+		am, _ := ops.CachedRef(ref)
 		if am == nil {
 			continue
 		}
@@ -210,7 +211,7 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 	platform := map[string]string{}
 	apps := map[string]map[string]string{}
 	for _, p := range projects {
-		m, _ := cachedStack(p)
+		m, _ := ops.CachedStack(p)
 		if m == nil {
 			continue
 		}
@@ -218,7 +219,7 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 			platform[name] = m.Name
 		}
 		for _, ref := range p.Meta.Apps {
-			am, _ := cachedRef(ref)
+			am, _ := ops.CachedRef(ref)
 			if am == nil {
 				continue
 			}
@@ -266,7 +267,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			platform, pdir := cachedStack(p)
+			platform, pdir := ops.CachedStack(p)
 			if platform == nil {
 				return fmt.Errorf("the stack of %s is not on this machine yet; damstack deploy %s fetches it", p.Meta.Name, p.Meta.Name)
 			}
@@ -274,7 +275,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			if app == "" {
 				step, ok = platform.Commands[name]
 			} else if ref, found := p.Meta.App(app); found {
-				if am, adir := cachedRef(ref); am != nil {
+				if am, adir := ops.CachedRef(ref); am != nil {
 					if _, t, has := am.Target(platform.Provides); has {
 						m, dir = am, adir
 						step, ok = t.Commands[name]
@@ -284,32 +285,32 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("%s has no command %s", p.Meta.Name, strings.TrimSpace(app+" "+name))
 			}
-			e, _, err := newEngine(cmd.Context(), s, p, m, dir)
+			e, _, err := ops.NewEngine(cmd.Context(), streamsUI{s}, s.yes, p, m, dir)
 			if err != nil {
 				return err
 			}
 			if app != "" {
 				e.App = app
-				if e.BaseEnv, err = appEnv(p, platform, pdir, e.Password); err != nil {
+				if e.BaseEnv, err = ops.AppEnv(p, platform, pdir, e.Password); err != nil {
 					return err
 				}
 			}
 			if step.Tunnel && platform.Server != nil {
-				if err := waitTunnel(cmd.Context(), s, p, platform.Server); err != nil {
+				if err := ops.WaitTunnel(cmd.Context(), streamsUI{s}, p, platform.Server); err != nil {
 					return err
 				}
 			}
 			command := strings.TrimSpace(app + " " + name)
 			// A command that changes the project waits its turn for the lock;
 			// one that only reads takes the platform's state as it is.
-			var sh *sharing
+			var sh *ops.Sharing
 			if step.Ansible != nil || (step.Tofu != nil && step.Tofu.Action == "apply") || step.Run != nil {
-				if sh, err = lockProject(cmd.Context(), s, p, platform, pdir, e.Password, command); err != nil {
+				if sh, err = ops.LockProject(cmd.Context(), streamsUI{s}, s.breakGlass, p, platform, pdir, e.Password, command); err != nil {
 					return err
 				}
 				defer sh.Release()
 			} else {
-				sh = readProject(s, p, platform, pdir, e.Password)
+				sh = ops.ReadProject(s.err, p, platform, pdir, e.Password)
 			}
 			if store := sh.Store(); store != nil {
 				e.State = store
@@ -318,7 +319,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			defer cancel()
 			start := time.Now()
 			err = lost(e.Run(ctx, step, args))
-			if rerr := record(p, command, "", start, err); rerr != nil && err == nil {
+			if rerr := ops.Record(p, command, "", start, err); rerr != nil && err == nil {
 				err = rerr
 			}
 			return err
@@ -371,7 +372,7 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 	if err := os.WriteFile(passwordPath, []byte(password+"\n"), 0o600); err != nil {
 		return err
 	}
-	ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}
+	ref := project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: ops.DevTag}
 	var p *project.Project
 	if m.IsApp() {
 		fmt.Fprintf(s.out, "== a project on %s, with the app from %s\n", m.Check.Platform, m.Check.Answers)
@@ -396,11 +397,11 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := ensureKeys(p, m, dir, password); err != nil {
+		if _, err := ops.EnsureKeys(p, m, password); err != nil {
 			return err
 		}
 	}
-	tb, cache, err := fetchToolbox(ctx, s, m)
+	tb, cache, err := ops.FetchToolbox(ctx, s.err, m)
 	if err != nil {
 		return err
 	}
@@ -418,11 +419,6 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 	}
 	fmt.Fprintf(s.out, "\n%s: all checks passed\n", m.Name)
 	return nil
-}
-
-func firstLine(text string) string {
-	line, _, _ := strings.Cut(text, "\n")
-	return line
 }
 
 func firstArg(args []string) string {

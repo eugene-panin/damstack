@@ -14,6 +14,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
@@ -82,7 +83,7 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly
 	if err != nil {
 		return err
 	}
-	pm, pdir, err := projectStack(ctx, p, "")
+	pm, pdir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
@@ -131,7 +132,7 @@ func addApp(ctx context.Context, s *streams, arg, from, answers string, appsOnly
 		fmt.Fprintf(s.out, "Edit stack.yaml if you want, then run damstack deploy in %s.\n", p.Dir)
 		return nil
 	}
-	return runSteps(ctx, s, p, pm, pdir, "", appsOnly)
+	return runSteps(ctx, s, p, pm, pdir, appsOnly)
 }
 
 // findApp fetches an app by what a person names it: a stack damstack knows,
@@ -146,9 +147,9 @@ func findApp(ctx context.Context, s *streams, arg, from string) (*manifest.Manif
 		if err != nil {
 			return nil, "", project.StackRef{}, err
 		}
-		return m, dir, project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: devTag}, nil
+		return m, dir, project.StackRef{Name: m.Name, URL: "file://" + dir, Tag: ops.DevTag}, nil
 	}
-	cfg, err := loadConfig(ctx)
+	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}

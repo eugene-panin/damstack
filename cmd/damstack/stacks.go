@@ -11,6 +11,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/stack"
 )
@@ -22,7 +23,7 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 		Short: "List the stacks damstack can deploy",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := loadConfig(cmd.Context())
+			cfg, err := ops.LoadConfig(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -103,7 +104,7 @@ func addStack(ctx context.Context, s *streams, raw, name string) error {
 	if !ok {
 		return fmt.Errorf("not added")
 	}
-	cfg, err := loadConfig(ctx)
+	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return err
 	}

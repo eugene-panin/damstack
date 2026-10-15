@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -26,7 +27,7 @@ func tokenCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m, _, err := projectStack(c.Context(), p, "")
+			m, _, err := ops.ProjectStack(c.Context(), p, "")
 			if err != nil {
 				return err
 			}

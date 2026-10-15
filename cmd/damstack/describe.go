@@ -8,6 +8,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 )
 
 // usageTemplate is cobra's, with the examples first.
@@ -108,7 +109,7 @@ func projectNames() []string {
 
 // stackNames are the platforms, or with apps the apps, damstack can deploy.
 func stackNames(c *cobra.Command, apps bool) []string {
-	cfg, err := loadConfig(c.Context())
+	cfg, err := ops.LoadConfig(c.Context())
 	if err != nil {
 		return nil
 	}
