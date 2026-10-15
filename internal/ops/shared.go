@@ -1,9 +1,10 @@
-package main
+package ops
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -17,12 +18,12 @@ import (
 	"github.com/eugene-panin/damstack/internal/remote"
 )
 
-// sharing is how a command shares a project on its platform: the lock it
+// Sharing is how a command shares a project on its platform: the lock it
 // holds while it changes the project, and the store the OpenTofu state is
-// pulled from and pushed to. A nil sharing is a project kept on this machine
+// pulled from and pushed to. A nil Sharing is a project kept on this machine
 // only; its methods do nothing then. local is the lock of the project on this
 // computer, which every command that changes it holds, shared or not.
-type sharing struct {
+type Sharing struct {
 	held  *remote.Held
 	store *remote.Store
 	local *os.File
@@ -34,7 +35,7 @@ func platformRemote(p *project.Project, m *manifest.Manifest, dir, password stri
 	if _, ok := m.AppEnv["CONSUL_HTTP_ADDR"]; !ok {
 		return nil, nil
 	}
-	env, err := appEnv(p, m, dir, password)
+	env, err := AppEnv(p, m, dir, password)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +52,12 @@ func me(action string) remote.Holder {
 	return remote.Holder{Person: name, Host: strings.TrimSuffix(host, ".local"), Action: action, Since: time.Now()}
 }
 
-// lockProject takes the locks of a project before a command changes it: the
+// LockProject takes the locks of a project before a command changes it: the
 // one on this computer, so that two commands here do not change it at once,
 // then that of a shared project on its platform, waiting in turn behind those
 // who asked first; --break-glass goes on without the platform's.
-func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, password, action string) (sh *sharing, err error) {
-	local, err := lockHere(p)
+func LockProject(ctx context.Context, ui UI, breakGlass bool, p *project.Project, m *manifest.Manifest, dir, password, action string) (sh *Sharing, err error) {
+	local, err := LockHere(p)
 	if err != nil {
 		return nil, err
 	}
@@ -66,25 +67,25 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 		}
 	}()
 	if !p.Meta.Shared {
-		return &sharing{local: local}, nil
+		return &Sharing{local: local}, nil
 	}
 	if err := requireShared(p); err != nil {
 		return nil, err
 	}
-	if s.breakGlass {
-		fmt.Fprintf(s.err, "--break-glass: changing %s without its lock, from the state on this machine. "+
+	if breakGlass {
+		fmt.Fprintf(ui.Err(), "--break-glass: changing %s without its lock, from the state on this machine. "+
 			"Anyone else changing it now races this.\n", p.Meta.Name)
-		return &sharing{local: local}, nil
+		return &Sharing{local: local}, nil
 	}
 	r, err := platformRemote(p, m, dir, password)
 	if err != nil {
 		return nil, err
 	}
 	if r == nil {
-		return &sharing{local: local}, nil
+		return &Sharing{local: local}, nil
 	}
 	if m.Server != nil {
-		if err := waitTunnel(ctx, s, p, m.Server); err != nil {
+		if err := WaitTunnel(ctx, ui, p, m.Server); err != nil {
 			return nil, err
 		}
 	}
@@ -93,7 +94,7 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 		if w.Holder != nil {
 			waiting.Holder = w.Holder.String()
 		}
-		s.events.Emit(waiting)
+		ui.Emit(waiting)
 	})
 	if errors.Is(err, remote.ErrUnreachable) {
 		return nil, fmt.Errorf("%w, and %s is shared there: nothing was changed. Bring the platform back, "+
@@ -102,12 +103,12 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 	if err != nil {
 		return nil, err
 	}
-	return &sharing{held: held, store: remote.NewStore(r, held), local: local}, nil
+	return &Sharing{held: held, store: remote.NewStore(r, held), local: local}, nil
 }
 
-// lockHere takes the lock of a project on this computer; it goes with the
+// LockHere takes the lock of a project on this computer; it goes with the
 // process, also when it is killed.
-func lockHere(p *project.Project) (*os.File, error) {
+func LockHere(p *project.Project) (*os.File, error) {
 	work, err := p.Work()
 	if err != nil {
 		return nil, err
@@ -126,10 +127,10 @@ func lockHere(p *project.Project) (*os.File, error) {
 	return f, nil
 }
 
-// readProject is the state store of a shared project for a command that only
+// ReadProject is the state store of a shared project for a command that only
 // reads it: the platform's state, fresh, with no lock. When the platform does
-// not answer it says so and leaves the state on this machine to be used.
-func readProject(s *streams, p *project.Project, m *manifest.Manifest, dir, password string) *sharing {
+// not answer it says so on errW and leaves the state on this machine to be used.
+func ReadProject(errW io.Writer, p *project.Project, m *manifest.Manifest, dir, password string) *Sharing {
 	if !p.Meta.Shared {
 		return nil
 	}
@@ -139,26 +140,35 @@ func readProject(s *streams, p *project.Project, m *manifest.Manifest, dir, pass
 	}
 	if err != nil || r == nil {
 		if err != nil {
-			fmt.Fprintf(s.err, "%v: using the state last seen on this machine, which may be behind.\n", err)
+			fmt.Fprintf(errW, "%v: using the state last seen on this machine, which may be behind.\n", err)
 		}
 		return nil
 	}
-	return &sharing{store: remote.NewStore(r, nil)}
+	return &Sharing{store: remote.NewStore(r, nil)}
 }
 
-// attach makes the jobs' engines use the shared state.
-func (sh *sharing) attach(jobs []job) {
+// Store is the store the OpenTofu state is shared through; nil for a project
+// kept on this machine only.
+func (sh *Sharing) Store() *remote.Store {
+	if sh == nil {
+		return nil
+	}
+	return sh.store
+}
+
+// Attach makes the jobs' engines use the shared state.
+func (sh *Sharing) Attach(jobs []Job) {
 	if sh == nil || sh.store == nil {
 		return
 	}
 	for _, j := range jobs {
-		j.e.State = sh.store
+		j.Engine.State = sh.store
 	}
 }
 
-// check is nil while the lock is still held; a lost lock stops the deploy
+// Check is nil while the lock is still held; a lost lock stops the deploy
 // before its next step.
-func (sh *sharing) check() error {
+func (sh *Sharing) Check() error {
 	if sh == nil || sh.held == nil {
 		return nil
 	}
@@ -169,9 +179,9 @@ func (sh *sharing) check() error {
 	return nil
 }
 
-// watch is ctx, canceled once the lock is lost; lost turns the error of what
+// Watch is ctx, canceled once the lock is lost; lost turns the error of what
 // ran under it into the reason it stopped.
-func (sh *sharing) watch(ctx context.Context) (context.Context, func(error) error, context.CancelFunc) {
+func (sh *Sharing) Watch(ctx context.Context) (context.Context, func(error) error, context.CancelFunc) {
 	if sh == nil || sh.held == nil {
 		return ctx, func(err error) error { return err }, func() {}
 	}
@@ -186,7 +196,8 @@ func (sh *sharing) watch(ctx context.Context) (context.Context, func(error) erro
 	return ctx, lost, cancel
 }
 
-func (sh *sharing) release() {
+// Release lets go of the locks.
+func (sh *Sharing) Release() {
 	if sh != nil && sh.held != nil {
 		sh.held.Release()
 	}
@@ -198,8 +209,8 @@ func (sh *sharing) release() {
 // publish moves a project's state onto its platform the first time a deploy
 // of it succeeds with the platform up: from then on it is shared, and every
 // change takes its lock. A platform without a Consul keeps it here.
-func publish(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, password string) error {
-	if p.Meta.Shared || s.breakGlass {
+func publish(ctx context.Context, ui UI, breakGlass bool, p *project.Project, m *manifest.Manifest, dir, password string) error {
+	if p.Meta.Shared || breakGlass {
 		return nil
 	}
 	r, err := platformRemote(p, m, dir, password)
@@ -207,7 +218,7 @@ func publish(ctx context.Context, s *streams, p *project.Project, m *manifest.Ma
 		return err
 	}
 	if err := r.Reachable(); err != nil {
-		fmt.Fprintf(s.err, "The state stays on this machine for now: %v.\n", err)
+		fmt.Fprintf(ui.Err(), "The state stays on this machine for now: %v.\n", err)
 		return nil
 	}
 	held, err := r.Lock(ctx, me("publish"), nil)
@@ -240,7 +251,7 @@ func publish(ctx context.Context, s *streams, p *project.Project, m *manifest.Ma
 	if err := p.SaveMeta(); err != nil {
 		return err
 	}
-	s.events.Emit(event.Note{Break: true, Text: fmt.Sprintf("The state of %d steps is now kept on the platform. "+
+	ui.Emit(event.Note{Break: true, Text: fmt.Sprintf("The state of %d steps is now kept on the platform. "+
 		"From now on a change to %s waits its turn: one person at a time, the others queue.", len(files), p.Meta.Name)})
 	return nil
 }

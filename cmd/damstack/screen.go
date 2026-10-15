@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -135,55 +133,6 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 		return false, err
 	}
 	return false, shown
-}
-
-var urlRe = regexp.MustCompile(`https?://[^\s,;)]+`)
-
-// runDone says what a deploy of p set up: the addresses in the done lines of
-// its platform and of its apps, the admin pages first, and what to run next.
-func runDone(p *project.Project, m *manifest.Manifest) event.RunDone {
-	config, _ := p.Config()
-	infra, _ := config["infra_domain"].(string)
-	var admin, apps []event.Link
-	seen := map[string]bool{}
-	add := func(lines []string) {
-		for _, l := range lines {
-			for _, raw := range urlRe.FindAllString(l, -1) {
-				link := strings.TrimRight(raw, ".")
-				u, err := url.Parse(link)
-				if err != nil || seen[link] {
-					continue
-				}
-				seen[link] = true
-				if infra != "" && strings.HasSuffix(u.Hostname(), "."+infra) {
-					token, _, _ := strings.Cut(u.Hostname(), ".")
-					if _, ok := m.Tokens[token]; !ok {
-						token = ""
-					}
-					admin = append(admin, event.Link{URL: link, Admin: true, Token: token})
-				} else {
-					apps = append(apps, event.Link{URL: link})
-				}
-			}
-		}
-	}
-	add(doneLines(p, m, ""))
-	for _, ref := range p.Meta.Apps {
-		if am, _ := cachedRef(ref); am != nil {
-			add(doneLines(p, am, ref.Name))
-		}
-	}
-	run := event.RunDone{Links: append(admin, apps...)}
-	if network, ok := config["network"].(map[string]any); ok {
-		if clients, ok := network["clients"].([]any); ok && len(clients) > 0 {
-			run.Next = append(run.Next, event.NextStep{Command: fmt.Sprintf("damstack tunnel show %v", clients[0]),
-				Why: "the WireGuard config, as a QR code too"})
-		}
-	}
-	if m.Backup != nil {
-		run.Next = append(run.Next, event.NextStep{Command: "damstack backup status", Why: "what is backed up, and where"})
-	}
-	return run
 }
 
 // check says whether an address answers: its HTTP status, or why not.
