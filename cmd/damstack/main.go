@@ -172,6 +172,11 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 	}
 	root.SetArgs(takeProjectFlag(args))
 	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
+	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		if v, _ := cmd.Flags().GetString("project"); v != "" && projectArg == "" {
+			projectArg = v
+		}
+	}
 	// Declared before cobra adds its own, so --version gets no -v shorthand: -v is --verbose.
 	root.Flags().Bool("version", false, "print the version and the toolbox it uses")
 	root.SetVersionTemplate(fmt.Sprintf("damstack %s, toolbox %s\n", release.Version, release.Toolbox))

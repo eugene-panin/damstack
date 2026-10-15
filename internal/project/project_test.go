@@ -192,3 +192,17 @@ func TestAnOlderDamstackRefusesAProjectThatNeedsANewerOne(t *testing.T) {
 		}
 	}
 }
+
+func TestTheWorkDirIsTheOwnersAlone(t *testing.T) {
+	p := &Project{Dir: t.TempDir()}
+	if err := os.MkdirAll(filepath.Join(p.Dir, WorkDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := p.Work()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o700 {
+		t.Fatalf("got %v", info.Mode().Perm())
+	}
+}

@@ -697,6 +697,10 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 		}
 		for i, j := range jobs {
 			if stop.Load() {
+				if i == 0 {
+					return fmt.Errorf("stopped before the first step, as asked; run damstack %s %s again to begin",
+						command, p.Meta.Name)
+				}
 				return fmt.Errorf("stopped after %s, as asked; run damstack %s %s again to go on from the next step",
 					jobs[i-1].name, command, p.Meta.Name)
 			}
@@ -942,12 +946,16 @@ func logTo(p *project.Project, j job) (string, func(), error) {
 	if !ok {
 		return "", func() {}, nil
 	}
-	dir := filepath.Join(p.Dir, project.WorkDir, "logs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	work, err := p.Work()
+	if err != nil {
+		return "", nil, err
+	}
+	dir := filepath.Join(work, "logs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", nil, err
 	}
 	path := filepath.Join(dir, time.Now().Format("2006-01-02T15-04-05")+"-"+strings.ReplaceAll(j.name, "/", "-")+".log")
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", nil, err
 	}

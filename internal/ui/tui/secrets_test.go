@@ -47,6 +47,8 @@ func press(m tea.Model, keys ...string) tea.Cmd {
 			msg = tea.KeyPressMsg{Code: tea.KeyDown}
 		case "esc":
 			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
+		case "ctrl+c":
+			msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 		default:
 			msg = tea.KeyPressMsg{Code: rune(k[0]), Text: k}
 		}
@@ -181,5 +183,25 @@ func TestThePolicySaysWhenASecretIsOld(t *testing.T) {
 	press(m, "p")
 	if kept != 180 || m.old(m.rows[m.index("vault_stack_ca_key")]) {
 		t.Errorf("p must go from 90 to 180 days, and a 120-day secret is not old then: %d", kept)
+	}
+}
+
+func TestCtrlCDoesNotLoseTheNewPasswords(t *testing.T) {
+	m := secretsScreen(100, 30, SecretActions{
+		Rotate: func(rows []SecretRow, _ map[string]string) []Rotated {
+			return []Rotated{{Name: rows[0].Name, Passwords: []Password{{"eugene", "pw"}}}}
+		},
+	})
+	m.cursor = m.index("sauron/operators/eugene")
+	cmd := press(m, "space", "enter", "enter")
+	if press(m, "ctrl+c") != nil {
+		t.Fatal("ctrl+c while the passwords are made anew must ask again")
+	}
+	m.Update(cmd())
+	if press(m, "ctrl+c") != nil {
+		t.Fatal("ctrl+c before the new password is copied must ask again")
+	}
+	if _, ok := press(m, "ctrl+c")().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c twice must leave")
 	}
 }

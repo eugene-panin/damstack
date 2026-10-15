@@ -80,7 +80,11 @@ func restore(ctx context.Context, s *streams, p *project.Project) error {
 		return err
 	}
 
-	work := filepath.Join(p.Dir, project.WorkDir, "restore")
+	root, err := p.Work()
+	if err != nil {
+		return err
+	}
+	work := filepath.Join(root, "restore")
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		return err
 	}

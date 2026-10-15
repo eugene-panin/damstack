@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/consul/api"
 )
 
 func who(name string) Holder {
@@ -228,4 +230,77 @@ func TestAStateThatFailedToGoUpIsNeverPulledOver(t *testing.T) {
 		t.Fatalf("once pushed, pulls work again: %v", err)
 	}
 	h.Release()
+}
+
+func TestAStateThatFailedToGoUpGoesUpOnTheNextDeploy(t *testing.T) {
+	f := newFake()
+	r := New("twinmind", f, f)
+	path := filepath.Join(t.TempDir(), "infra.tfstate")
+	h, _ := r.Lock(context.Background(), who("eugene"), nil)
+	store := NewStore(r, h)
+	os.WriteFile(path, []byte(`{"serial":1}`), 0o600)
+	store.Pull("infra", path)
+	store.Push("infra", path)
+	os.WriteFile(path, []byte(`{"serial":2}`), 0o600)
+	f.down = true
+	store.Push("infra", path)
+	f.down = false
+	h.Release()
+
+	h, _ = r.Lock(context.Background(), who("eugene"), nil)
+	defer h.Release()
+	next := NewStore(r, h)
+	if err := next.Pull("infra", path); err != nil {
+		t.Fatalf("the next deploy must take up the state that failed to go up: %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != `{"serial":2}` {
+		t.Fatalf("the newer local state must stay, got %s", data)
+	}
+	if err := next.Push("infra", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".unpushed"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a pushed state must not stay marked")
+	}
+}
+
+func TestAStateThatFailedToGoUpIsNotForcedOverAChangedOne(t *testing.T) {
+	f := newFake()
+	r := New("twinmind", f, f)
+	path := filepath.Join(t.TempDir(), "infra.tfstate")
+	h, _ := r.Lock(context.Background(), who("eugene"), nil)
+	store := NewStore(r, h)
+	os.WriteFile(path, []byte(`{"serial":1}`), 0o600)
+	store.Pull("infra", path)
+	store.Push("infra", path)
+	os.WriteFile(path, []byte(`{"serial":2}`), 0o600)
+	f.down = true
+	store.Push("infra", path)
+	f.down = false
+	pair, _, _ := f.Get(r.key("state", "infra"), nil)
+	pair.Value = []byte(`{"serial":7}`)
+	f.CAS(pair, nil)
+
+	if err := NewStore(r, h).Pull("infra", path); !errors.Is(err, ErrUnpushed) {
+		t.Fatalf("got %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != `{"serial":2}` {
+		t.Fatalf("the local state must stay, got %s", data)
+	}
+	h.Release()
+}
+
+func TestAStateThePlatformGotAfterAllIsNoLongerMarked(t *testing.T) {
+	f := newFake()
+	r := New("twinmind", f, f)
+	path := filepath.Join(t.TempDir(), "infra.tfstate")
+	os.WriteFile(path, []byte(`{"serial":2}`), 0o600)
+	os.WriteFile(path+".unpushed", []byte("1"), 0o600)
+	f.CAS(&api.KVPair{Key: r.key("state", "infra"), Value: []byte(`{"serial":2}`)}, nil)
+	if err := NewStore(r, nil).Pull("infra", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".unpushed"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the mark must go once the platform has the same state")
+	}
 }

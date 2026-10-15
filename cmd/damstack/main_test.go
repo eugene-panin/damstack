@@ -84,3 +84,32 @@ func TestCommandElsewhereExitsWithItsStatus(t *testing.T) {
 		t.Errorf("exit %d, err %q", code, errOut.String())
 	}
 }
+
+func TestTheProjectFlagIsTakenInEachFormUpToTheDashes(t *testing.T) {
+	for _, c := range []struct {
+		args    []string
+		project string
+		rest    []string
+	}{
+		{[]string{"status", "-p", "prod"}, "prod", []string{"status"}},
+		{[]string{"status", "--project=prod"}, "prod", []string{"status"}},
+		{[]string{"status", "-p=prod"}, "prod", []string{"status"}},
+		{[]string{"ssh", "--", "ps", "-p", "1"}, "", []string{"ssh", "--", "ps", "-p", "1"}},
+		{[]string{"ssh", "-p", "prod", "--", "ps", "-p", "1"}, "prod", []string{"ssh", "--", "ps", "-p", "1"}},
+	} {
+		projectArg = ""
+		rest := takeProjectFlag(c.args)
+		if projectArg != c.project || fmt.Sprint(rest) != fmt.Sprint(c.rest) {
+			t.Errorf("%q: project %q, rest %q", c.args, projectArg, rest)
+		}
+	}
+	projectArg = ""
+}
+
+func TestAProjectGivenAsOneWordWithItsShorthandIsUsed(t *testing.T) {
+	defer func() { projectArg = "" }()
+	_, _, errOut := runCLI(t, context.Background(), "status", "-pnosuch")
+	if !strings.Contains(errOut, "no project named nosuch") {
+		t.Fatalf("got %q", errOut)
+	}
+}

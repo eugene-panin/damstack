@@ -98,7 +98,7 @@ func (e *Engine) Run(ctx context.Context, s manifest.Step, args []string) error 
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(e.Project.Dir, project.WorkDir), 0o755); err != nil {
+	if _, err := e.Project.Work(); err != nil {
 		return err
 	}
 
@@ -380,6 +380,8 @@ func (e *Engine) Drift(ctx context.Context, s manifest.Step) (string, error) {
 		return "", err
 	}
 	plan := filepath.Join(data, "drift")
+	defer os.Remove(plan)
+	defer os.Remove(plan + ".json")
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: []string{"tofu", chdir, "plan", "-input=false", "-detailed-exitcode", "-out=" + plan}})
 	var exit *toolbox.ExitError
 	switch {
@@ -410,6 +412,8 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 	}
 
 	plan := filepath.Join(data, "plan")
+	defer os.Remove(plan)
+	defer os.Remove(plan + ".json")
 	err = e.Runner.Run(ctx, toolbox.Cmd{Env: env, Args: append([]string{"tofu", chdir, "plan", "-input=false",
 		"-detailed-exitcode", "-out=" + plan}, args...)})
 	var exit *toolbox.ExitError
@@ -473,9 +477,6 @@ func (e *Engine) tofu(ctx context.Context, s manifest.Step, env map[string]strin
 		}
 	}
 	if err != nil {
-		return err
-	}
-	if err := os.Remove(plan); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	if err := e.waitJobs(ctx, env, jobs); err != nil {
@@ -555,7 +556,7 @@ func (e *Engine) init(ctx context.Context, env map[string]string, chdir string, 
 // showPlan writes a plan as JSON next to it, and returns its path.
 func (e *Engine) showPlan(ctx context.Context, env map[string]string, chdir, plan string) (string, error) {
 	planJSON := plan + ".json"
-	out, err := os.Create(planJSON)
+	out, err := os.OpenFile(planJSON, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
