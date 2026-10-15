@@ -16,56 +16,6 @@ import (
 	"github.com/eugene-panin/damstack/internal/sshkey"
 )
 
-// projectKeyFile is where the SSH key of a project is written for ssh to
-// read, inside the work directory, which no kit or git keeps.
-const projectKeyFile = ".damstack/work/ssh/project-key"
-
-// keyFor is the private SSH key damstack logs in to the server of p with:
-// yours in ~/.ssh when there is one, else the key of the project.
-func keyFor(p *project.Project, m *manifest.Manifest, password string) (string, error) {
-	key, err := sshKey()
-	if err == nil {
-		return key, nil
-	}
-	if m == nil || m.Server == nil || m.Server.SSHKey == nil {
-		return "", err
-	}
-	secrets, serr := p.Secrets(password)
-	if serr != nil {
-		return "", serr
-	}
-	k, serr := sshkey.FromSecret(secrets[m.Server.SSHKey.Secret])
-	if serr != nil || k == nil {
-		return "", err
-	}
-	path := filepath.Join(p.Dir, projectKeyFile)
-	return path, k.Write(path)
-}
-
-// ensureSSHKey makes the SSH key of a project when it has none yet.
-func ensureSSHKey(p *project.Project, m *manifest.Manifest, password string) (bool, error) {
-	if m.Server == nil || m.Server.SSHKey == nil {
-		return false, nil
-	}
-	secrets, err := p.Secrets(password)
-	if err != nil {
-		return false, err
-	}
-	k, err := sshkey.FromSecret(secrets[m.Server.SSHKey.Secret])
-	if err != nil || k != nil {
-		return false, err
-	}
-	if k, err = sshkey.New(time.Now()); err != nil {
-		return false, err
-	}
-	v, err := k.Secret()
-	if err != nil {
-		return false, err
-	}
-	secrets[m.Server.SSHKey.Secret] = v
-	return true, p.SaveSecrets(password, secrets)
-}
-
 func sshCommand(s *streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ssh [project] [-- command]",

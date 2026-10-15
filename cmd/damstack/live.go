@@ -25,7 +25,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 	if err != nil {
 		return err
 	}
-	readProject(s, p, m, dir, e.Password).attach(jobs)
+	readProject(s, p, m, dir, e.Password).Attach(jobs)
 	quiet := *s
 	quiet.in = nil
 	fmt.Fprintf(s.out, "Checking %s against the server, changing nothing.\n\n", p.Meta.Name)
@@ -40,7 +40,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 		case "unknown":
 			unknown++
 		}
-		fmt.Fprintf(tw, "%s\t%s\n", j.name, now.text)
+		fmt.Fprintf(tw, "%s\t%s\n", j.Name, now.text)
 	}
 	tw.Flush()
 	fmt.Fprintln(s.out)
@@ -60,14 +60,14 @@ type liveResult struct{ state, text string }
 
 func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *manifest.Server) liveResult {
 	switch {
-	case j.step.Once:
+	case j.Step.Once:
 		return liveResult{"skipped", "runs once, not checked"}
-	case j.step.Run != nil:
+	case j.Step.Run != nil:
 		return liveResult{"skipped", "a program of the stack, not checked"}
-	case j.step.Tofu != nil && j.step.Tofu.Action == "output":
+	case j.Step.Tofu != nil && j.Step.Tofu.Action == "output":
 		return liveResult{"skipped", "not checked"}
 	}
-	if j.step.Tunnel && srv != nil {
+	if j.Step.Tunnel && srv != nil {
 		if err := waitTunnel(ctx, s, p, srv); err != nil {
 			return liveResult{"unknown", "not checked: the tunnel is off"}
 		}
@@ -77,8 +77,8 @@ func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *m
 		return liveResult{"unknown", err.Error()}
 	}
 	defer restore()
-	if j.step.Ansible != nil {
-		if err := j.e.Run(ctx, j.step, []string{"--check", "--diff"}); err != nil {
+	if j.Step.Ansible != nil {
+		if err := j.Engine.Run(ctx, j.Step, []string{"--check", "--diff"}); err != nil {
 			return liveResult{"unknown", "the check failed: " + firstLine(err.Error()) + "; see " + log}
 		}
 		data, _ := os.ReadFile(log)
@@ -92,7 +92,7 @@ func liveStep(ctx context.Context, s *streams, p *project.Project, j job, srv *m
 		}
 		return liveResult{"ok", "as stack.yaml says"}
 	}
-	counts, err := j.e.Drift(ctx, j.step)
+	counts, err := j.Engine.Drift(ctx, j.Step)
 	if err != nil {
 		return liveResult{"unknown", "the check failed: " + firstLine(err.Error()) + "; see " + log}
 	}

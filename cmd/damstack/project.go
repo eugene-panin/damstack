@@ -307,14 +307,14 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 				if sh, err = lockProject(cmd.Context(), s, p, platform, pdir, e.Password, command); err != nil {
 					return err
 				}
-				defer sh.release()
+				defer sh.Release()
 			} else {
 				sh = readProject(s, p, platform, pdir, e.Password)
 			}
-			if sh != nil && sh.store != nil {
-				e.State = sh.store
+			if store := sh.Store(); store != nil {
+				e.State = store
 			}
-			ctx, lost, cancel := sh.watch(cmd.Context())
+			ctx, lost, cancel := sh.Watch(cmd.Context())
 			defer cancel()
 			start := time.Now()
 			err = lost(e.Run(ctx, step, args))

@@ -1,4 +1,4 @@
-package main
+package ops
 
 import (
 	"os"
@@ -34,7 +34,7 @@ func TestAnUnchangedPlatformStepIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputs := func() string {
-		in, err := platformInputs(p, stack, "ansible/site.yml", "pw")
+		in, err := PlatformInputs(p, stack, "ansible/site.yml", "pw")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,13 +42,13 @@ func TestAnUnchangedPlatformStepIsSkipped(t *testing.T) {
 	}
 	first := inputs()
 	now := time.Now()
-	if why := unchanged(p, "provision", first, now); why != "" {
+	if why := Unchanged(p, "provision", first, now); why != "" {
 		t.Errorf("a step that never ran must run: %q", why)
 	}
-	if err := recordRun(p, "deploy", "provision", first, now.Add(-time.Hour), nil); err != nil {
+	if err := RecordRun(p, "deploy", "provision", first, now.Add(-time.Hour), nil); err != nil {
 		t.Fatal(err)
 	}
-	if why := unchanged(p, "provision", first, now); !strings.HasPrefix(why, "unchanged since") {
+	if why := Unchanged(p, "provision", first, now); !strings.HasPrefix(why, "unchanged since") {
 		t.Errorf("a step whose inputs are those of its last good run is skipped: %q", why)
 	}
 
@@ -57,7 +57,7 @@ func TestAnUnchangedPlatformStepIsSkipped(t *testing.T) {
 	if inputs() != first {
 		t.Error("a change under apps must not change the platform's inputs")
 	}
-	if unchanged(p, "provision", first, now.Add(8*24*time.Hour)) != "" {
+	if Unchanged(p, "provision", first, now.Add(8*24*time.Hour)) != "" {
 		t.Error("an unchanged step runs again once its last run is a week old")
 	}
 	for name, change := range map[string]func(){
@@ -73,10 +73,10 @@ func TestAnUnchangedPlatformStepIsSkipped(t *testing.T) {
 			t.Errorf("a change to %s must change the inputs", name)
 		}
 	}
-	if err := recordRun(p, "deploy", "provision", inputs(), now, os.ErrClosed); err != nil {
+	if err := RecordRun(p, "deploy", "provision", inputs(), now, os.ErrClosed); err != nil {
 		t.Fatal(err)
 	}
-	if unchanged(p, "provision", inputs(), now) != "" {
+	if Unchanged(p, "provision", inputs(), now) != "" {
 		t.Error("a step whose last run failed must run")
 	}
 }
@@ -94,35 +94,32 @@ func TestADeployFingerprintsThePlatformsAnsibleStepsOrRunsWhatWasPicked(t *testi
 	}
 	platform := &engine.Engine{Stack: stack}
 	app := &engine.Engine{Stack: stack, App: "sauron"}
-	jobs := func() []job {
-		return []job{
-			{e: platform, name: "bootstrap", step: manifest.Step{Name: "bootstrap", Once: true, Ansible: &manifest.Ansible{Playbook: "ansible/site.yml"}}},
-			{e: platform, name: "provision", step: manifest.Step{Name: "provision", Ansible: &manifest.Ansible{Playbook: "ansible/site.yml"}}},
-			{e: platform, name: "apply", step: manifest.Step{Name: "apply", Tofu: &manifest.Tofu{Dir: "infra"}}},
-			{e: app, name: "sauron/apply", step: manifest.Step{Name: "apply", Tofu: &manifest.Tofu{Dir: "infra"}}},
+	jobs := func() []Job {
+		return []Job{
+			{Engine: platform, Name: "bootstrap", Step: manifest.Step{Name: "bootstrap", Once: true, Ansible: &manifest.Ansible{Playbook: "ansible/site.yml"}}},
+			{Engine: platform, Name: "provision", Step: manifest.Step{Name: "provision", Ansible: &manifest.Ansible{Playbook: "ansible/site.yml"}}},
+			{Engine: platform, Name: "apply", Step: manifest.Step{Name: "apply", Tofu: &manifest.Tofu{Dir: "infra"}}},
+			{Engine: app, Name: "sauron/apply", Step: manifest.Step{Name: "apply", Tofu: &manifest.Tofu{Dir: "infra"}}},
 		}
 	}
-	s := &streams{}
-	got, err := chooseJobs(s, p, jobs(), false, "pw")
+	got, err := chooseJobs(nil, false, p, jobs(), false, "pw")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, j := range got {
-		if want := j.name == "provision"; (j.inputs != "") != want {
-			t.Errorf("%s: fingerprinted %v, want %v", j.name, j.inputs != "", want)
+		if want := j.Name == "provision"; (j.Inputs != "") != want {
+			t.Errorf("%s: fingerprinted %v, want %v", j.Name, j.Inputs != "", want)
 		}
 	}
-	s.all = true
-	if got, _ = chooseJobs(s, p, jobs(), false, "pw"); got[1].inputs != "" {
+	if got, _ = chooseJobs(nil, true, p, jobs(), false, "pw"); got[1].Inputs != "" {
 		t.Error("--all runs every step: none is fingerprinted")
 	}
-	s.all, s.only = false, map[string]bool{"provision": true, "sauron": true}
-	got, _ = chooseJobs(s, p, jobs(), false, "pw")
+	got, _ = chooseJobs(map[string]bool{"provision": true, "sauron": true}, false, p, jobs(), false, "pw")
 	var names []string
 	for _, j := range got {
-		names = append(names, j.name)
-		if j.inputs != "" {
-			t.Errorf("%s was picked: it runs, unchanged or not", j.name)
+		names = append(names, j.Name)
+		if j.Inputs != "" {
+			t.Errorf("%s was picked: it runs, unchanged or not", j.Name)
 		}
 	}
 	if strings.Join(names, " ") != "provision sauron/apply" {

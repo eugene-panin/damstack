@@ -1,4 +1,4 @@
-package main
+package ops
 
 import (
 	"crypto/sha256"
@@ -22,11 +22,11 @@ import (
 // step runs again, and puts back what was changed on the server by hand.
 const rerunAfter = 7 * 24 * time.Hour
 
-// platformInputs is a fingerprint of what a platform's Ansible step is given:
+// PlatformInputs is a fingerprint of what a platform's Ansible step is given:
 // the stack's Ansible as it is on this machine, stack.yaml but its apps, the
 // platform's secrets, and this damstack. Apps change none of them, so a
 // deploy for an app's key does not converge the platform again.
-func platformInputs(p *project.Project, stackDir, playbook, password string) (string, error) {
+func PlatformInputs(p *project.Project, stackDir, playbook, password string) (string, error) {
 	h := sha256.New()
 	io.WriteString(h, release.Version+"\n")
 	root := filepath.Join(stackDir, strings.SplitN(filepath.ToSlash(playbook), "/", 2)[0])
@@ -55,7 +55,7 @@ func platformInputs(p *project.Project, stackDir, playbook, password string) (st
 	if err != nil {
 		return "", err
 	}
-	for name := range appSecretNames(p) {
+	for name := range AppSecretNames(p) {
 		delete(secrets, name)
 	}
 	for _, v := range []any{config, secrets} {
@@ -69,11 +69,11 @@ func platformInputs(p *project.Project, stackDir, playbook, password string) (st
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// appSecretNames are the secrets of a project's apps.
-func appSecretNames(p *project.Project) map[string]bool {
+// AppSecretNames are the secrets of a project's apps.
+func AppSecretNames(p *project.Project) map[string]bool {
 	names := map[string]bool{}
 	for _, ref := range p.Meta.Apps {
-		if am, _ := cachedRef(ref); am != nil {
+		if am, _ := CachedRef(ref); am != nil {
 			for _, sec := range am.Secrets {
 				names[sec.Name] = true
 			}
@@ -82,9 +82,9 @@ func appSecretNames(p *project.Project) map[string]bool {
 	return names
 }
 
-// unchanged says why a step need not run: its last run went well, with the
+// Unchanged says why a step need not run: its last run went well, with the
 // same inputs, not long ago. Empty when it must run.
-func unchanged(p *project.Project, step, inputs string, now time.Time) string {
+func Unchanged(p *project.Project, step, inputs string, now time.Time) string {
 	if inputs == "" {
 		return ""
 	}
@@ -98,30 +98,30 @@ func unchanged(p *project.Project, step, inputs string, now time.Time) string {
 // chooseJobs keeps the jobs a deploy runs: those picked, when some were, all
 // of them run; otherwise every one, those of the platform's Ansible steps with
 // the fingerprint of their inputs, to be skipped while it stays the same.
-func chooseJobs(s *streams, p *project.Project, jobs []job, restore bool, password string) ([]job, error) {
-	if s.only != nil {
+func chooseJobs(only map[string]bool, all bool, p *project.Project, jobs []Job, restore bool, password string) ([]Job, error) {
+	if only != nil {
 		var parts []string
 		for _, j := range jobs {
-			if !slices.Contains(parts, j.part()) {
-				parts = append(parts, j.part())
+			if !slices.Contains(parts, j.Part()) {
+				parts = append(parts, j.Part())
 			}
 		}
-		for name := range s.only {
+		for name := range only {
 			if !slices.Contains(parts, name) {
 				return nil, fmt.Errorf("%s is no part of a deploy of %s; the parts: %s", name, p.Meta.Name, strings.Join(parts, ", "))
 			}
 		}
-		return slices.DeleteFunc(jobs, func(j job) bool { return !s.only[j.part()] }), nil
+		return slices.DeleteFunc(jobs, func(j Job) bool { return !only[j.Part()] }), nil
 	}
-	if restore || s.all {
+	if restore || all {
 		return jobs, nil
 	}
 	for i, j := range jobs {
-		if j.step.Ansible == nil || j.step.Once || j.e.App != "" {
+		if j.Step.Ansible == nil || j.Step.Once || j.Engine.App != "" {
 			continue
 		}
 		var err error
-		if jobs[i].inputs, err = platformInputs(p, j.e.Stack, j.step.Ansible.Playbook, password); err != nil {
+		if jobs[i].Inputs, err = PlatformInputs(p, j.Engine.Stack, j.Step.Ansible.Playbook, password); err != nil {
 			return nil, err
 		}
 	}

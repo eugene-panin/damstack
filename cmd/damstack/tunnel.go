@@ -157,22 +157,6 @@ func newTunnel(s *streams, p *project.Project, m *manifest.Manifest, dir string)
 	return loadTunnel(s, p, m, dir, password)
 }
 
-// ensureKeys gives the devices of a project the keys they lack, before a
-// deploy or a check of its stack.
-func ensureKeys(p *project.Project, m *manifest.Manifest, dir, password string) (wg.Change, error) {
-	if _, err := ensureSSHKey(p, m, password); err != nil {
-		return wg.Change{}, err
-	}
-	if m.Server == nil || m.Server.WireGuard == nil {
-		return wg.Change{}, nil
-	}
-	t, err := loadTunnel(nil, p, m, dir, password)
-	if err != nil {
-		return wg.Change{}, err
-	}
-	return t.reconcile()
-}
-
 func loadTunnel(s *streams, p *project.Project, m *manifest.Manifest, dir, password string) (*tunnel, error) {
 	if m.Server == nil || m.Server.WireGuard == nil {
 		return nil, fmt.Errorf("the stack %s of %s keeps no WireGuard keys of its own", m.Name, p.Meta.Name)
