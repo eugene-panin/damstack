@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync/atomic"
 
 	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/event"
@@ -128,6 +127,6 @@ type deployScreen struct {
 	plain bool
 }
 
-func (d deployScreen) Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, *atomic.Bool) error) error {
+func (d deployScreen) Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, <-chan struct{}) error) error {
 	return onScreen(ctx, d.s, d.ui, d.plain, p, m, work)
 }

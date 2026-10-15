@@ -9,7 +9,6 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/engine"
@@ -33,10 +32,36 @@ type UI interface {
 }
 
 // Screen runs work while a deploy is shown: work reaches the person through ui
-// meanwhile, the screen's while it is up. stop is set when the person asks to
-// stop after the step running now.
+// meanwhile, the screen's while it is up. stop is closed when the person asks
+// to stop after the step running now; ctx is canceled to stop at once.
 type Screen interface {
-	Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(ctx context.Context, ui UI, stop *atomic.Bool) error) error
+	Run(ctx context.Context, p *project.Project, m *manifest.Manifest, work func(ctx context.Context, ui UI, stop <-chan struct{}) error) error
+}
+
+// errStopped is the cause of a wait cut short by a stop after the step.
+var errStopped = errors.New("stopped, as asked")
+
+// until is ctx, canceled with errStopped once stop is closed: for what a run
+// waits for before its first step, such as the lock.
+func until(ctx context.Context, stop <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		select {
+		case <-stop:
+			cancel(errStopped)
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() { cancel(nil) }
+}
+
+func closed(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
 }
 
 // Options are how a deploy runs.
@@ -139,14 +164,25 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 		}
 	}
 	var keys wg.Change
-	err = d.Screen.Run(ctx, p, m, func(ctx context.Context, ui UI, stop *atomic.Bool) error {
+	command := "deploy"
+	if restore != "" {
+		command = "restore"
+	}
+	err = d.Screen.Run(ctx, p, m, func(ctx context.Context, ui UI, stop <-chan struct{}) error {
 		e.Events, e.Approve = event.SinkFunc(ui.Emit), approver(ui, d.Opts.Yes)
 		var err error
 		// A restore sets up a new server from a backup, the platform's state
 		// with it: there is no platform to lock yet.
 		var sh *Sharing
 		if restore == "" {
-			if sh, err = LockProject(ctx, ui, d.Opts.BreakGlass, p, m, dir, e.Password, "deploy"); err != nil {
+			waiting, done := until(ctx, stop)
+			sh, err = LockProject(waiting, ui, d.Opts.BreakGlass, p, m, dir, e.Password, "deploy")
+			stoppedWaiting := errors.Is(context.Cause(waiting), errStopped)
+			done()
+			if err != nil {
+				if stoppedWaiting {
+					return fmt.Errorf("stopped before the first step, as asked; run damstack %s %s again to begin", command, p.Meta.Name)
+				}
 				return err
 			}
 			defer sh.Release()
@@ -164,10 +200,6 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 			return err
 		}
 		sh.Attach(jobs)
-		command := "deploy"
-		if restore != "" {
-			command = "restore"
-		}
 		ui.Emit(RunStarted(p, command, jobs))
 		for _, j := range jobs {
 			if restore != "" {
@@ -178,7 +210,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 			}
 		}
 		for i, j := range jobs {
-			if stop.Load() {
+			if closed(stop) {
 				if i == 0 {
 					return fmt.Errorf("stopped before the first step, as asked; run damstack %s %s again to begin",
 						command, p.Meta.Name)
