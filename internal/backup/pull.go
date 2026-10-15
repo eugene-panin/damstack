@@ -166,6 +166,10 @@ type State struct {
 	Kit time.Time `json:"kit"`
 }
 
+// CopySecret is the secret of a project, in its vault.yml, that opens the
+// copy of its backups on this machine: its own, not the server's.
+const CopySecret = "damstack_backup_copy_password"
+
 // Saw notes the snapshots on this machine.
 func (s *State) Saw(snaps []Snapshot) {
 	s.Snapshots, s.Latest = len(snaps), time.Time{}

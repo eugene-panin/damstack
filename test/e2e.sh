@@ -140,11 +140,22 @@ restic=$XDG_CACHE_HOME/damstack/toolbox/$toolbox/bin/restic
 export RESTIC_PASSWORD=tok
 "$restic" -r server-backups init -q
 for i in 1 2 3 4 5; do echo "$i" >backed-up.txt; "$restic" -r server-backups backup -q --tag scheduled backed-up.txt; done
+laptop=$("$damstack" backup status 2>/dev/null | sed -n 's/.*keeps a copy at \(.*\)\.$/\1/p')
+[[ -n $laptop ]] || fail "backup status names no copy"
+RESTIC_FROM_PASSWORD=tok "$restic" -r "$laptop" init -q --copy-chunker-params --from-repo server-backups
 unset RESTIC_PASSWORD
 "$damstack" backup pull >"$work/out" 2>&1 || { cat "$work/out"; fail "backup pull"; }
 grep -q '^3 snapshots on this machine' "$work/out" || { cat "$work/out"; fail "the pull did not keep the last 3"; }
+RESTIC_PASSWORD=tok "$restic" -r "$laptop" cat config >/dev/null 2>&1 && fail "the copy on this machine still opens with the server's password"
 "$damstack" backup pull >"$work/out" 2>&1 || { cat "$work/out"; fail "a second pull"; }
 grep -q '^3 snapshots on this machine' "$work/out" || { cat "$work/out"; fail "a second pull changed the count"; }
+echo 0 >backed-up.txt
+for when in "2020-01-01 00:00:00" "2099-01-01 00:00:00"; do
+  RESTIC_PASSWORD=tok "$restic" -r server-backups backup -q --tag scheduled --time "$when" backed-up.txt
+done
+"$damstack" backup pull >"$work/out" 2>&1 || { cat "$work/out"; fail "a pull past backups with odd dates"; }
+grep -q '^3 snapshots on this machine' "$work/out" || { cat "$work/out"; fail "backups with odd dates were copied, or made good ones go"; }
+grep -q 'dated later than now, and were not copied' "$work/out" || { cat "$work/out"; fail "a backup dated later than now went unsaid"; }
 "$damstack" backup status >"$work/out" 2>&1 || { cat "$work/out"; fail "backup status"; }
 grep -q '^3 snapshots on this machine, the latest from' "$work/out" && grep -q '^The last pull: .*, ok' "$work/out" &&
   grep -q 'Pulls run only by hand' "$work/out" || { cat "$work/out"; fail "backup status says"; }
