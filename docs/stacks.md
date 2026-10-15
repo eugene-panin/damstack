@@ -59,6 +59,7 @@ GitHub. Releases are tags such as `v0.1.0`.
 `damstack.yaml` declares the questions, the secrets, the template of
 `stack.yaml`, and the steps, each an Ansible playbook, an OpenTofu directory
 with its policies, or a program of the stack.
+[manifest.md](manifest.md) says what each field of it does.
 
 ```bash
 damstack stack lint            # checks damstack.yaml
