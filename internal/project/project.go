@@ -184,6 +184,16 @@ func NewPassword(name string) (string, error) {
 	return password, f.Close()
 }
 
+// Work is the project's WorkDir, made if missing; only its owner may read it,
+// for the plans and logs in it hold secrets.
+func (p *Project) Work() (string, error) {
+	dir := filepath.Join(p.Dir, WorkDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, os.Chmod(dir, 0o700)
+}
+
 func (p *Project) PasswordPath() (string, error) { return PasswordPath(p.Meta.Name) }
 
 func (p *Project) Password() (string, error) {

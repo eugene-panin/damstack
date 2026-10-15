@@ -156,6 +156,7 @@ func (m *Secrets) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash = string(msg)
 	case rotatedMsg:
 		m.results, m.phase, m.copyAt, m.copied = msg, rotated, 0, nil
+		m.leaving, m.flash = "", ""
 		for _, r := range msg {
 			if r.Err != nil {
 				continue
@@ -171,10 +172,16 @@ func (m *Secrets) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input += strings.TrimSpace(msg.Content)
 		}
 	case tea.KeyPressMsg:
-		if msg.String() == "ctrl+c" {
+		if msg.String() == "ctrl+c" && m.phase != rotating && m.phase != rotated {
 			return m, tea.Quit
 		}
 		switch m.phase {
+		case rotating:
+			if m.leaving == "ctrl+c" {
+				return m, tea.Quit
+			}
+			m.leaving = "ctrl+c"
+			m.flash = "the passwords are being made anew; leaving now loses them · ctrl+c again leaves"
 		case listing:
 			return m, m.listKey(msg.String())
 		case reviewing:
@@ -373,7 +380,7 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 	ps := m.passwords()
 	// The new passwords are nowhere else: leaving before each is copied
 	// takes the same key twice.
-	if k == "q" || k == "esc" || (k == "d" && m.needsDeploy()) {
+	if k == "q" || k == "ctrl+c" || k == "esc" || (k == "d" && m.needsDeploy()) {
 		if left := len(ps) - len(m.copied); left > 0 && m.leaving != k {
 			m.leaving = k
 			m.flash = fmt.Sprintf("%s not copied yet are lost once you leave · %s again leaves", plural(left, "password"), k)
@@ -382,7 +389,7 @@ func (m *Secrets) rotatedKey(k string) tea.Cmd {
 	}
 	m.leaving = ""
 	switch k {
-	case "q":
+	case "q", "ctrl+c":
 		return tea.Quit
 	case "esc":
 		m.phase, m.review, m.results, m.copied = listing, nil, nil, nil

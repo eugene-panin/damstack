@@ -1,10 +1,13 @@
 package remote
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/consul/api"
@@ -45,18 +48,19 @@ var ErrUnpushed = errors.New("the local state was never written to the platform"
 func unpushed(path string) string { return path + ".unpushed" }
 
 // Pull writes the platform's state of unit to path. When the platform has none
-// it leaves path as it is: a unit not published yet.
+// it leaves path as it is: a unit not published yet. When an earlier push of
+// path failed, it keeps path and, under the lock and with the platform's state
+// as that push left it, readies the next Push to write path there.
 func (s *Store) Pull(unit, path string) error {
-	if _, err := os.Stat(unpushed(path)); err == nil {
-		return fmt.Errorf("%s: %w; it is in %s, and the platform has an older one. Run damstack deploy "+
-			"again to write it there, once the platform answers", unit, ErrUnpushed, path)
-	}
 	pair, _, err := s.r.KV.Get(s.r.key("state", unit), nil)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if mark, err := os.ReadFile(unpushed(path)); err == nil {
+		return s.resume(unit, path, pair, mark)
+	}
 	if pair == nil {
 		s.indexes[unit] = 0
 		return nil
@@ -65,17 +69,50 @@ func (s *Store) Pull(unit, path string) error {
 	return writeFile(path, pair.Value)
 }
 
+func (s *Store) resume(unit, path string, pair *api.KVPair, mark []byte) error {
+	local, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var index uint64
+	if pair != nil {
+		index = pair.ModifyIndex
+	}
+	if pair != nil && bytes.Equal(pair.Value, local) {
+		s.indexes[unit] = index
+		os.Remove(unpushed(path))
+		return nil
+	}
+	base, err := strconv.ParseUint(strings.TrimSpace(string(mark)), 10, 64)
+	known := err == nil
+	if s.Held != nil && known && base == index {
+		s.indexes[unit] = index
+		return nil
+	}
+	if s.Held == nil {
+		return fmt.Errorf("%s: %w; it is in %s, and the platform has an older one. Run damstack deploy "+
+			"again to write it there", unit, ErrUnpushed, path)
+	}
+	return fmt.Errorf("%s: %w; it is in %s, and the platform's state changed since that push failed, "+
+		"so neither is kept over the other. Compare the two, keep the right one in %s and remove %s",
+		unit, ErrUnpushed, path, path, unpushed(path))
+}
+
 // Push writes path to the platform as the state of unit, only if no one wrote
 // it since this store pulled it (a unit never pulled must be new there). When
-// it cannot, it marks the local state as newer, so no Pull throws it away.
+// it cannot, it marks the local state as newer, with the platform's state it
+// was meant to follow, so no Pull throws it away.
 func (s *Store) Push(unit, path string) error {
 	if s.Held == nil {
 		return errors.New("the state is written to the platform only under the project's lock")
 	}
+	s.mu.Lock()
+	base := s.indexes[unit]
+	s.mu.Unlock()
 	err := s.push(unit, path)
 	if err != nil {
-		if f, ferr := os.Create(unpushed(path)); ferr == nil {
-			f.Close()
+		if merr := os.WriteFile(unpushed(path), []byte(strconv.FormatUint(base, 10)), 0o600); merr != nil {
+			return errors.Join(err, fmt.Errorf("and %s could not be marked as newer than the platform's: %w", path, merr))
 		}
 		return err
 	}
@@ -105,7 +142,10 @@ func (s *Store) push(unit, path string) error {
 		return fmt.Errorf("%s: %w", unit, ErrStateMoved)
 	}
 	pair, _, err := s.r.KV.Get(s.r.key("state", unit), nil)
-	if err == nil && pair != nil {
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
+	if pair != nil {
 		s.indexes[unit] = pair.ModifyIndex
 	}
 	return nil

@@ -18,7 +18,7 @@ import (
 
 // projectArg is the project named with -p or --project anywhere in the
 // arguments; run takes it out before cobra parses them, so that it reaches
-// the commands of stacks too.
+// the commands of stacks too. Arguments after -- are not looked at.
 var projectArg string
 
 func takeProjectFlag(args []string) []string {
@@ -26,11 +26,15 @@ func takeProjectFlag(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--":
+			return append(rest, args[i:]...)
 		case (a == "-p" || a == "--project") && i+1 < len(args):
 			projectArg = args[i+1]
 			i++
 		case strings.HasPrefix(a, "--project="):
 			projectArg = strings.TrimPrefix(a, "--project=")
+		case strings.HasPrefix(a, "-p="):
+			projectArg = strings.TrimPrefix(a, "-p=")
 		default:
 			rest = append(rest, a)
 		}

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -112,9 +113,15 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 
 	done := make(chan error, 1)
 	go func() {
-		err := work(ctx, &stop)
-		screen.Finish(err)
-		done <- err
+		var err error
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("damstack failed inside: %v\n%s", r, debug.Stack())
+			}
+			screen.Finish(err)
+			done <- err
+		}()
+		err = work(ctx, &stop)
 	}()
 	shown := screen.Run()
 	if shown != nil {
