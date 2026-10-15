@@ -205,6 +205,7 @@ type fakeConsul struct {
 	sessions map[string]bool
 	n        int
 	down     bool
+	silent   bool
 }
 
 func newFakeConsul() *fakeConsul {
@@ -223,6 +224,9 @@ func (f *fakeConsul) put(p *api.KVPair, session string) {
 func (f *fakeConsul) Get(key string, _ *api.QueryOptions) (*api.KVPair, *api.QueryMeta, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.silent {
+		return nil, nil, fmt.Errorf("dial tcp 10.0.0.1:8501: i/o timeout")
+	}
 	if p := f.pairs[key]; p != nil {
 		c := *p
 		return &c, &api.QueryMeta{LastIndex: f.index}, nil

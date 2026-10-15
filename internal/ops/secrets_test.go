@@ -1,9 +1,15 @@
 package ops
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/eugene-panin/damstack/internal/manifest"
@@ -137,5 +143,179 @@ func TestOnlyASecretTheProjectAsksForIsSet(t *testing.T) {
 	secrets, _ := p.Secrets(password)
 	if _, ok := secrets["smtp_password"]; ok || secrets["api_token"] != "given" {
 		t.Errorf("got %v", secrets)
+	}
+}
+
+// fakeVault is the userpass methods of a Vault, for the token root: ops has
+// alice and bob, and bob's password cannot be set.
+type fakeVault struct {
+	mu  sync.Mutex
+	set map[string]string
+}
+
+func (v *fakeVault) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Vault-Token") != "root" {
+		http.Error(w, "permission denied", http.StatusForbidden)
+		return
+	}
+	switch {
+	case r.Method == "LIST" && r.URL.Path == "/v1/auth/ops/users":
+		fmt.Fprint(w, `{"data": {"keys": ["alice", "bob"]}}`)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/ops/users/alice/password":
+		var body struct{ Password string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		v.mu.Lock()
+		v.set["alice"] = body.Password
+		v.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost:
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (v *fakeVault) password(user string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.set[user]
+}
+
+// vaultProject is a project whose platform gives the address of a Vault at
+// v, with an app whose sign-ins are its userpass method ops.
+func vaultProject(t *testing.T, v *fakeVault) (*project.Project, string) {
+	t.Helper()
+	srv := httptest.NewServer(v)
+	t.Cleanup(srv.Close)
+	p, password := newProject(t, "{}\n")
+	devStack(t, p, "secrets:\n  - {name: token, generate: hex, bytes: 8, rotate: true}\n  - {name: api_token, ask: An API token}\n"+
+		"  - {name: server_ip, ask: The server, checks: [ssh-port]}\n"+
+		"provides: [demo]\napp_env: {VAULT_ADDR: '"+srv.URL+"', VAULT_TOKEN: root}\n")
+	p.Meta.Apps = []project.StackRef{appStack(t, "hello", "accounts:\n  - {what: operator passwords, userpass: ops}\n"+
+		"targets:\n  demo:\n    steps:\n      - {name: apply, run: [bin/app]}\n")}
+	if err := p.SaveSecrets(password, map[string]any{"token": "old", "api_token": "old", "server_ip": "203.0.113.10"}); err != nil {
+		t.Fatal(err)
+	}
+	return p, password
+}
+
+func renewedBy(out []Renewed) map[string]Renewed {
+	by := map[string]Renewed{}
+	for _, r := range out {
+		by[r.Name] = r
+	}
+	return by
+}
+
+func TestSecretsAreMadeAnewHereAndInVault(t *testing.T) {
+	v := &fakeVault{set: map[string]string{}}
+	p, password := vaultProject(t, v)
+	s, err := LoadSecrets(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := AccountSet{App: "hello", What: "operator passwords", Mount: "ops"}
+	if got := s.Accounts[set.Name()]; !s.HasVault() || strings.Join(got.Users, " ") != "alice bob" {
+		t.Fatalf("the sign-ins: %+v", s.Accounts)
+	}
+	out := s.Rotate(context.Background(), []Renewal{
+		{Name: "token", Kind: Generated},
+		{Name: "api_token", Kind: Asked},
+		{Name: set.UserRow("alice"), Label: "alice", Kind: Accounts},
+		{Name: set.UserRow("bob"), Label: "bob", Kind: Accounts},
+		{Name: set.UserRow("carol"), Label: "carol", Kind: Accounts},
+	}, map[string]string{"api_token": "given"})
+	by := renewedBy(out)
+	if len(out) != 5 || by["token"].Err != nil || by["api_token"].Err != nil {
+		t.Fatalf("got %+v", out)
+	}
+	alice := by[set.UserRow("alice")]
+	if alice.Err != nil || len(alice.Passwords) != 1 || alice.Passwords[0].User != "alice" || alice.Passwords[0].Password != v.password("alice") || v.password("alice") == "" {
+		t.Errorf("alice: %+v, Vault has %q", alice, v.password("alice"))
+	}
+	if err := by[set.UserRow("bob")].Err; err == nil || err.Error() != "bob: vault: 500 Internal Server Error" {
+		t.Errorf("bob: %v", err)
+	}
+	if err := by[set.UserRow("carol")].Err; err == nil || err.Error() != "carol: no such sign-in" {
+		t.Errorf("carol: %v", err)
+	}
+	secrets, _ := p.Secrets(password)
+	if token, _ := secrets["token"].(string); token == "old" || len(token) != 16 || secrets["api_token"] != "given" || secrets["server_ip"] != "203.0.113.10" {
+		t.Errorf("vault.yml: %v", secrets)
+	}
+	records, _ := p.Records()
+	if records.Secrets[set.UserRow("alice")].Set.IsZero() || !records.Secrets[set.UserRow("bob")].Set.IsZero() {
+		t.Errorf("only the sign-in set in Vault is recorded: %+v", records.Secrets)
+	}
+}
+
+func TestAnAskedSecretWhoseCheckFailsIsNotKept(t *testing.T) {
+	p, password := vaultProject(t, &fakeVault{set: map[string]string{}})
+	s, err := LoadSecrets(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out := s.Rotate(ctx, []Renewal{{Name: "server_ip", Kind: Asked}}, map[string]string{"server_ip": "198.51.100.7"})
+	if len(out) != 1 || out[0].Err == nil || out[0].Err.Error() != "nothing answers on port 22 at 198.51.100.7: check the address, and that the server is on" {
+		t.Fatalf("got %+v", out)
+	}
+	if secrets, _ := p.Secrets(password); secrets["server_ip"] != "203.0.113.10" {
+		t.Errorf("the old value stays: %v", secrets["server_ip"])
+	}
+}
+
+func TestWhatCouldNotBeKeptIsSaidOnItsOwnRow(t *testing.T) {
+	set := AccountSet{App: "hello", Mount: "ops"}
+	renewals := []Renewal{{Name: "token", Kind: Generated}, {Name: "api_token", Kind: Asked}, {Name: set.UserRow("alice"), Label: "alice", Kind: Accounts}}
+	for _, c := range []struct {
+		name        string
+		spoil       func(t *testing.T, p *project.Project)
+		here, vault string
+	}{
+		{"records that cannot be read", func(t *testing.T, p *project.Project) {
+			if err := os.WriteFile(filepath.Join(p.Dir, project.RecordsFile), []byte("secrets: [\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, project.RecordsFile, "set in Vault, but not recorded: "},
+		{"a vault.yml of another password", func(t *testing.T, p *project.Project) {
+			data, err := project.EncryptSecrets("another", map[string]any{"token": "theirs"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(p.Dir, project.VaultFile), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "it is left as it is", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v := &fakeVault{set: map[string]string{}}
+			p, _ := vaultProject(t, v)
+			s, err := LoadSecrets(context.Background(), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.spoil(t, p)
+			by := renewedBy(s.Rotate(context.Background(), renewals, map[string]string{"api_token": "given"}))
+			for _, name := range []string{"token", "api_token"} {
+				if err := by[name].Err; err == nil || !strings.Contains(err.Error(), c.here) {
+					t.Errorf("%s: %v, want %q", name, err, c.here)
+				}
+			}
+			alice := by[set.UserRow("alice")]
+			if len(alice.Passwords) != 1 || alice.Passwords[0].Password != v.password("alice") {
+				t.Errorf("the new password of alice can still be copied: %+v", alice)
+			}
+			switch {
+			case c.vault == "" && alice.Err != nil:
+				t.Errorf("alice: %v", alice.Err)
+			case c.vault != "" && (alice.Err == nil || !strings.HasPrefix(alice.Err.Error(), c.vault)):
+				t.Errorf("alice: %v, want %q", alice.Err, c.vault)
+			}
+		})
 	}
 }

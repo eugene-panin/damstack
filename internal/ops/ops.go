@@ -266,7 +266,7 @@ func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 		if !ok {
 			return nil, fmt.Errorf("the app %s has no way to run on %s, which provides %s", ref.Name, m.Name, strings.Join(m.Provides, ", "))
 		}
-		ae, _, err := NewEngine(ctx, ui, yes, p, am, adir)
+		ae, _, err := newEngine(ctx, ui, yes, p, am, adir)
 		if err != nil {
 			return nil, err
 		}
