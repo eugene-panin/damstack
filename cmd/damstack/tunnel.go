@@ -251,7 +251,11 @@ func (t *tunnel) setDevices(ctx context.Context, names []string) error {
 		return err
 	}
 	if err := t.apply(ctx); err != nil {
-		return err
+		if len(c.Removed) > 0 {
+			return fmt.Errorf("%w; %s left stack.yaml, but the server still lets %s in until damstack deploy %s sets its keys there",
+				err, strings.Join(c.Removed, ", "), map[bool]string{true: "them", false: "it"}[len(c.Removed) > 1], t.p.Meta.Name)
+		}
+		return fmt.Errorf("%w; damstack deploy %s sets the keys on the server", err, t.p.Meta.Name)
 	}
 	for _, name := range c.Removed {
 		fmt.Fprintf(t.s.out, "%s is off the private network; its keys no longer work.\n", name)

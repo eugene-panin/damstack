@@ -304,3 +304,24 @@ func TestAStateThePlatformGotAfterAllIsNoLongerMarked(t *testing.T) {
 		t.Fatal("the mark must go once the platform has the same state")
 	}
 }
+
+func TestALostLockStopsWhatRunsUnderIt(t *testing.T) {
+	f := newFake()
+	r := New("twinmind", f, f)
+	h, err := r.Lock(context.Background(), who("eugene"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Release()
+	ctx, cancel := h.Watch(context.Background())
+	defer cancel()
+	h.fail(ErrLost)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("a lost lock must cancel what runs under it")
+	}
+	if !errors.Is(context.Cause(ctx), ErrLost) {
+		t.Fatalf("got %v", context.Cause(ctx))
+	}
+}

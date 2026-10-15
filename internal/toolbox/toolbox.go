@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Passthrough are the variables of the user a command sees: who and where
@@ -135,6 +136,10 @@ func (r *Runner) Path(name string) (string, error) {
 	return "", fmt.Errorf("%s is neither in the toolbox nor on this Mac", name)
 }
 
+// StopDelay is how long a tool has to stop once asked, as OpenTofu writing
+// its state, before it is killed.
+const StopDelay = 2 * time.Minute
+
 func (r *Runner) Run(ctx context.Context, c Cmd) error {
 	if len(c.Args) == 0 {
 		return errors.New("no command to run")
@@ -149,6 +154,8 @@ func (r *Runner) Run(ctx context.Context, c Cmd) error {
 		}
 	}
 	cmd := exec.CommandContext(ctx, program, c.Args[1:]...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = StopDelay
 	cmd.Env = r.Environ(c)
 	cmd.Dir = r.Project
 	var captured bytes.Buffer

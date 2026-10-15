@@ -406,7 +406,7 @@ func Parse(path string, data []byte, dir, damstackVersion string) (*Manifest, er
 		return nil, &Error{File: path, Problems: []Problem{{Path: "yaml", Msg: err.Error()}}}
 	}
 
-	c := checker{root: &root, server: m.Server, app: m.Kind == KindApp}
+	c := checker{root: &root, server: m.Server, app: m.Kind == KindApp, prefix: m.SecretPrefix()}
 	c.check(&m, dir, damstackVersion)
 	if len(c.problems) > 0 {
 		return nil, &Error{File: path, Problems: c.problems}
@@ -435,6 +435,7 @@ type checker struct {
 	root     *yaml.Node
 	server   *Server
 	app      bool
+	prefix   string
 	problems []Problem
 }
 
@@ -742,6 +743,8 @@ func (c *checker) checkStep(path string, s Step, dir string) {
 		for name := range s.Keep.Secrets {
 			if !questionRe.MatchString(name) {
 				c.add(path+".keep.secrets", "%q is not a secret name", name)
+			} else if c.app && !strings.HasPrefix(name, c.prefix) {
+				c.add(path+".keep.secrets", "%q: the secrets an app keeps begin with its name: %s", name, c.prefix)
 			}
 		}
 	}

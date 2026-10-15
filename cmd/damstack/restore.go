@@ -88,6 +88,7 @@ func restore(ctx context.Context, s *streams, p *project.Project) error {
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		return err
 	}
+	defer os.RemoveAll(work)
 	tar := filepath.Join(work, "snapshot.tar")
 	f, err := os.OpenFile(tar, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -110,5 +111,5 @@ func restore(ctx context.Context, s *streams, p *project.Project) error {
 		return err
 	}
 	fmt.Fprintf(s.out, "\n%s is back from the backup of %s.\n", p.Meta.Name, when)
-	return os.RemoveAll(work)
+	return nil
 }

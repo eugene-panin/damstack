@@ -48,8 +48,10 @@ type Held struct {
 	stop    context.CancelFunc
 	done    chan struct{}
 
-	mu   sync.Mutex
-	lost error
+	mu     sync.Mutex
+	lost   error
+	gone   chan struct{}
+	lastOK time.Time
 }
 
 // Lock takes the project's lock, waiting in turn behind those who asked first.
@@ -64,7 +66,7 @@ func (r *Remote) Lock(ctx context.Context, who Holder, wait func(Waiting)) (*Hel
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
-	h := &Held{r: r, session: session, done: make(chan struct{})}
+	h := &Held{r: r, session: session, done: make(chan struct{}), gone: make(chan struct{}), lastOK: time.Now().Round(0)}
 	renewCtx, stop := context.WithCancel(context.Background())
 	h.stop = stop
 	go h.renew(renewCtx)
@@ -191,7 +193,9 @@ func (r *Remote) Holder() (*Holder, error) {
 }
 
 // renew keeps the session alive while the lock is wanted; a renewal Consul
-// refuses means the session ended, and the lock with it.
+// refuses means the session ended, and the lock with it, and so does a TTL
+// gone by with no renewal through, as when the computer slept: the clock read
+// is the wall clock, which goes on during a sleep.
 func (h *Held) renew(ctx context.Context) {
 	defer close(h.done)
 	tick := time.NewTicker(TTL / 3)
@@ -204,7 +208,15 @@ func (h *Held) renew(ctx context.Context) {
 			// Consul answers a renewal of an ended session with no entry. An
 			// error is a network blip: the next tick tries again, and the
 			// session lasts TTL from the last renewal that got through.
-			if entry, _, err := h.r.Sessions.Renew(h.session, nil); err == nil && entry == nil {
+			entry, _, err := h.r.Sessions.Renew(h.session, nil)
+			now := time.Now().Round(0)
+			h.mu.Lock()
+			late := now.Sub(h.lastOK) > TTL
+			if err == nil && entry != nil {
+				h.lastOK = now
+			}
+			h.mu.Unlock()
+			if (err == nil && entry == nil) || late {
 				h.fail(ErrLost)
 				return
 			}
@@ -217,7 +229,23 @@ func (h *Held) fail(err error) {
 	defer h.mu.Unlock()
 	if h.lost == nil {
 		h.lost = err
+		close(h.gone)
 	}
+}
+
+// Watch is ctx, canceled with ErrLost as its cause once the lock is lost, so
+// that a tool running then stops rather than change what another may be
+// changing.
+func (h *Held) Watch(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		select {
+		case <-h.gone:
+			cancel(ErrLost)
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() { cancel(nil) }
 }
 
 // Check is nil while the lock is still held. Call it before every step that
@@ -243,7 +271,10 @@ func (h *Held) Check() error {
 // Release gives the lock up, and the place in the queue with it.
 func (h *Held) Release() {
 	h.stop()
-	<-h.done
+	select {
+	case <-h.done:
+	case <-time.After(5 * time.Second):
+	}
 	// Destroying the session releases and deletes every key it holds.
 	_, _ = h.r.Sessions.Destroy(h.session, nil)
 }

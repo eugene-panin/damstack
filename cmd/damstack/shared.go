@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/event"
@@ -19,10 +20,12 @@ import (
 // sharing is how a command shares a project on its platform: the lock it
 // holds while it changes the project, and the store the OpenTofu state is
 // pulled from and pushed to. A nil sharing is a project kept on this machine
-// only; its methods do nothing then.
+// only; its methods do nothing then. local is the lock of the project on this
+// computer, which every command that changes it holds, shared or not.
 type sharing struct {
 	held  *remote.Held
 	store *remote.Store
+	local *os.File
 }
 
 // platformRemote is the platform's Consul a project's state is shared on, from
@@ -48,12 +51,22 @@ func me(action string) remote.Holder {
 	return remote.Holder{Person: name, Host: strings.TrimSuffix(host, ".local"), Action: action, Since: time.Now()}
 }
 
-// lockProject takes the lock of a shared project before a command changes it,
-// waiting in turn behind those who asked first. It returns nil for a project
-// that is not shared, and with --break-glass, which goes on without the lock.
-func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, password, action string) (*sharing, error) {
+// lockProject takes the locks of a project before a command changes it: the
+// one on this computer, so that two commands here do not change it at once,
+// then that of a shared project on its platform, waiting in turn behind those
+// who asked first; --break-glass goes on without the platform's.
+func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir, password, action string) (sh *sharing, err error) {
+	local, err := lockHere(p)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			local.Close()
+		}
+	}()
 	if !p.Meta.Shared {
-		return nil, nil
+		return &sharing{local: local}, nil
 	}
 	if err := requireShared(p); err != nil {
 		return nil, err
@@ -61,11 +74,14 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 	if s.breakGlass {
 		fmt.Fprintf(s.err, "--break-glass: changing %s without its lock, from the state on this machine. "+
 			"Anyone else changing it now races this.\n", p.Meta.Name)
-		return nil, nil
+		return &sharing{local: local}, nil
 	}
 	r, err := platformRemote(p, m, dir, password)
-	if err != nil || r == nil {
+	if err != nil {
 		return nil, err
+	}
+	if r == nil {
+		return &sharing{local: local}, nil
 	}
 	if m.Server != nil {
 		if err := waitTunnel(ctx, s, p, m.Server); err != nil {
@@ -86,7 +102,28 @@ func lockProject(ctx context.Context, s *streams, p *project.Project, m *manifes
 	if err != nil {
 		return nil, err
 	}
-	return &sharing{held: held, store: remote.NewStore(r, held)}, nil
+	return &sharing{held: held, store: remote.NewStore(r, held), local: local}, nil
+}
+
+// lockHere takes the lock of a project on this computer; it goes with the
+// process, also when it is killed.
+func lockHere(p *project.Project) (*os.File, error) {
+	work, err := p.Work()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(work, "lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("another damstack is changing %s on this computer now; once it is done, run this again", p.Meta.Name)
+		}
+		return nil, fmt.Errorf("locking %s on this computer: %w", p.Meta.Name, err)
+	}
+	return f, nil
 }
 
 // readProject is the state store of a shared project for a command that only
@@ -111,7 +148,7 @@ func readProject(s *streams, p *project.Project, m *manifest.Manifest, dir, pass
 
 // attach makes the jobs' engines use the shared state.
 func (sh *sharing) attach(jobs []job) {
-	if sh == nil {
+	if sh == nil || sh.store == nil {
 		return
 	}
 	for _, j := range jobs {
@@ -132,9 +169,29 @@ func (sh *sharing) check() error {
 	return nil
 }
 
+// watch is ctx, canceled once the lock is lost; lost turns the error of what
+// ran under it into the reason it stopped.
+func (sh *sharing) watch(ctx context.Context) (context.Context, func(error) error, context.CancelFunc) {
+	if sh == nil || sh.held == nil {
+		return ctx, func(err error) error { return err }, func() {}
+	}
+	ctx, cancel := sh.held.Watch(ctx)
+	lost := func(err error) error {
+		if err != nil && errors.Is(context.Cause(ctx), remote.ErrLost) {
+			return fmt.Errorf("%w while a step ran, so it was stopped: someone else may be changing the project now. "+
+				"Run the command again to wait for your turn", remote.ErrLost)
+		}
+		return err
+	}
+	return ctx, lost, cancel
+}
+
 func (sh *sharing) release() {
 	if sh != nil && sh.held != nil {
 		sh.held.Release()
+	}
+	if sh != nil && sh.local != nil {
+		sh.local.Close()
 	}
 }
 

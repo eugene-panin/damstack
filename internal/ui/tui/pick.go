@@ -64,10 +64,10 @@ func (m *DeployPick) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.cursor = max(m.cursor-1, 0)
 		case "down", "j":
-			m.cursor = min(m.cursor+1, len(m.rows)-1)
+			m.cursor = max(min(m.cursor+1, len(m.rows)-1), 0)
 		case "space", " ":
 			m.rows[m.cursor].Picked = !m.rows[m.cursor].Picked
-			m.cursor = min(m.cursor+1, len(m.rows)-1)
+			m.cursor = max(min(m.cursor+1, len(m.rows)-1), 0)
 		case "a":
 			all := true
 			for _, r := range m.rows {

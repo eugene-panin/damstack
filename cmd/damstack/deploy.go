@@ -671,6 +671,8 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 			}
 			defer sh.release()
 		}
+		ctx, lost, cancel := sh.watch(ctx)
+		defer cancel()
 		if keys, err = ensureKeys(p, m, dir, e.Password); err != nil {
 			return err
 		}
@@ -708,12 +710,12 @@ func runSteps(ctx context.Context, s *streams, p *project.Project, m *manifest.M
 				return err
 			}
 			if err := runJob(ctx, s, p, j, i+1, len(jobs), m.Server, restore != ""); err != nil {
-				return err
+				return lost(err)
 			}
 		}
 		if restore == "" {
 			if err := publish(ctx, s, p, m, dir, e.Password); err != nil {
-				return err
+				return lost(err)
 			}
 		}
 		s.events.Emit(runDone(p, m))

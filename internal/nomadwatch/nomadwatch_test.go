@@ -187,6 +187,7 @@ func TestARestartReplacesOneAllocationAtATime(t *testing.T) {
 		{"ID": "a1", "TaskGroup": "fetcher", "JobVersion": 3, "ClientStatus": "running"},
 		{"ID": "a2", "TaskGroup": "fetcher", "JobVersion": 3, "ClientStatus": "running"},
 		{"ID": "b1", "TaskGroup": "console", "JobVersion": 3, "ClientStatus": "running"},
+		{"ID": "v2", "TaskGroup": "fetcher", "JobVersion": 2, "ClientStatus": "failed"},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()

@@ -60,7 +60,7 @@ func TestAKeyIsSetWithoutBeingShown(t *testing.T) {
 	if !strings.Contains(m.Frame(), "enrich and incidents restart") {
 		t.Error("the box says which services restart")
 	}
-	press(m, "enter")
+	m.Update(press(m, "enter")())
 	if name != "sauron_xai_api_key" || value != "xai-secret" || m.editing {
 		t.Errorf("enter must keep the key: %q %q", name, value)
 	}

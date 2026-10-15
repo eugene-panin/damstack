@@ -84,11 +84,28 @@ func (k *Key) Write(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(k.PrivateKey), 0o600); err != nil {
+	if err := replace(path, []byte(k.PrivateKey), 0o600); err != nil {
 		return err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	return replace(path+".pub", []byte(k.PublicKey+"\n"), 0o644)
+}
+
+func replace(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".key-*")
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".pub", []byte(k.PublicKey+"\n"), 0o644)
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

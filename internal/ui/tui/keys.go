@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,6 +56,14 @@ type AppKeys struct {
 	removing string
 	flash    string
 	deploy   bool
+	// keeping is the key being checked and kept, while no other key counts.
+	keeping string
+}
+
+// keptMsg is how keeping a key went.
+type keptMsg struct {
+	name string
+	err  error
 }
 
 // NewAppKeys is the keys screen of app, from source (owner/repo · release);
@@ -74,13 +83,18 @@ func (m *AppKeys) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case flashMsg:
 		m.flash = string(msg)
+	case keptMsg:
+		m.kept(msg)
 	case tea.PasteMsg:
-		if m.editing {
+		if m.editing && m.keeping == "" {
 			m.input += strings.TrimSpace(msg.Content)
 		}
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		}
+		if m.keeping != "" {
+			return m, nil
 		}
 		if m.editing {
 			return m, m.editKey(msg)
@@ -108,7 +122,7 @@ func (m *AppKeys) listKey(k string) tea.Cmd {
 	case "up", "k":
 		m.cursor = max(m.cursor-1, 0)
 	case "down", "j":
-		m.cursor = min(m.cursor+1, len(m.keys)-1)
+		m.cursor = max(min(m.cursor+1, len(m.keys)-1), 0)
 	case "enter":
 		m.editing, m.input = true, ""
 	case "?":
@@ -154,18 +168,18 @@ func (m *AppKeys) editKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.flash = "paste the key first"
 			return nil
 		}
-		if m.actions.Set != nil {
-			if err := m.actions.Set(cur.Name, m.input); err != nil {
-				m.flash = err.Error()
-				return nil
+		name, value, set := cur.Name, m.input, m.actions.Set
+		m.keeping, m.flash = name, "checking "+cur.Label+"…"
+		return func() tea.Msg {
+			if set == nil {
+				return keptMsg{name: name}
 			}
+			return keptMsg{name: name, err: set(name, value)}
 		}
-		m.editing, m.input = false, ""
-		cur.Set, cur.Pending, cur.Changed = true, true, m.now
-		m.flash = sentence(cur.Label) + " is kept; d deploys it"
 	case "backspace":
 		if m.input != "" {
-			m.input = m.input[:len(m.input)-1]
+			v := []rune(m.input)
+			m.input = string(v[:len(v)-1])
 		}
 	case "ctrl+o":
 		return m.open(cur.NewAt)
@@ -176,6 +190,22 @@ func (m *AppKeys) editKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (m *AppKeys) kept(msg keptMsg) {
+	m.keeping = ""
+	i := slices.IndexFunc(m.keys, func(k Key) bool { return k.Name == msg.name })
+	if i < 0 {
+		return
+	}
+	if msg.err != nil {
+		m.flash = msg.err.Error()
+		return
+	}
+	cur := &m.keys[i]
+	m.editing, m.input = false, ""
+	cur.Set, cur.Pending, cur.Changed = true, true, m.now
+	m.flash = sentence(cur.Label) + " is kept; d deploys it"
 }
 
 func (m *AppKeys) open(link string) tea.Cmd {
