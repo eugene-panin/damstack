@@ -225,7 +225,7 @@ func (t *Tunnel) save() error {
 // apply sets the keys on the server, over its public address.
 func (t *Tunnel) apply(ctx context.Context) error {
 	step := t.m.Commands[t.w.Apply]
-	e, _, err := NewEngine(ctx, t.ui, t.yes, t.p, t.m, t.dir)
+	e, _, err := newEngine(ctx, t.ui, t.yes, t.p, t.m, t.dir)
 	if err != nil {
 		return err
 	}

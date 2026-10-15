@@ -154,7 +154,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 	if _, err := EnsureSSHKey(p, m, password); err != nil {
 		return Result{}, err
 	}
-	e, key, err := NewEngine(ctx, d.UI, d.Opts.Yes, p, m, dir)
+	e, key, err := newEngine(ctx, d.UI, d.Opts.Yes, p, m, dir)
 	if err != nil {
 		return Result{}, err
 	}
