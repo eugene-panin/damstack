@@ -1013,7 +1013,15 @@ func ensureLogin(ctx context.Context, s *streams, e *engine.Engine, key string) 
 			return fmt.Errorf("%s of the stack: %w", f.name, err)
 		}
 	}
-	return login.New(key, filepath.Join(e.Project.Dir, project.KnownHosts), s.out).Ensure(ctx, server)
+	if server.HostKey, err = manifest.Render("server.host_key", e.Manifest.Server.HostKey, config, secrets); err != nil {
+		return fmt.Errorf("server.host_key of the stack: %w", err)
+	}
+	server.HostKey = strings.TrimSpace(server.HostKey)
+	l := login.New(key, filepath.Join(e.Project.Dir, project.KnownHosts), s.out)
+	if s.tty() && !s.yes {
+		l.Confirm = func(question string) (bool, error) { return s.confirm(question, false) }
+	}
+	return l.Ensure(ctx, server)
 }
 
 func record(p *project.Project, command, step string, start time.Time, err error) error {

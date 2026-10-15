@@ -192,6 +192,10 @@ type Server struct {
 	FirstUser string `yaml:"first_user"`
 	OpsUser   string `yaml:"ops_user"`
 	Tunnel    string `yaml:"tunnel"`
+	// HostKey is the SHA256 fingerprint of the server's host key, as its
+	// provider shows it; given, it is checked on the first login instead of
+	// asking the person.
+	HostKey string `yaml:"host_key"`
 	// TunnelHelp says how to turn the tunnel on, when a step that needs it
 	// finds it off; TunnelConfigs is a pattern of the configurations of the
 	// devices in the project, shown then, the first to import, the others as
@@ -530,7 +534,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			c.add("server.first_user", "is required")
 		}
 		for field, text := range map[string]string{"address": m.Server.Address, "first_user": m.Server.FirstUser,
-			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel, "tunnel_help": m.Server.TunnelHelp} {
+			"ops_user": m.Server.OpsUser, "tunnel": m.Server.Tunnel, "tunnel_help": m.Server.TunnelHelp, "host_key": m.Server.HostKey} {
 			c.checkTemplate("server."+field, text)
 		}
 		if w := m.Server.WireGuard; w != nil {
