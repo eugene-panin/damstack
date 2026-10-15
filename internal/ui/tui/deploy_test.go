@@ -20,6 +20,11 @@ var update = flag.Bool("update", false, "write the golden frames anew")
 
 var start = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 
+func TestMain(m *testing.M) {
+	time.Local = time.UTC
+	os.Exit(m.Run())
+}
+
 // midDeploy is the screen of the design's deploy: the platform half done, the
 // provision play at task 31 of 72, the apps to come.
 func midDeploy(width, height int) *Deploy {
