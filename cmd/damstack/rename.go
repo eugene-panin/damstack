@@ -16,7 +16,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
-func renameCommand(s *streams) *cobra.Command {
+func renameCommand(s *cli) *cobra.Command {
 	return &cobra.Command{
 		Use:   "rename <project> <new name>",
 		Short: "Give a project another name on this Mac; its server runs on as it is",
@@ -30,7 +30,7 @@ func renameCommand(s *streams) *cobra.Command {
 	}
 }
 
-func rename(ctx context.Context, s *streams, from, to string) (err error) {
+func rename(ctx context.Context, s *cli, from, to string) (err error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 		if _, err := backup.Install(ctx, backup.Job{Project: from}); err != nil {
 			return err
 		}
-		undo = append(undo, func() { ops.ScheduleBackup(ctx, streamsUI{s}, p, b, false) })
+		undo = append(undo, func() { ops.ScheduleBackup(ctx, s.ui(false), p, b, false) })
 	}
 	if err := move(filepath.Dir(oldPass), filepath.Dir(newPass), &undo); err != nil {
 		return err
@@ -118,7 +118,7 @@ func rename(ctx context.Context, s *streams, from, to string) (err error) {
 	}
 	fmt.Fprintf(s.out, "%s is now %s, in %s.\n", from, to, dir)
 	if scheduled {
-		if err := ops.ScheduleBackup(ctx, streamsUI{s}, p, b, true); err != nil {
+		if err := ops.ScheduleBackup(ctx, s.ui(false), p, b, true); err != nil {
 			return fmt.Errorf("%w; damstack backup schedule %s schedules the pulls again", err, to)
 		}
 	}

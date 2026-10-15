@@ -46,7 +46,7 @@ func stacksCommand(stdout io.Writer) *cobra.Command {
 	return cmd
 }
 
-func addCommand(s *streams) *cobra.Command {
+func addCommand(s *cli) *cobra.Command {
 	var name string
 	var yes bool
 	cmd := &cobra.Command{
@@ -54,8 +54,7 @@ func addCommand(s *streams) *cobra.Command {
 		Short: "Add a stack from its git repository: owner/name for github.com/owner/damstack-name, or any address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s.yes = yes
-			return addStack(cmd.Context(), s, args[0], name)
+			return addStack(cmd.Context(), s, args[0], name, yes)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name to keep the stack under, instead of the one its damstack.yaml gives")
@@ -63,7 +62,7 @@ func addCommand(s *streams) *cobra.Command {
 	return cmd
 }
 
-func addStack(ctx context.Context, s *streams, raw, name string) error {
+func addStack(ctx context.Context, s *cli, raw, name string, yes bool) error {
 	url, err := stack.NormalizeURL(raw)
 	if err != nil {
 		return err
@@ -97,7 +96,7 @@ func addStack(ctx context.Context, s *streams, raw, name string) error {
 	fmt.Fprintln(s.out, "\nA stack runs with your SSH key and the secrets of the projects you deploy with it.")
 	fmt.Fprintln(s.out, "Add only a stack you trust, from people you trust.")
 
-	ok, err := s.confirm(fmt.Sprintf("Add it as %s?", name), false)
+	ok, err := s.ui(yes).Confirm(fmt.Sprintf("Add it as %s?", name), false)
 	if err != nil {
 		return err
 	}

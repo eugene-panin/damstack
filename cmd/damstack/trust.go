@@ -31,7 +31,7 @@ type trusted struct {
 	Cert string `json:"cert"`
 }
 
-func trustCommand(s *streams) *cobra.Command {
+func trustCommand(s *cli) *cobra.Command {
 	var remove bool
 	cmd := &cobra.Command{
 		Use:   "trust [project]",
@@ -95,7 +95,7 @@ func readCert(path string) (*x509.Certificate, []byte, error) {
 	return cert, data, err
 }
 
-func trust(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest) error {
+func trust(ctx context.Context, s *cli, p *project.Project, m *manifest.Manifest) error {
 	path := caPath(p, m)
 	if path == "" {
 		return fmt.Errorf("the stack %s makes no CA for %s", m.Name, p.Meta.Name)
@@ -190,8 +190,8 @@ func loginKeychain() (string, error) {
 }
 
 // trustNotice says what to do about the trust of the CA of p after a deploy:
-// replace it when the CA changed, or offer it once.
-func trustNotice(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest) {
+// replace it when the CA changed, or offer it once; yes, --yes, replaces it.
+func trustNotice(ctx context.Context, s *cli, yes bool, p *project.Project, m *manifest.Manifest) {
 	path := caPath(p, m)
 	if path == "" {
 		return
@@ -209,7 +209,7 @@ func trustNotice(ctx context.Context, s *streams, p *project.Project, m *manifes
 				fmt.Fprintf(s.out, "damstack trust %s, on a terminal, trusts the new one instead.\n", p.Meta.Name)
 				return
 			}
-			ok, err := s.confirm("Trust the new one instead?", true)
+			ok, err := s.ui(yes).Confirm("Trust the new one instead?", true)
 			if err == nil && ok {
 				if err := trust(ctx, s, p, m); err != nil {
 					fmt.Fprintf(s.err, "damstack: %v\n", err)

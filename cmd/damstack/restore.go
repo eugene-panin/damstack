@@ -10,7 +10,8 @@ import (
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
-func restoreCommand(s *streams) *cobra.Command {
+func restoreCommand(s *cli) *cobra.Command {
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "restore [project]",
 		Short: "Set up a new server for a project from its latest backup on this machine, in place of a lost one",
@@ -26,23 +27,23 @@ func restoreCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return restore(cmd.Context(), s, p)
+			return restore(cmd.Context(), s, p, yes)
 		},
 	}
-	cmd.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
+	cmd.Flags().BoolVar(&yes, "yes", false, "go ahead without asking; needed without a terminal")
 	return cmd
 }
 
-func restore(ctx context.Context, s *streams, p *project.Project) error {
+func restore(ctx context.Context, s *cli, p *project.Project, yes bool) error {
 	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
-	r, when, err := ops.Restore(ctx, deployer(s, false), p, m, dir)
+	r, when, err := ops.Restore(ctx, deployer(s, ops.Options{Yes: yes}, false), p, m, dir)
 	if err != nil {
 		return err
 	}
-	if err := deployed(ctx, s, p, m, dir, r); err != nil {
+	if err := deployed(ctx, s, yes, p, m, dir, r); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "\n%s is back from the backup of %s.\n", p.Meta.Name, when)

@@ -17,24 +17,23 @@ var changedRe = regexp.MustCompile(`changed=([0-9]+)`)
 
 // liveCheck compares the server with what each step makes it, changing
 // nothing: playbooks run in check mode, OpenTofu plans.
-func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, dir string) error {
-	e, _, err := ops.NewEngine(ctx, streamsUI{s}, s.yes, p, m, dir)
+func liveCheck(ctx context.Context, s *cli, p *project.Project, m *manifest.Manifest, dir string) error {
+	ui := s.ui(false)
+	e, _, err := ops.NewEngine(ctx, ui, false, p, m, dir)
 	if err != nil {
 		return err
 	}
-	jobs, err := ops.BuildJobs(ctx, streamsUI{s}, s.yes, p, m, e, false, false)
+	jobs, err := ops.BuildJobs(ctx, ui, false, p, m, e, false, false)
 	if err != nil {
 		return err
 	}
 	ops.ReadProject(s.err, p, m, dir, e.Password).Attach(jobs)
-	quiet := *s
-	quiet.in = nil
 	fmt.Fprintf(s.out, "Checking %s against the server, changing nothing.\n\n", p.Meta.Name)
 	tw := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "STEP\tNOW")
 	differs, unknown := 0, 0
 	for _, j := range jobs {
-		now := liveStep(ctx, &quiet, p, j, m.Server)
+		now := liveStep(ctx, unattended{ui}, p, j, m.Server)
 		switch now.state {
 		case "differs":
 			differs++
@@ -59,7 +58,7 @@ func liveCheck(ctx context.Context, s *streams, p *project.Project, m *manifest.
 
 type liveResult struct{ state, text string }
 
-func liveStep(ctx context.Context, s *streams, p *project.Project, j ops.Job, srv *manifest.Server) liveResult {
+func liveStep(ctx context.Context, ui ops.UI, p *project.Project, j ops.Job, srv *manifest.Server) liveResult {
 	switch {
 	case j.Step.Once:
 		return liveResult{"skipped", "runs once, not checked"}
@@ -69,7 +68,7 @@ func liveStep(ctx context.Context, s *streams, p *project.Project, j ops.Job, sr
 		return liveResult{"skipped", "not checked"}
 	}
 	if j.Step.Tunnel && srv != nil {
-		if err := ops.WaitTunnel(ctx, streamsUI{s}, p, srv); err != nil {
+		if err := ops.WaitTunnel(ctx, ui, p, srv); err != nil {
 			return liveResult{"unknown", "not checked: the tunnel is off"}
 		}
 	}

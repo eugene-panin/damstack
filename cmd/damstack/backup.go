@@ -6,13 +6,13 @@ import (
 	"github.com/eugene-panin/damstack/internal/ops"
 )
 
-func backupCommand(s *streams) *cobra.Command {
+func backupCommand(s *cli) *cobra.Command {
 	status := func(cmd *cobra.Command, args []string) error {
 		p, err := pickProject(s, firstArg(args))
 		if err != nil {
 			return err
 		}
-		return ops.BackupStatus(cmd.Context(), streamsUI{s}, p)
+		return ops.BackupStatus(cmd.Context(), s.ui(false), p)
 	}
 	cmd := &cobra.Command{
 		Use:   "backup",
@@ -36,7 +36,7 @@ func backupCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ops.PullBackup(cmd.Context(), streamsUI{s}, p, scheduled)
+			return ops.PullBackup(cmd.Context(), s.ui(false), p, scheduled)
 		},
 	}
 	pull.Flags().BoolVar(&scheduled, "scheduled", false, "run as the scheduled pull: skip quietly when the server does not answer")
@@ -55,7 +55,7 @@ func backupCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ops.ScheduleBackup(cmd.Context(), streamsUI{s}, p, b, true)
+			return ops.ScheduleBackup(cmd.Context(), s.ui(false), p, b, true)
 		},
 	})
 	var to string
@@ -68,7 +68,7 @@ func backupCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ops.MakeKit(streamsUI{s}, p, to)
+			return ops.MakeKit(s.ui(false), p, to)
 		},
 	}
 	kitCmd.Flags().StringVar(&to, "to", "", "the directory to write the kit to, the current one by default")
@@ -80,7 +80,7 @@ func backupCommand(s *streams) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			passphrase := func() (string, error) { return s.prompt.Secret("The passphrase of the kit") }
-			return ops.OpenKit(cmd.Context(), streamsUI{s}, args[0], into, passphrase)
+			return ops.OpenKit(cmd.Context(), s.ui(false), args[0], into, passphrase)
 		},
 	}
 	open.Flags().StringVar(&into, "dir", "", "where the project goes, ~/.damstack/<project> by default")

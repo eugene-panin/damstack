@@ -26,11 +26,12 @@ import (
 	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/toolbox"
+	"github.com/eugene-panin/damstack/internal/ui/plain"
 )
 
 var errNoProject = errors.New("there is no project yet: damstack deploy sets one up")
 
-func statusCommand(s *streams) *cobra.Command {
+func statusCommand(s *cli) *cobra.Command {
 	var live, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "status [project]",
@@ -119,7 +120,7 @@ func lastRuns(p *project.Project) ([]stepRun, error) {
 	return steps, nil
 }
 
-func historyCommand(s *streams) *cobra.Command {
+func historyCommand(s *cli) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "history [project]",
@@ -194,8 +195,8 @@ func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 // under their names. When the project is clear without asking, they are its
 // commands; otherwise those of every project, and the project is asked for
 // when one runs.
-func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
-	p, cfg, err := resolveProject("")
+func stackCommands(s *cli, taken func(string) bool) []*cobra.Command {
+	p, cfg, err := resolveProject(s.project)
 	if err != nil || cfg == nil {
 		return nil
 	}
@@ -254,7 +255,7 @@ func stackCommands(s *streams, taken func(string) bool) []*cobra.Command {
 
 // stackCommand runs a command of the platform of a project, or of one of its
 // apps, the project found when it runs.
-func stackCommand(s *streams, app, name, short string) *cobra.Command {
+func stackCommand(s *cli, app, name, short string) *cobra.Command {
 	return &cobra.Command{
 		Use:                name + " [args]",
 		Short:              short,
@@ -285,7 +286,8 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("%s has no command %s", p.Meta.Name, strings.TrimSpace(app+" "+name))
 			}
-			e, _, err := ops.NewEngine(cmd.Context(), streamsUI{s}, s.yes, p, m, dir)
+			ui := s.ui(false)
+			e, _, err := ops.NewEngine(cmd.Context(), ui, false, p, m, dir)
 			if err != nil {
 				return err
 			}
@@ -296,7 +298,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 				}
 			}
 			if step.Tunnel && platform.Server != nil {
-				if err := ops.WaitTunnel(cmd.Context(), streamsUI{s}, p, platform.Server); err != nil {
+				if err := ops.WaitTunnel(cmd.Context(), ui, p, platform.Server); err != nil {
 					return err
 				}
 			}
@@ -305,7 +307,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 			// one that only reads takes the platform's state as it is.
 			var sh *ops.Sharing
 			if step.Ansible != nil || (step.Tofu != nil && step.Tofu.Action == "apply") || step.Run != nil {
-				if sh, err = ops.LockProject(cmd.Context(), streamsUI{s}, s.breakGlass, p, platform, pdir, e.Password, command); err != nil {
+				if sh, err = ops.LockProject(cmd.Context(), ui, false, p, platform, pdir, e.Password, command); err != nil {
 					return err
 				}
 				defer sh.Release()
@@ -329,7 +331,7 @@ func stackCommand(s *streams, app, name, short string) *cobra.Command {
 
 // checkStack proves a stack without a server, on a project set up in the
 // cache from the stack's test answers.
-func checkStack(ctx context.Context, s *streams, dir string) error {
+func checkStack(ctx context.Context, s *cli, dir string) error {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		return err
@@ -409,7 +411,7 @@ func checkStack(ctx context.Context, s *streams, dir string) error {
 		Toolbox: tb, Stack: dir, Project: p.Dir, Password: passwordPath, Cache: cache,
 		PublicKey: "ssh-ed25519 AAAA damstack-check", Stdout: s.out, Stderr: s.err,
 	}
-	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Events: s.events}
+	e := &engine.Engine{Manifest: m, Stack: dir, Project: p, Runner: runner, Password: password, PasswordFile: passwordPath, Events: plain.New(s.out)}
 	e.Approve = func(event.Plan) (event.Approval, error) { return event.Approval{Apply: true}, nil }
 	if m.IsApp() {
 		e.App = m.Name

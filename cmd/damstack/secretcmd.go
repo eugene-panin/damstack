@@ -14,7 +14,8 @@ import (
 	"github.com/eugene-panin/damstack/internal/ops"
 )
 
-func secretCommand(s *streams) *cobra.Command {
+func secretCommand(s *cli) *cobra.Command {
+	var plain, yes bool
 	cmd := &cobra.Command{
 		Use:   "secret",
 		Short: "The secrets of a project: those damstack generates, and those you give it, such as API keys",
@@ -27,10 +28,10 @@ func secretCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return secretsScreen(cmd.Context(), s, p)
+			return secretsScreen(cmd.Context(), s, p, plain)
 		},
 	}
-	cmd.Flags().BoolVar(&s.plain, "plain", false, "list them as lines instead of the full-screen view on a terminal")
+	cmd.Flags().BoolVar(&plain, "plain", false, "list them as lines instead of the full-screen view on a terminal")
 	rotate := &cobra.Command{
 		Use:   "rotate <secret>",
 		Short: "Make a generated secret anew, one the stack allows; the next deploy puts it in place",
@@ -46,15 +47,15 @@ func secretCommand(s *streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return ops.RotateSecret(streamsUI{s}, p, m, args[0])
+			return ops.RotateSecret(s.ui(yes), p, m, args[0])
 		},
 	}
-	rotate.Flags().BoolVar(&s.yes, "yes", false, "go ahead without asking; needed without a terminal")
+	rotate.Flags().BoolVar(&yes, "yes", false, "go ahead without asking; needed without a terminal")
 	cmd.AddCommand(rotate, secretSetCommand(s), secretListCommand(s))
 	return cmd
 }
 
-func secretSetCommand(s *streams) *cobra.Command {
+func secretSetCommand(s *cli) *cobra.Command {
 	var unset bool
 	cmd := &cobra.Command{
 		Use:   "set <secret>",
@@ -103,7 +104,7 @@ func secretSetCommand(s *streams) *cobra.Command {
 
 // readSecret reads a secret's value: hidden from the terminal, or the first
 // line of stdin when it is not one.
-func readSecret(s *streams, spec manifest.Secret) (string, error) {
+func readSecret(s *cli, spec manifest.Secret) (string, error) {
 	if s.prompt.NoTerminal {
 		line, err := bufio.NewReader(s.in).ReadString('\n')
 		if err != nil && line == "" {
@@ -126,7 +127,7 @@ func servicesOf(spec manifest.Secret, app string) string {
 	return app + ": " + strings.Join(spec.For, ", ")
 }
 
-func secretListCommand(s *streams) *cobra.Command {
+func secretListCommand(s *cli) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "The secrets the platform and the apps ask for: which are set, and which services take them",

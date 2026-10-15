@@ -167,15 +167,17 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	s := newStreams(ctx, stdin, stdout, stderr)
+	s := newCLI(ctx, stdin, stdout, stderr)
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		return home(cmd.Context(), s)
 	}
-	root.SetArgs(takeProjectFlag(args))
+	var rest []string
+	s.project, rest = takeProjectFlag(args)
+	root.SetArgs(rest)
 	root.PersistentFlags().StringP("project", "p", "", "the project to work on, instead of the one of the directory or the current one")
 	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
-		if v, _ := cmd.Flags().GetString("project"); v != "" && projectArg == "" {
-			projectArg = v
+		if v, _ := cmd.Flags().GetString("project"); v != "" && s.project == "" {
+			s.project = v
 		}
 	}
 	// Declared before cobra adds its own, so --version gets no -v shorthand: -v is --verbose.
@@ -191,7 +193,7 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 		Short: "Check that this machine has what damstack needs, and say how to get what it lacks",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDoctor(cmd.Context(), stdout)
+			return runDoctor(cmd.Context(), stdout, s.project)
 		},
 	})
 	root.AddCommand(&cobra.Command{
@@ -256,9 +258,9 @@ Issues: https://github.com/eugene-panin/damstack/issues`,
 	return nil
 }
 
-func runDoctor(ctx context.Context, w io.Writer) error {
+func runDoctor(ctx context.Context, w io.Writer, name string) error {
 	var dp *doctor.Project
-	if p, _, err := resolveProject(""); err == nil && p != nil {
+	if p, _, err := resolveProject(name); err == nil && p != nil {
 		password, err := p.PasswordPath()
 		if err != nil {
 			return err

@@ -132,13 +132,13 @@ func (v *secretsView) rotate(ctx context.Context, rows []tui.SecretRow, values m
 }
 
 // secretsScreen shows a project's secrets, and makes the ones the person
-// picks anew; asked, it deploys after.
-func secretsScreen(ctx context.Context, s *streams, p *project.Project) error {
+// picks anew; asked, it deploys after. plain, --plain, lists them as lines.
+func secretsScreen(ctx context.Context, s *cli, p *project.Project, plain bool) error {
 	v, err := loadSecrets(ctx, p)
 	if err != nil {
 		return err
 	}
-	if !s.screen() {
+	if !s.screen(plain) {
 		return v.table(s)
 	}
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
@@ -172,7 +172,7 @@ func secretsScreen(ctx context.Context, s *streams, p *project.Project) error {
 // deployRotated puts secrets made anew in place, here on the same terminal:
 // only the apps whose secrets they are; a platform's secret opens the pick of
 // what to deploy, as d on the home screen does.
-func deployRotated(ctx context.Context, s *streams, p *project.Project, v *secretsView, rows []tui.SecretRow) error {
+func deployRotated(ctx context.Context, s *cli, p *project.Project, v *secretsView, rows []tui.SecretRow) error {
 	m, dir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
@@ -197,7 +197,7 @@ func deployRotated(ctx context.Context, s *streams, p *project.Project, v *secre
 }
 
 // table is the screen's list as lines, for a pipe or --plain.
-func (v *secretsView) table(s *streams) error {
+func (v *secretsView) table(s *cli) error {
 	tw := tabwriter.NewWriter(s.out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "SECRET\tOWNER\tSET\tWHY")
 	for _, r := range v.rows {

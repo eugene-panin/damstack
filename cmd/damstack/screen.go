@@ -11,29 +11,28 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/ui/tui"
 )
 
 // screen is whether a command may take the terminal over for its TUI: both
-// ends a terminal, someone to answer, and neither --plain nor --verbose (whose
-// tool output goes to the terminal as it comes).
-func (s *streams) screen() bool {
-	return s.tty() && !s.plain && !s.verbose && !s.prompt.NoTerminal
+// ends a terminal, someone to answer, and not plain, for --plain or --verbose
+// (whose tool output goes to the terminal as it comes).
+func (t *terminal) screen(plain bool) bool {
+	return t.tty() && !plain && !t.prompt.NoTerminal
 }
 
 // show runs a screen until it quits: on the home screen's session, so the
 // terminal stays with damstack between two screens, else on its own program.
-func (s *streams) show(ctx context.Context, model tea.Model) error {
+func (s *cli) show(ctx context.Context, model tea.Model) error {
 	if s.session != nil {
 		return s.session.Show(ctx, model)
 	}
@@ -43,7 +42,7 @@ func (s *streams) show(ctx context.Context, model tea.Model) error {
 
 // run runs cmd on the terminal, such as ssh or an editor: a session lets go
 // of it meanwhile and takes it back after.
-func (s *streams) run(cmd *exec.Cmd) error {
+func (s *cli) run(cmd *exec.Cmd) error {
 	if s.session != nil {
 		return s.session.Exec(cmd)
 	}
@@ -51,30 +50,30 @@ func (s *streams) run(cmd *exec.Cmd) error {
 }
 
 // onScreen runs work while the deploy screen shows it, when the terminal
-// allows; otherwise it just runs work, its events as plain lines. stop is set
-// when the person asks to stop after the step running now.
+// allows and plain does not ask for lines; otherwise it just runs work with
+// ui, its events as plain lines. stop is set when the person asks to stop
+// after the step running now.
 //
-// While the screen is up, what work says goes to it: its events, its
-// questions, and any stray output, as notes. The streams are as they were
-// once work returns.
-func onScreen(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, work func(context.Context, *atomic.Bool) error) error {
-	if !s.screen() {
+// While the screen is up, work is given the screen's UI: its events, its
+// questions, and any stray output, as notes, go to the screen.
+func onScreen(ctx context.Context, s *cli, ui lineUI, plain bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, *atomic.Bool) error) error {
+	if !s.screen(plain) {
 		var stop atomic.Bool
-		return work(ctx, &stop)
+		return work(ctx, ui, &stop)
 	}
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	// The failure screen's r runs the work again, on a new screen.
 	for {
-		retry, err := screenRound(ctx, s, p, m, work)
+		retry, err := screenRound(ctx, s, ui.yes, p, m, work)
 		if !retry {
 			return err
 		}
 	}
 }
 
-// screenRound runs work once on the deploy screen; retry is whether the person
-// asked to run it again.
-func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifest.Manifest, work func(context.Context, *atomic.Bool) error) (bool, error) {
+// screenRound runs work once on the deploy screen, yes, --yes, answering its
+// questions; retry is whether the person asked to run it again.
+func screenRound(ctx context.Context, s *cli, yes bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, *atomic.Bool) error) (bool, error) {
 	var stop atomic.Bool
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -103,11 +102,7 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 	if s.session != nil {
 		screen = s.session.Program(model)
 	}
-
-	saved := *s
-	s.events, s.ask, s.planner = screen, screen.Confirm, screen.Approve
-	s.out, s.err = screen.Writer(), screen.Writer()
-	defer func() { *s = saved }()
+	ui := screenUI{screen: screen, out: screen.Writer(), err: screen.Writer(), prompt: s.prompt, yes: yes}
 
 	done := make(chan error, 1)
 	go func() {
@@ -119,7 +114,7 @@ func screenRound(ctx context.Context, s *streams, p *project.Project, m *manifes
 			screen.Finish(err)
 			done <- err
 		}()
-		err = work(ctx, &stop)
+		err = work(ctx, ui, &stop)
 	}()
 	shown := screen.Run()
 	if shown != nil {
@@ -178,33 +173,4 @@ func firstDevice(p *project.Project) string {
 		}
 	}
 	return "laptop"
-}
-
-// approve asks whether to apply a plan: on the screen when it is up, else as
-// lines, the plan's question and, when it needs allocations replaced, a second
-// one. --yes says yes to both.
-func (s *streams) approve(p event.Plan) (event.Approval, error) {
-	if s.yes {
-		return event.Approval{Apply: true, Restart: true}, nil
-	}
-	if s.planner != nil {
-		return s.planner(p)
-	}
-	ok, err := s.confirm(p.Question, false)
-	if err != nil || !ok {
-		return event.Approval{}, err
-	}
-	a := event.Approval{Apply: true}
-	if len(p.Restarts) > 0 {
-		groups := make([]string, len(p.Restarts))
-		for i, r := range p.Restarts {
-			groups[i] = r.Job + "/" + r.Group
-		}
-		s.events.Emit(event.Note{Break: true, Text: "Nomad changes " + strings.Join(groups, ", ") + " in place: " +
-			"running allocations keep their old network and sidecar, so the change takes effect only in new ones."})
-		if a.Restart, err = s.confirm("Replace those allocations after the apply, one at a time?", true); err != nil {
-			return event.Approval{}, err
-		}
-	}
-	return a, nil
 }

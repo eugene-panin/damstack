@@ -20,7 +20,7 @@ import (
 // is, the machine and where to start; later the projects, and the machine
 // only when something on it broke. On a terminal the projects are the home
 // screen.
-func home(ctx context.Context, s *streams) error {
+func home(ctx context.Context, s *cli) error {
 	w := s.out
 	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
@@ -43,7 +43,7 @@ func home(ctx context.Context, s *streams) error {
 		markChecked()
 	}
 	// On a terminal, the projects are the home screen, where everything is done.
-	if len(cfg.Projects) > 0 && s.screen() {
+	if len(cfg.Projects) > 0 && s.screen(false) {
 		return homeScreen(ctx, s, cfg, true)
 	}
 	if len(cfg.Projects) == 0 {

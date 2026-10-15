@@ -15,7 +15,7 @@ import (
 
 // sourcesScreen shows where apps come from, and adds, syncs and removes
 // sources; it says whether the person asked for the catalog after.
-func sourcesScreen(ctx context.Context, s *streams) (bool, error) {
+func sourcesScreen(ctx context.Context, s *cli) (bool, error) {
 	cfg, err := ops.LoadConfig(ctx)
 	if err != nil {
 		return false, err

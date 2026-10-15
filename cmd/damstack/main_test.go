@@ -97,17 +97,14 @@ func TestTheProjectFlagIsTakenInEachFormUpToTheDashes(t *testing.T) {
 		{[]string{"ssh", "--", "ps", "-p", "1"}, "", []string{"ssh", "--", "ps", "-p", "1"}},
 		{[]string{"ssh", "-p", "prod", "--", "ps", "-p", "1"}, "prod", []string{"ssh", "--", "ps", "-p", "1"}},
 	} {
-		projectArg = ""
-		rest := takeProjectFlag(c.args)
-		if projectArg != c.project || fmt.Sprint(rest) != fmt.Sprint(c.rest) {
-			t.Errorf("%q: project %q, rest %q", c.args, projectArg, rest)
+		project, rest := takeProjectFlag(c.args)
+		if project != c.project || fmt.Sprint(rest) != fmt.Sprint(c.rest) {
+			t.Errorf("%q: project %q, rest %q", c.args, project, rest)
 		}
 	}
-	projectArg = ""
 }
 
 func TestAProjectGivenAsOneWordWithItsShorthandIsUsed(t *testing.T) {
-	defer func() { projectArg = "" }()
 	_, _, errOut := runCLI(t, context.Background(), "status", "-pnosuch")
 	if !strings.Contains(errOut, "no project named nosuch") {
 		t.Fatalf("got %q", errOut)
