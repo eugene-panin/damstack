@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -56,10 +56,9 @@ func (s *cli) run(cmd *exec.Cmd) error {
 //
 // While the screen is up, work is given the screen's UI: its events, its
 // questions, and any stray output, as notes, go to the screen.
-func onScreen(ctx context.Context, s *cli, ui lineUI, plain bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, *atomic.Bool) error) error {
+func onScreen(ctx context.Context, s *cli, ui lineUI, plain bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, <-chan struct{}) error) error {
 	if !s.screen(plain) {
-		var stop atomic.Bool
-		return work(ctx, ui, &stop)
+		return work(ctx, ui, nil)
 	}
 	tui.UseProfile(colorprofile.Detect(s.out, os.Environ()))
 	// The failure screen's r runs the work again, on a new screen.
@@ -73,12 +72,13 @@ func onScreen(ctx context.Context, s *cli, ui lineUI, plain bool, p *project.Pro
 
 // screenRound runs work once on the deploy screen, yes, --yes, answering its
 // questions; retry is whether the person asked to run it again.
-func screenRound(ctx context.Context, s *cli, yes bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, *atomic.Bool) error) (bool, error) {
-	var stop atomic.Bool
+func screenRound(ctx context.Context, s *cli, yes bool, p *project.Project, m *manifest.Manifest, work func(context.Context, ops.UI, <-chan struct{}) error) (bool, error) {
+	stop := make(chan struct{})
+	var stopOnce sync.Once
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	model := tui.NewDeploy(tui.Actions{
-		Stop:  func() { stop.Store(true) },
+		Stop:  func() { stopOnce.Do(func() { close(stop) }) },
 		Abort: cancel,
 		SSH: func() *exec.Cmd {
 			return exec.Command(self(), "ssh", p.Meta.Name)
@@ -114,7 +114,7 @@ func screenRound(ctx context.Context, s *cli, yes bool, p *project.Project, m *m
 			screen.Finish(err)
 			done <- err
 		}()
-		err = work(ctx, ui, &stop)
+		err = work(ctx, ui, stop)
 	}()
 	shown := screen.Run()
 	if shown != nil {
