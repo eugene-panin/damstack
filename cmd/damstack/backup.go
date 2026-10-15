@@ -19,6 +19,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/login"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
+	"github.com/eugene-panin/damstack/internal/secret"
 )
 
 func backupCommand(s *streams) *cobra.Command {
@@ -248,6 +249,9 @@ func kitWarning(p *project.Project, st backup.State) string {
 type projectBackup struct {
 	m    *manifest.Manifest
 	plan *backup.Plan
+	// own opens the copy of the backups on this machine; the server's
+	// password until a pull gives it one of its own.
+	own string
 }
 
 func loadBackup(ctx context.Context, p *project.Project) (*projectBackup, error) {
@@ -277,7 +281,46 @@ func loadBackup(ctx context.Context, p *project.Project) (*projectBackup, error)
 	if err != nil {
 		return nil, err
 	}
-	return &projectBackup{m: m, plan: plan}, nil
+	own, _ := secrets[backup.CopySecret].(string)
+	if own == "" {
+		own = plan.Password
+	}
+	return &projectBackup{m: m, plan: plan, own: own}, nil
+}
+
+// ownCopy gives the copy of the backups of p a password of its own, kept in
+// vault.yml, when it has none yet; the next pull puts it in place.
+func (b *projectBackup) ownCopy(p *project.Project) error {
+	if b.own != b.plan.Password {
+		return nil
+	}
+	local, err := lockHere(p)
+	if err != nil {
+		return err
+	}
+	defer local.Close()
+	password, err := p.Password()
+	if err != nil {
+		return err
+	}
+	secrets, err := p.Secrets(password)
+	if err != nil {
+		return err
+	}
+	if v, _ := secrets[backup.CopySecret].(string); v != "" {
+		b.own = v
+		return nil
+	}
+	g, err := secret.Generate("password", 0, "")
+	if err != nil {
+		return err
+	}
+	secrets[backup.CopySecret] = g.Value
+	if err := p.SaveSecrets(password, secrets); err != nil {
+		return err
+	}
+	b.own = g.Value
+	return nil
 }
 
 func (b *projectBackup) repo(ctx context.Context, s *streams) (*backup.Repo, error) {
@@ -285,7 +328,8 @@ func (b *projectBackup) repo(ctx context.Context, s *streams) (*backup.Repo, err
 	if err != nil {
 		return nil, err
 	}
-	return &backup.Repo{Restic: filepath.Join(tb, "bin", "restic"), Path: b.plan.To, Password: b.plan.Password, Out: s.out, Err: s.err}, nil
+	return &backup.Repo{Restic: filepath.Join(tb, "bin", "restic"), Path: b.plan.To, Password: b.own, FromPassword: b.plan.Password,
+		Out: s.out, Err: s.err}, nil
 }
 
 func backupPull(ctx context.Context, s *streams, p *project.Project, scheduled bool) error {
@@ -314,13 +358,23 @@ func backupPull(ctx context.Context, s *streams, p *project.Project, scheduled b
 			return fmt.Errorf("there are no backups at %s yet", from.Repo)
 		}
 	}
+	if err := b.ownCopy(p); err != nil {
+		return err
+	}
 	repo, err := b.repo(ctx, s)
+	if err != nil {
+		return err
+	}
+	st, err := backup.LoadState(p.Dir)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "%sPulling the backups of %s to %s.\n", stamp(), p.Meta.Name, b.plan.To)
 	start := time.Now()
-	err = repo.Pull(ctx, from, b.plan.Keep)
+	_, later, err := repo.Copy(ctx, from, st.Latest, start)
+	if err == nil {
+		err = repo.Forget(ctx, b.plan.Keep)
+	}
 	var snaps []backup.Snapshot
 	if err == nil {
 		snaps, err = repo.Snapshots(ctx)
@@ -331,17 +385,27 @@ func backupPull(ctx context.Context, s *streams, p *project.Project, scheduled b
 	if err != nil {
 		return fmt.Errorf("the pull failed: %w; nothing on this machine was lost", err)
 	}
-	st, err := backup.LoadState(p.Dir)
-	if err != nil {
-		return err
-	}
 	st.Pulled = start
 	st.Saw(snaps)
 	if err := backup.SaveState(p.Dir, st); err != nil {
 		return err
 	}
+	if len(later) > 0 {
+		fmt.Fprintf(s.err, "%s%s\n", stamp(), laterThanNow(later))
+	}
 	fmt.Fprintf(s.out, "%s%s\n", stamp(), describeState(st))
 	return nil
+}
+
+// laterThanNow says which backups on the server were not copied, dated
+// later than now.
+func laterThanNow(snaps []backup.Snapshot) string {
+	var lines []string
+	for _, s := range snaps {
+		lines = append(lines, "  "+s.ID+"  "+s.Time.Local().Format(time.DateTime))
+	}
+	return "These backups on the server are dated later than now, and were not copied:\n" + strings.Join(lines, "\n") +
+		"\nThe clock of the server may be wrong, or someone made them there to have the good ones dropped: look at the server."
 }
 
 var errNoAnswer = errors.New("the server does not answer")
@@ -399,8 +463,9 @@ func describeState(st backup.State) string {
 	if st.Snapshots == 0 {
 		return "There are no snapshots on this machine yet."
 	}
-	return fmt.Sprintf("%d snapshots on this machine, the latest from %s (%s).", st.Snapshots,
+	text := fmt.Sprintf("%d snapshots on this machine, the latest from %s (%s).", st.Snapshots,
 		st.Latest.Local().Format("2006-01-02 15:04"), ago(st.Latest))
+	return text
 }
 
 func backupStatus(ctx context.Context, s *streams, p *project.Project) error {
