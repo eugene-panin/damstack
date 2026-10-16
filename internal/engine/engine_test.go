@@ -17,6 +17,7 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/plan"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/toolbox"
 )
@@ -131,6 +132,44 @@ func TestRunWithSecretAndKeep(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.Project.Dir, ".damstack/work/init.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the kept file is still there: %v", err)
+	}
+}
+
+func TestAnAppsStepsAreGivenItsProviders(t *testing.T) {
+	e, r := setup(t)
+	if err := e.Project.SetApp("grafana", []byte("hostname: grafana.example.org\n")); err != nil {
+		t.Fatal(err)
+	}
+	step := manifest.Step{Run: []string{"bin/up"}, Env: map[string]string{
+		"METRICS": `{{ range index .providers "metrics@1" }}http://{{ .address }}:{{ .port }}{{ index .meta "path" }}{{ end }}`,
+	}}
+
+	e.App = "grafana"
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	if env := r.env(0); env["METRICS"] != "" || env["TF_VAR_damstack_providers"] != "" {
+		t.Errorf("an app given no providers: %v", env)
+	}
+
+	e.Providers = plan.Providers{"metrics@1": {{Name: "mimir", Address: "10.77.0.1", Port: 9009, Meta: map[string]string{"path": "/prometheus"}}}}
+	if err := e.Run(t.Context(), step, nil); err != nil {
+		t.Fatal(err)
+	}
+	env := r.env(1)
+	if env["METRICS"] != "http://10.77.0.1:9009/prometheus" {
+		t.Errorf("the template saw %q", env["METRICS"])
+	}
+	if want := `{"metrics@1":[{"name":"mimir","address":"10.77.0.1","port":9009,"meta":{"path":"/prometheus"}}]}`; env["TF_VAR_damstack_providers"] != want {
+		t.Errorf("TF_VAR_damstack_providers is %s", env["TF_VAR_damstack_providers"])
+	}
+
+	e.App = ""
+	if err := e.Run(t.Context(), manifest.Step{Run: []string{"bin/up"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.env(2)["TF_VAR_damstack_providers"]; ok {
+		t.Error("a step of the platform is given the providers of an app")
 	}
 }
 

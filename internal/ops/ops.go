@@ -14,6 +14,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/engine"
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
+	"github.com/eugene-panin/damstack/internal/plan"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/wg"
 )
@@ -257,11 +258,38 @@ func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 			jobs = append(jobs, Job{Engine: e, Name: step.Name, Step: step})
 		}
 	}
-	for _, ref := range p.Meta.Apps {
+	type app struct {
+		am       *manifest.Manifest
+		dir      string
+		settings map[string]any
+	}
+	apps := make([]app, len(p.Meta.Apps))
+	var installed []plan.Module
+	wants := false
+	for i, ref := range p.Meta.Apps {
 		am, adir, err := RefStack(ctx, ref)
 		if err != nil {
 			return nil, fmt.Errorf("the app %s: %w", ref.Name, err)
 		}
+		settings := Settings(p, ref.Name)
+		apps[i] = app{am, adir, settings}
+		installed = append(installed, plan.FromManifest(am, m.Name, settings))
+		if caps, _ := Wanted(am, settings); len(caps) > 0 {
+			wants = true
+		}
+	}
+	var finder plan.Finder
+	if wants {
+		var err error
+		if finder, err = PlatformFinder(p, m, e.Stack, e.Password); err != nil {
+			fmt.Fprintf(ui.Err(), "Could not look for providers on the platform: %v.\n", err)
+		}
+		if finder != nil {
+			finder = &quiet{f: finder}
+		}
+	}
+	for i, ref := range p.Meta.Apps {
+		am, adir := apps[i].am, apps[i].dir
 		_, target, ok := am.Target(m.Provides)
 		if !ok {
 			return nil, fmt.Errorf("the app %s has no way to run on %s, which provides %s", ref.Name, m.Name, strings.Join(m.Provides, ", "))
@@ -273,6 +301,9 @@ func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 		ae.App = ref.Name
 		if ae.BaseEnv, err = AppEnv(p, m, e.Stack, ae.Password); err != nil {
 			return nil, err
+		}
+		if wants {
+			ae.Providers = appProviders(ctx, ui.Err(), finder, am, apps[i].settings, Have(m, installed))
 		}
 		for _, step := range target.Steps {
 			if step.Restore && !restore {

@@ -166,7 +166,7 @@ func read(ctx context.Context, u string) (config.Stack, error) {
 	if err != nil {
 		return config.Stack{}, err
 	}
-	s := config.Stack{Name: m.Name, URL: u, Description: m.Description}
+	s := config.Stack{Name: m.Name, URL: u, Description: m.Description, Provides: m.Provides, Requires: m.Requires.Capabilities, Uses: m.Uses}
 	if m.IsApp() {
 		s.Kind = "app"
 	}

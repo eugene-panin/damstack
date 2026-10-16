@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/ops"
+	"github.com/eugene-panin/damstack/internal/plan"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/sources"
@@ -143,15 +145,16 @@ func latestApp(ctx context.Context, want project.StackRef) (*manifest.Manifest, 
 func appNeeds(pm, am *manifest.Manifest) []tui.FormNeed {
 	var out []tui.FormNeed
 	for _, need := range am.Requires.Provides {
-		out = append(out, tui.FormNeed{Text: pm.Name + " provides " + need, Met: slices.Contains(pm.Provides, need)})
+		out = append(out, tui.FormNeed{Text: pm.Name + " provides " + need, Met: manifest.Has(pm.Provides, need)})
 	}
 	_, _, ok := am.Target(pm.Provides)
 	out = append(out, tui.FormNeed{Text: "a way to run on " + pm.Name, Met: ok})
 	return out
 }
 
-// installApp installs an app from its newest release: its questions and keys
-// on the form, then a deploy of it alone.
+// installApp installs an app from its newest release with what its plan
+// brings: the questions and keys of each on a form, then a deploy of them
+// alone.
 func installApp(ctx context.Context, s *cli, p *project.Project, want project.StackRef) error {
 	pm, pdir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
@@ -168,7 +171,48 @@ func installApp(ctx context.Context, s *cli, p *project.Project, want project.St
 	if err != nil {
 		return err
 	}
-	side := []string{"nothing changes until you confirm the review"}
+	var notes []string
+	order, err := addPlan(ctx, p, pm, pdir, &planned{m: am, dir: adir, ref: ref}, planFlow{
+		show: func(lines []string, _ bool, _ string) (bool, *bool, error) {
+			notes = lines
+			return true, nil, nil
+		},
+		prepare: func(a *planned, _ []string, connect string) (*setup.Pending, *bool, error) {
+			return appForm(ctx, s, p, pm, a, password, notes, connect)
+		},
+		choose: func(_ manifest.Capability, _ string, candidates []plan.Module) (string, error) {
+			return candidates[0].Name, nil
+		},
+		say: func(lines []string) { notes = lines },
+	})
+	if errors.Is(err, errFormLeft) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	names := make([]string, len(order))
+	for i, a := range order {
+		if err := a.pending.Add(); err != nil {
+			return err
+		}
+		names[i] = a.m.Name
+	}
+	return deployParts(ctx, s, p, pm, pdir, names...)
+}
+
+// errFormLeft is a form the person left without installing.
+var errFormLeft = errors.New("left the form")
+
+// connectQuestion is the question of the form whether to connect an app to
+// the providers it can use; its name is none a manifest can give.
+const connectQuestion = "damstack-connect"
+
+// appForm asks the questions and keys of an app of a plan on a form, notes
+// beside them, and with connect, whether to connect it.
+func appForm(ctx context.Context, s *cli, p *project.Project, pm *manifest.Manifest, a *planned, password string, notes []string, connect string) (*setup.Pending, *bool, error) {
+	am, ref := a.m, a.ref
+	side := append(slices.Clone(notes), "nothing changes until you confirm the review")
 	if am.Takes != "" {
 		side = append([]string{"takes about " + am.Takes}, side...)
 	}
@@ -180,7 +224,12 @@ func installApp(ctx context.Context, s *cli, p *project.Project, want project.St
 		}
 		return nil
 	}
-	qs, secrets := formQuestions(am.Questions), formSecrets(am.Secrets)
+	questions := am.Questions
+	if connect != "" {
+		questions = append(slices.Clone(questions), manifest.Question{Name: connectQuestion, Type: "bool", Default: true,
+			Prompt: connect, Section: "Connect"})
+	}
+	qs, secrets := formQuestions(questions), formSecrets(am.Secrets)
 	form := tui.NewForm(fmt.Sprintf("Install %s %s on %s", am.Name, ref.Tag, p.Meta.Name), am.Name, appNeeds(pm, am), side,
 		qs.form, secrets.form, tui.FormActions{
 			Parse: func(q tui.FormQuestion, raw string) (any, error) { return ask.Parse(qs.of[q.Name], raw) },
@@ -197,20 +246,23 @@ func installApp(ctx context.Context, s *cli, p *project.Project, want project.St
 			Open: openURL,
 		})
 	if err := s.show(ctx, form); err != nil {
-		return err
+		return nil, nil, err
 	}
 	answers, keys, ok := form.Result()
 	if !ok {
-		return nil
+		return nil, nil, errFormLeft
 	}
+	var connected *bool
+	if v, asked := answers[connectQuestion].(bool); asked {
+		connected = &v
+	}
+	delete(answers, connectQuestion)
 	given := answers
 	for k, v := range keys {
 		given[k] = v
 	}
-	if err := setup.AddApp(setup.AppOptions{Manifest: am, Stack: adir, Ref: ref, Project: p, Password: password, Given: given}); err != nil {
-		return err
-	}
-	return deployParts(ctx, s, p, pm, pdir, am.Name)
+	pending, err := setup.PrepareApp(setup.AppOptions{Manifest: am, Stack: a.dir, Ref: ref, Project: p, Password: password, Given: given})
+	return pending, connected, err
 }
 
 // formItems are a manifest's questions or secrets as the form shows them,

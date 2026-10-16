@@ -26,7 +26,7 @@ func sourcesScreen(ctx context.Context, s *cli) (bool, error) {
 	}
 	library := tui.SourceRow{Name: "damstack-dev/damstack-registry", Builtin: true}
 	for _, st := range cfg.AllStacks() {
-		if st.Kind == "app" && !slices.Contains(cfg.Stacks, st) {
+		if st.Kind == "app" && !slices.ContainsFunc(cfg.Stacks, func(o config.Stack) bool { return o.Name == st.Name && o.URL == st.URL && o.Path == st.Path }) {
 			library.Apps = append(library.Apps, st.Name)
 		}
 	}

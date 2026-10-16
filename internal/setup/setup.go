@@ -3,6 +3,7 @@
 package setup
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/eugene-panin/damstack/internal/ask"
 	"github.com/eugene-panin/damstack/internal/checks"
@@ -191,8 +194,89 @@ type AppOptions struct {
 
 // AddApp adds an app to a project: its settings under apps of stack.yaml,
 // its secrets in vault.yml, and its release in the project's record.
-func AddApp(o AppOptions) (err error) {
+func AddApp(o AppOptions) error {
+	a, err := PrepareApp(o)
+	if err != nil {
+		return err
+	}
+	return a.Add()
+}
+
+// Pending is an app whose questions are asked and secrets made, not added
+// yet: nothing of the project changes until Add.
+type Pending struct {
+	o AppOptions
+	// Answers are the answers to its questions.
+	Answers map[string]any
+	secrets map[string]any
+	files   map[string][]byte
+	block   []byte
+}
+
+// PrepareApp asks the questions of an app, makes its secrets and renders its
+// settings, for Add to add.
+func PrepareApp(o AppOptions) (*Pending, error) {
 	m, p := o.Manifest, o.Project
+	if _, ok := p.Meta.App(m.Name); ok {
+		return nil, fmt.Errorf("%s is already an app of %s; damstack deploy deploys it", m.Name, p.Meta.Name)
+	}
+	if _, err := p.Secrets(o.Password); err != nil {
+		return nil, err
+	}
+	answers, secrets, files, err := collect(m, p.Meta.Name, o.Given, o.Prompter, o.Placeholders)
+	if err != nil {
+		return nil, err
+	}
+	block := []byte("{}\n")
+	if m.Config != "" {
+		if block, err = m.RenderConfig(o.Stack, p.Meta.Name, answers); err != nil {
+			return nil, err
+		}
+	}
+	return &Pending{o: o, Answers: answers, secrets: secrets, files: files, block: block}, nil
+}
+
+// Settings are what a condition of the app is over: its answers, and the
+// settings they render, which win.
+func (a *Pending) Settings() map[string]any {
+	out := maps.Clone(a.Answers)
+	if out == nil {
+		out = map[string]any{}
+	}
+	var block map[string]any
+	if yaml.Unmarshal(a.block, &block) == nil {
+		maps.Copy(out, block)
+	}
+	return out
+}
+
+// SetConnect records under connect of the app's settings the providers it
+// connects to, by capability.
+func (a *Pending) SetConnect(connect map[string][]string) error {
+	var block map[string]any
+	if err := yaml.Unmarshal(a.block, &block); err != nil {
+		return err
+	}
+	if _, ok := block["connect"]; ok {
+		return fmt.Errorf("the settings of %s have connect already, which damstack writes itself", a.o.Manifest.Name)
+	}
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(map[string]any{"connect": connect}); err != nil {
+		return err
+	}
+	if len(block) == 0 {
+		a.block = out.Bytes()
+		return nil
+	}
+	a.block = append(append(bytes.TrimRight(a.block, "\n"), '\n'), out.Bytes()...)
+	return nil
+}
+
+// Add adds the app to its project.
+func (a *Pending) Add() (err error) {
+	o, m, p := a.o, a.o.Manifest, a.o.Project
 	if _, ok := p.Meta.App(m.Name); ok {
 		return fmt.Errorf("%s is already an app of %s; damstack deploy deploys it", m.Name, p.Meta.Name)
 	}
@@ -200,19 +284,10 @@ func AddApp(o AppOptions) (err error) {
 	if err != nil {
 		return err
 	}
-	answers, secrets, files, err := collect(m, p.Meta.Name, o.Given, o.Prompter, o.Placeholders)
-	if err != nil {
-		return err
-	}
+	secrets, files, block := a.secrets, a.files, a.block
 	for name := range secrets {
 		if _, ok := existing[name]; ok {
 			return fmt.Errorf("the project has a secret %s already; the app %s cannot take its name", name, m.Name)
-		}
-	}
-	block := []byte("{}\n")
-	if m.Config != "" {
-		if block, err = m.RenderConfig(o.Stack, p.Meta.Name, answers); err != nil {
-			return err
 		}
 	}
 	for name := range files {

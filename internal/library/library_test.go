@@ -6,12 +6,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
 const index = `stacks:
@@ -75,12 +76,39 @@ func TestTheRegistryIndexGivesTheDirectoryOfEachStack(t *testing.T) {
 		{Name: "mail", URL: "https://github.com/damstack-dev/damstack-registry", Path: "apps/mail", Kind: "app", Platform: "hashi", Builtin: true},
 		{Name: "k3s", URL: "https://github.com/eugene-panin/damstack-k3s", Builtin: true},
 	}
-	if !slices.Equal(got, want) {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+	for _, s := range got {
+		if s.Provides != nil || s.Requires != nil || s.Uses != nil || s.Recommended {
+			t.Errorf("an index of before capabilities gives %+v", s)
+		}
 	}
 	for _, s := range config.Builtin {
 		if s.URL != config.RegistryURL || (s.Path != "platforms/"+s.Name && s.Path != "apps/"+s.Name) || (s.Kind == "app") != strings.HasPrefix(s.Path, "apps/") {
 			t.Errorf("built in: %+v", s)
 		}
+	}
+}
+
+func TestTheIndexGivesTheCapabilitiesOfEachStack(t *testing.T) {
+	got, err := parse([]byte(`stacks:
+  - {name: mimir, url: https://github.com/damstack-dev/damstack-registry, path: apps/mimir, kind: app, provides: [metrics@1], recommended: true}
+  - name: odoo
+    url: https://github.com/damstack-dev/damstack-registry
+    path: apps/odoo
+    kind: app
+    requires: [{capability: postgres@16, when: postgres.mode=external}]
+    uses: [metrics@1]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got[0].Provides, []string{"metrics@1"}) || !got[0].Recommended || got[0].Requires != nil {
+		t.Errorf("mimir %+v", got[0])
+	}
+	if want := []manifest.Need{{Capability: "postgres@16", When: "postgres.mode=external"}}; !reflect.DeepEqual(got[1].Requires, want) ||
+		!reflect.DeepEqual(got[1].Uses, []manifest.Need{{Capability: "metrics@1"}}) || got[1].Recommended {
+		t.Errorf("odoo %+v", got[1])
 	}
 }
