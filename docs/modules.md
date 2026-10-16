@@ -42,9 +42,59 @@ Two reasons:
   and a certificate for its domain, not an HTTP proxy: it requires
   `public-ports@1` and `tls-certificates@1`, and runs without Traefik.
 
+A module needs a capability in one of two ways:
+
+| Field | Means | Example |
+|---|---|---|
+| `requires` | it does not work without it: the plan brings a provider, or stops | mail: `public-ports@1`, `tls-certificates@1` |
+| `uses` | it connects to every provider it finds, and works without one | grafana: `metrics@1`, `logs@1` |
+
+Either may hold only under a setting, with the same `when` as a question:
+`{capability: postgres@16, when: postgres_mode=external}` for odoo, whose
+own database is the default.
+
+The capabilities of today's modules:
+
+| Module | Provides |
+|---|---|
+| hashi | `nomad@1`, `vault-kv@1`, `consul@1`, `ingress-traefik@1`, `observability@1` |
+| loki | `logs@1` |
+| mimir | `metrics@1` |
+| postgres | `postgres@16` |
+| nats | `nats@2` |
+| seaweedfs | `s3@1` |
+
+A capability written without a version, as manifests of today do (`nomad`),
+reads as `@1`.
+
 The capabilities in use are listed in the registry's README, with what each
 promises; a new one is added there in the same pull request as the first
 module that provides it.
+
+## Finding providers
+
+A provider says how to reach it, so that what uses it never names it: a
+module's service registers in Consul with the tag
+`damstack.provides=<capability>`, and what else a client needs in the
+service's meta, such as `path=/prometheus`. Grafana does not know Mimir; it
+knows `metrics@1`, and takes the address and path from Consul.
+
+When a module that `uses` or `requires` a capability is added, damstack asks
+the platform's Consul which services carry that tag, and offers them:
+
+```
+grafana can show what these give:
+  mimir   metrics    mimir.service.consul:9009/prometheus
+  loki    logs       loki.service.consul:3100
+Connect them? [Y/n]
+```
+
+So a provider damstack did not set up, such as a Prometheus put there by
+hand, is found once its service carries the tag. When the platform's Consul
+does not answer, damstack takes the providers of `project.yaml` and says it
+could not look on the platform. A platform without Consul finds providers
+its own way, such as service labels on Kubernetes; the manifests stay the
+same.
 
 ## Projects
 
@@ -204,9 +254,11 @@ written, and tried on a test project, before anyone is asked to do it.
 
 ## Order of work
 
-1. The capability names and the plan in damstack, on today's modules: apps
-   that already depend on each other (odoo on postgres) say so, and adding one
-   brings what it needs.
+1. The capability names, `requires` and `uses` with `when`, and the plan in
+   damstack, on today's modules: loki, mimir, postgres, nats and seaweedfs
+   say what they provide; odoo requires `postgres@16` when external; grafana
+   uses `metrics@1` and `logs@1`. Their services carry the
+   `damstack.provides` tag, and damstack finds providers in Consul.
 2. Traefik as `apps/traefik`; apps require `ingress-public@1`.
 3. `domains/cloudflare` and `domains/manual`; hashi `v1.0.0` without a
    domain, `.consul` names and `/etc/resolver/consul`.
