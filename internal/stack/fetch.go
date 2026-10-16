@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -32,6 +33,56 @@ type Release struct {
 
 // ErrNoRelease is returned for a repository without a tag such as v0.1.0.
 var ErrNoRelease = errors.New("the repository has no release tag such as v0.1.0")
+
+var tagRe = regexp.MustCompile(`^(?:[a-z0-9-]+/)?(v[^/]+)$`)
+
+// Prefix begins the release tags of the stack name at path in its
+// repository: name/ for one in a directory of it, as in hashi/v0.23.0, and
+// nothing for one at its root, released as v0.23.0.
+func Prefix(name, path string) string {
+	if path == "" {
+		return ""
+	}
+	return name + "/"
+}
+
+// TagPrefix is the prefix of a release tag: hashi/ of hashi/v0.23.0, nothing
+// of v0.23.0.
+func TagPrefix(tag string) string {
+	if i := strings.LastIndex(tag, "/"); i >= 0 {
+		return tag[:i+1]
+	}
+	return ""
+}
+
+// CheckPath refuses a directory of a stack in its repository that is not
+// one: empty is the root, otherwise it is a clean relative path, such as
+// platforms/hashi, that stays in it.
+func CheckPath(path string) error {
+	if path == "" {
+		return nil
+	}
+	if !filepath.IsLocal(path) || path == "." || path != filepath.ToSlash(filepath.Clean(path)) ||
+		slices.Contains(strings.Split(path, "/"), "..") {
+		return fmt.Errorf("%q is not a directory in a repository", path)
+	}
+	return nil
+}
+
+// Sub is the directory of the stack at path in the checkout dir.
+func Sub(dir, path string) (string, error) {
+	if err := CheckPath(path); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, filepath.FromSlash(path)), nil
+}
+
+// validTag is whether tag is a release damstack takes: a semver, after one
+// name/ at most.
+func validTag(tag string) bool {
+	m := tagRe.FindStringSubmatch(tag)
+	return m != nil && semver.IsValid(m[1])
+}
 
 // RepoPrefix begins the name of the repository of a stack on GitHub, so that
 // owner/name is short for github.com/owner/damstack-name.
@@ -105,8 +156,10 @@ var ghToken = sync.OnceValue(func() string {
 	return strings.TrimSpace(string(out))
 })
 
-// Latest finds the highest release tag of the repository at url.
-func Latest(ctx context.Context, url string) (Release, error) {
+// Latest finds the highest release tag of the repository at url among those
+// that begin with prefix, as Prefix gives it; the tags of other stacks of the
+// repository, and plain ones for a prefix, are not looked at.
+func Latest(ctx context.Context, url, prefix string) (Release, error) {
 	remote := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "origin", URLs: []string{url}})
 	refs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth(url), PeelingOption: git.AppendPeeled})
 	if errors.Is(err, transport.ErrRepositoryNotFound) || errors.Is(err, transport.ErrAuthenticationRequired) {
@@ -132,21 +185,28 @@ func Latest(ctx context.Context, url string) (Release, error) {
 	}
 	best := ""
 	for tag := range commits {
-		if semver.IsValid(tag) && semver.Prerelease(tag) == "" && (best == "" || semver.Compare(tag, best) > 0) {
-			best = tag
+		v, ok := strings.CutPrefix(tag, prefix)
+		if !ok || strings.Contains(v, "/") {
+			continue
+		}
+		if semver.IsValid(v) && semver.Prerelease(v) == "" && (best == "" || semver.Compare(v, best) > 0) {
+			best = v
 		}
 	}
 	if best == "" {
+		if prefix != "" {
+			return Release{}, fmt.Errorf("%w, none that begins with %s", ErrNoRelease, prefix)
+		}
 		return Release{}, ErrNoRelease
 	}
-	return Release{Tag: best, Commit: commits[best]}, nil
+	return Release{Tag: prefix + best, Commit: commits[prefix+best]}, nil
 }
 
 // Fetch checks the release out into the cache and returns its directory. A
 // checkout already there is reused when it is at the release's commit; one at
 // another commit means the tag was moved, and is an error.
 func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error) {
-	if rel := filepath.Join(slug(url), r.Tag); r.Tag == "" || r.Tag != filepath.Base(r.Tag) || !filepath.IsLocal(rel) {
+	if rel := filepath.Join(slug(url), filepath.FromSlash(r.Tag)); !validTag(r.Tag) || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("%s %s is not a release damstack takes", url, r.Tag)
 	}
 	dir := Dir(cacheDir, url, r.Tag)
@@ -201,9 +261,11 @@ func Fetch(ctx context.Context, cacheDir, url string, r Release) (string, error)
 	return dir, nil
 }
 
-// Dir is where Fetch checks a release out.
+// Dir is where Fetch checks a release out: one checkout of the repository
+// for each tag, so stacks of one repository at their own releases each have
+// theirs.
 func Dir(cacheDir, url, tag string) string {
-	return filepath.Join(cacheDir, "stacks", slug(url), tag)
+	return filepath.Join(cacheDir, "stacks", slug(url), filepath.FromSlash(tag))
 }
 
 // slug is where a repository lives in the cache: github.com/owner/repo.

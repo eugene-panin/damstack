@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/eugene-panin/damstack/internal/config"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
@@ -152,29 +151,17 @@ func findApp(ctx context.Context, s *cli, arg, from string) (*manifest.Manifest,
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	url := ""
+	var want project.StackRef
 	if st, ok := cfg.Stack(arg); ok {
-		url = st.URL
-	} else if url, err = stack.NormalizeURL(arg); err != nil {
+		want = project.StackRef{Name: st.Name, URL: st.URL, Path: st.Path}
+	} else if want.URL, err = stack.NormalizeURL(arg); err != nil {
 		return nil, "", project.StackRef{}, fmt.Errorf("no app named %s; damstack stacks lists them, or give owner/name", arg)
 	}
-	cache, err := config.CacheDir()
+	fmt.Fprintf(s.out, "Looking at %s\n", where(want))
+	m, dir, ref, err := ops.LatestRef(ctx, want)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	fmt.Fprintf(s.out, "Looking at %s\n", url)
-	r, err := stack.Latest(ctx, url)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	dir, err := stack.Fetch(ctx, cache, url, r)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	m, err := manifest.Load(dir, release.Version)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	fmt.Fprintf(s.out, "%s %s: %s\n\n", m.Name, r.Tag, m.Description)
-	return m, dir, project.StackRef{Name: m.Name, URL: url, Tag: r.Tag, Commit: r.Commit}, nil
+	fmt.Fprintf(s.out, "%s %s: %s\n\n", m.Name, ref.Tag, m.Description)
+	return m, dir, ref, nil
 }

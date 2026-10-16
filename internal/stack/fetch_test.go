@@ -1,6 +1,7 @@
 package stack
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,9 @@ func newOrigin(t *testing.T) *origin {
 
 func (o *origin) commit(file, content string) plumbing.Hash {
 	o.t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(o.dir, file)), 0o755); err != nil {
+		o.t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(o.dir, file), []byte(content), 0o644); err != nil {
 		o.t.Fatal(err)
 	}
@@ -71,7 +75,7 @@ func TestLatestTakesTheHighestReleaseTag(t *testing.T) {
 	o.tag("v0.11.0-rc.1", third, false)
 	o.tag("latest", third, false)
 
-	r, err := Latest(t.Context(), o.url())
+	r, err := Latest(t.Context(), o.url(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +87,7 @@ func TestLatestTakesTheHighestReleaseTag(t *testing.T) {
 func TestLatestWithoutReleases(t *testing.T) {
 	o := newOrigin(t)
 	o.tag("nightly", o.commit("damstack.yaml", "name: demo\n"), false)
-	if _, err := Latest(t.Context(), o.url()); err != ErrNoRelease {
+	if _, err := Latest(t.Context(), o.url(), ""); err != ErrNoRelease {
 		t.Errorf("got %v, want ErrNoRelease", err)
 	}
 }
@@ -94,7 +98,7 @@ func TestFetchChecksOutTheReleaseAndReusesIt(t *testing.T) {
 	o.commit("damstack.yaml", "name: unreleased\n")
 	cache := t.TempDir()
 
-	r, err := Latest(t.Context(), o.url())
+	r, err := Latest(t.Context(), o.url(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +127,7 @@ func TestFetchRefusesAMovedTag(t *testing.T) {
 	o := newOrigin(t)
 	o.tag("v0.1.0", o.commit("damstack.yaml", "name: first\n"), false)
 	cache := t.TempDir()
-	r, err := Latest(t.Context(), o.url())
+	r, err := Latest(t.Context(), o.url(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,12 +139,110 @@ func TestFetchRefusesAMovedTag(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.tag("v0.1.0", o.commit("damstack.yaml", "name: swapped\n"), false)
-	moved, err := Latest(t.Context(), o.url())
+	moved, err := Latest(t.Context(), o.url(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Fetch(t.Context(), cache, o.url(), moved); err == nil || !strings.Contains(err.Error(), "someone moved it") {
 		t.Errorf("a moved tag gave %v", err)
+	}
+}
+
+func TestLatestWithAPrefixKeepsToItsStack(t *testing.T) {
+	o := newOrigin(t)
+	first := o.commit("platforms/hashi/damstack.yaml", "name: hashi\n")
+	o.tag("hashi/v0.1.0", first, false)
+	o.tag("v9.0.0", first, false)
+	second := o.commit("platforms/hashi/damstack.yaml", "name: hashi\ndescription: two\n")
+	o.tag("hashi/v0.10.0", second, true)
+	third := o.commit("apps/mail/damstack.yaml", "name: mail\n")
+	o.tag("mail/v1.0.0", third, false)
+	o.tag("hashi/v0.11.0-rc.1", third, false)
+	o.tag("hashi/x/v2.0.0", third, false)
+	o.tag("hashicorp/v3.0.0", third, false)
+
+	r, err := Latest(t.Context(), o.url(), Prefix("hashi", "platforms/hashi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Tag != "hashi/v0.10.0" || r.Commit != second.String() {
+		t.Errorf("got %s at %s; want hashi/v0.10.0 at %s", r.Tag, r.Commit, second)
+	}
+	if r, err := Latest(t.Context(), o.url(), "mail/"); err != nil || r.Tag != "mail/v1.0.0" {
+		t.Errorf("mail: %+v, %v", r, err)
+	}
+	if r, err := Latest(t.Context(), o.url(), ""); err != nil || r.Tag != "v9.0.0" {
+		t.Errorf("without a prefix: %+v, %v; want the plain tag only", r, err)
+	}
+	if _, err := Latest(t.Context(), o.url(), "odoo/"); !errors.Is(err, ErrNoRelease) {
+		t.Errorf("a stack without releases: %v", err)
+	}
+}
+
+func TestFetchTakesOnlyReleaseTags(t *testing.T) {
+	cache := t.TempDir()
+	for _, tag := range []string{"", "../x", "a/b/v1.0.0", "hashi/../v1.0.0", "../v1.0.0", "Hashi/v1.0.0", "hashi/", "hashi/latest", "/v1.0.0", "v1.0.0/.."} {
+		if _, err := Fetch(t.Context(), cache, "file:///nowhere", Release{Tag: tag}); err == nil || !strings.Contains(err.Error(), "is not a release damstack takes") {
+			t.Errorf("tag %q: %v", tag, err)
+		}
+	}
+	for _, tag := range []string{"v1.2.3", "hashi/v1.2.3", "damstack-mail/v0.1.0-rc.1"} {
+		if !validTag(tag) {
+			t.Errorf("tag %q refused", tag)
+		}
+		if dir := Dir(cache, "https://github.com/o/r", tag); !strings.HasPrefix(dir, filepath.Join(cache, "stacks", "github.com", "o", "r")+string(filepath.Separator)) {
+			t.Errorf("tag %q is kept at %s", tag, dir)
+		}
+	}
+}
+
+func TestStacksOfOneRepositoryAtTheirOwnReleases(t *testing.T) {
+	o := newOrigin(t)
+	o.commit("apps/mail/damstack.yaml", "name: mail\n")
+	hashi := o.commit("platforms/hashi/damstack.yaml", "name: hashi\n")
+	o.tag("hashi/v0.1.0", hashi, false)
+	mail := o.commit("apps/mail/damstack.yaml", "name: mail\ndescription: newer\n")
+	o.tag("mail/v0.2.0", mail, false)
+	cache := t.TempDir()
+
+	dirs := map[string]string{}
+	for name, path := range map[string]string{"hashi": "platforms/hashi", "mail": "apps/mail"} {
+		r, err := Latest(t.Context(), o.url(), Prefix(name, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir, err := Fetch(t.Context(), cache, o.url(), r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dir != Dir(cache, o.url(), r.Tag) {
+			t.Errorf("%s fetched into %s", name, dir)
+		}
+		if dirs[name], err = Sub(dir, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if dirs["hashi"] == dirs["mail"] || filepath.Dir(filepath.Dir(dirs["hashi"])) == filepath.Dir(filepath.Dir(dirs["mail"])) {
+		t.Errorf("the two share a checkout: %v", dirs)
+	}
+	if data, err := os.ReadFile(filepath.Join(dirs["mail"], "damstack.yaml")); err != nil || string(data) != "name: mail\ndescription: newer\n" {
+		t.Errorf("mail at its release: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dirs["hashi"], "..", "..", "apps", "mail", "damstack.yaml")); err != nil || string(data) != "name: mail\n" {
+		t.Errorf("the checkout of hashi is at its own release: %q, %v", data, err)
+	}
+}
+
+func TestCheckPath(t *testing.T) {
+	for _, path := range []string{"", "platforms/hashi", "apps/mail", "x"} {
+		if err := CheckPath(path); err != nil {
+			t.Errorf("%q: %v", path, err)
+		}
+	}
+	for _, path := range []string{"/etc", "..", "../x", "apps/../../x", "apps/../mail", ".", "./apps", "apps/mail/", "apps//mail"} {
+		if err := CheckPath(path); err == nil {
+			t.Errorf("%q was taken", path)
+		}
 	}
 }
 

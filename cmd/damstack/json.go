@@ -28,6 +28,7 @@ type stackJSON struct {
 	Tag    string `json:"tag"`
 	Commit string `json:"commit"`
 	URL    string `json:"url"`
+	Path   string `json:"path,omitempty"`
 }
 
 // stepJSON is a step and its last deploy; last_run is null and result empty
@@ -57,12 +58,13 @@ type libraryJSON struct {
 	Kind        string `json:"kind"` // platform or app
 	From        string `json:"from"` // library or added
 	URL         string `json:"url"`
+	Path        string `json:"path,omitempty"`
 	Description string `json:"description"`
 	Platform    string `json:"platform"` // of an app of the library
 }
 
 func newLibraryJSON(s config.Stack) libraryJSON {
-	j := libraryJSON{Name: s.Name, Kind: "platform", From: "added", URL: s.URL, Description: s.Description, Platform: s.Platform}
+	j := libraryJSON{Name: s.Name, Kind: "platform", From: "added", URL: s.URL, Path: s.Path, Description: s.Description, Platform: s.Platform}
 	if s.Builtin {
 		j.From = "library"
 	}
@@ -73,7 +75,7 @@ func newLibraryJSON(s config.Stack) libraryJSON {
 }
 
 func newStackJSON(ref project.StackRef) stackJSON {
-	return stackJSON{Name: ref.Name, Tag: ref.Tag, Commit: ref.Commit, URL: ref.URL}
+	return stackJSON{Name: ref.Name, Tag: ref.Tag, Commit: ref.Commit, URL: ref.URL, Path: ref.Path}
 }
 
 func newStatusJSON(p *project.Project, steps []stepRun) statusJSON {

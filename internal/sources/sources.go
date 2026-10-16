@@ -150,7 +150,7 @@ func Sync(ctx context.Context, source string) Entry {
 
 // read is the stack at the newest release of a repository.
 func read(ctx context.Context, u string) (config.Stack, error) {
-	r, err := stack.Latest(ctx, u)
+	r, err := stack.Latest(ctx, u, "")
 	if err != nil {
 		return config.Stack{}, err
 	}

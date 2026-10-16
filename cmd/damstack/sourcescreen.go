@@ -24,7 +24,7 @@ func sourcesScreen(ctx context.Context, s *cli) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	library := tui.SourceRow{Name: "eugene-panin/damstack-library", Builtin: true}
+	library := tui.SourceRow{Name: "damstack-dev/damstack-registry", Builtin: true}
 	for _, st := range cfg.AllStacks() {
 		if st.Kind == "app" && !slices.Contains(cfg.Stacks, st) {
 			library.Apps = append(library.Apps, st.Name)

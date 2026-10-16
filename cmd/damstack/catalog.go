@@ -12,7 +12,6 @@ import (
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
-	"github.com/eugene-panin/damstack/internal/release"
 	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/sources"
 	"github.com/eugene-panin/damstack/internal/stack"
@@ -43,11 +42,11 @@ func catalogRound(ctx context.Context, s *cli, p *project.Project) (bool, error)
 	}
 	model := tui.NewCatalog(p.Meta.Name, strings.TrimSpace(p.Meta.Stack.Name+" "+p.Meta.Stack.Tag), catalogApps(cfg, p), tui.CatalogActions{
 		Latest: func(a tui.CatalogApp) (string, error) {
-			r, err := stack.Latest(ctx, a.URL)
+			r, err := stack.Latest(ctx, a.URL, ops.TagPrefix(project.StackRef{Name: a.Name, Path: a.Path, Tag: a.Installed}))
 			return r.Tag, err
 		},
 		Details: func(a tui.CatalogApp) tui.CatalogDetails {
-			am, _, _, err := latestApp(ctx, a.URL)
+			am, _, _, err := latestApp(ctx, catalogRef(a))
 			if err != nil {
 				return tui.CatalogDetails{Err: err.Error()}
 			}
@@ -66,7 +65,7 @@ func catalogRound(ctx context.Context, s *cli, p *project.Project) (bool, error)
 	c := model.Choice()
 	switch c.Key {
 	case "i":
-		return false, installApp(ctx, s, p, c.App.URL)
+		return false, installApp(ctx, s, p, catalogRef(c.App))
 	case "u":
 		return false, updateApp(ctx, s, p, c.App.Name)
 	case "enter":
@@ -79,13 +78,14 @@ func catalogRound(ctx context.Context, s *cli, p *project.Project) (bool, error)
 }
 
 // catalogApps are the apps of the library and those added for the project's
-// platform, and the project's own, which may be from anywhere.
+// platform, and the project's own, which may be from anywhere; one the
+// project has is shown from where it has it.
 func catalogApps(cfg *config.Config, p *project.Project) []tui.CatalogApp {
 	var out []tui.CatalogApp
 	seen := map[string]bool{}
-	installed := map[string]string{}
+	installed := map[string]project.StackRef{}
 	for _, a := range p.Meta.Apps {
-		installed[a.Name] = a.Tag
+		installed[a.Name] = a
 	}
 	found := cfg.AllStacks()
 	if cache, err := sources.Load(); err == nil {
@@ -96,13 +96,18 @@ func catalogApps(cfg *config.Config, p *project.Project) []tui.CatalogApp {
 			continue
 		}
 		seen[st.Name] = true
-		out = append(out, tui.CatalogApp{Name: st.Name, Description: st.Description, Source: source(st.URL), URL: st.URL, Installed: installed[st.Name]})
+		url, path := st.URL, st.Path
+		a, ok := installed[st.Name]
+		if ok {
+			url, path = a.URL, a.Path
+		}
+		out = append(out, tui.CatalogApp{Name: st.Name, Description: st.Description, Source: source(url), URL: url, Path: path, Installed: a.Tag})
 	}
 	for _, a := range p.Meta.Apps {
 		if seen[a.Name] {
 			continue
 		}
-		app := tui.CatalogApp{Name: a.Name, Source: source(a.URL), URL: a.URL, Installed: a.Tag, Private: true}
+		app := tui.CatalogApp{Name: a.Name, Source: source(a.URL), URL: a.URL, Path: a.Path, Installed: a.Tag, Private: true}
 		if am, _ := ops.CachedRef(a); am != nil {
 			app.Description = am.Description
 		}
@@ -116,28 +121,22 @@ func source(url string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(url, "https://github.com/"), ".git")
 }
 
+// catalogRef is what names an app of the catalog: its repository, and its
+// directory in it.
+func catalogRef(a tui.CatalogApp) project.StackRef {
+	return project.StackRef{Name: a.Name, URL: a.URL, Path: a.Path}
+}
+
 // latestApp fetches the newest release of an app.
-func latestApp(ctx context.Context, url string) (*manifest.Manifest, string, project.StackRef, error) {
-	r, err := stack.Latest(ctx, url)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	cache, err := config.CacheDir()
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	dir, err := stack.Fetch(ctx, cache, url, r)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	m, err := manifest.Load(dir, release.Version)
+func latestApp(ctx context.Context, want project.StackRef) (*manifest.Manifest, string, project.StackRef, error) {
+	m, dir, ref, err := ops.LatestRef(ctx, want)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
 	if !m.IsApp() {
 		return nil, "", project.StackRef{}, fmt.Errorf("%s is a platform, not an app", m.Name)
 	}
-	return m, dir, project.StackRef{Name: m.Name, URL: url, Tag: r.Tag, Commit: r.Commit}, nil
+	return m, dir, ref, nil
 }
 
 // appNeeds are what an app needs of the platform, each met or not.
@@ -153,12 +152,12 @@ func appNeeds(pm, am *manifest.Manifest) []tui.FormNeed {
 
 // installApp installs an app from its newest release: its questions and keys
 // on the form, then a deploy of it alone.
-func installApp(ctx context.Context, s *cli, p *project.Project, url string) error {
+func installApp(ctx context.Context, s *cli, p *project.Project, want project.StackRef) error {
 	pm, pdir, err := ops.ProjectStack(ctx, p, "")
 	if err != nil {
 		return err
 	}
-	am, adir, ref, err := latestApp(ctx, url)
+	am, adir, ref, err := latestApp(ctx, want)
 	if err != nil {
 		return err
 	}
@@ -278,7 +277,7 @@ func updateApp(ctx context.Context, s *cli, p *project.Project, name string) err
 	if i < 0 {
 		return fmt.Errorf("%s is no app of %s", name, p.Meta.Name)
 	}
-	_, _, ref, err := latestApp(ctx, p.Meta.Apps[i].URL)
+	_, _, ref, err := latestApp(ctx, p.Meta.Apps[i])
 	if err != nil {
 		return err
 	}

@@ -72,7 +72,7 @@ func addStack(ctx context.Context, s *cli, raw, name string, yes bool) error {
 		return err
 	}
 	fmt.Fprintf(s.out, "Looking at %s\n", url)
-	r, err := stack.Latest(ctx, url)
+	r, err := stack.Latest(ctx, url, "")
 	if err != nil {
 		return err
 	}
