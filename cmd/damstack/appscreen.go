@@ -247,7 +247,7 @@ func appScreen(ctx context.Context, s *cli, p *project.Project, name string) err
 	model := tui.NewApp(p.Meta.Name, name, tui.AppActions{
 		Look: func() tui.AppView {
 			once.Do(func() {
-				if r, err := stack.Latest(ctx, ref.URL); err == nil {
+				if r, err := stack.Latest(ctx, ref.URL, ops.TagPrefix(ref)); err == nil {
 					latest = r.Tag
 				}
 			})

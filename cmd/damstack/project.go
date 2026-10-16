@@ -61,7 +61,7 @@ func statusCommand(s *cli) *cobra.Command {
 			}
 			ref := p.Meta.Stack
 			fmt.Fprintf(s.out, "%s, in %s\n", p.Meta.Name, p.Dir)
-			fmt.Fprintf(s.out, "stack %s %s %.12s from %s\n", ref.Name, ref.Tag, ref.Commit, ref.URL)
+			fmt.Fprintf(s.out, "stack %s %s %.12s from %s\n", ref.Name, ref.Tag, ref.Commit, where(ref))
 			fmt.Fprintf(s.out, "set up %s\n\n", p.Meta.Created.Local().Format(time.DateTime))
 			fmt.Fprintln(s.out, "The last run of each step, from the history; damstack status --live checks the server now.")
 			fmt.Fprintln(s.out)

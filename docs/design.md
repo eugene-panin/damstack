@@ -66,9 +66,9 @@ Every later `damstack` without arguments is a home screen: the projects, their
 platform, apps and last deploy; the machine is checked again only when
 something broke.
 
-Now: done, in 0.1.0. The library comes from
-[damstack-library](https://github.com/eugene-panin/damstack-library), at most
-once an hour.
+Now: done, in 0.1.0. The library comes from the `index.yaml` of
+[damstack-registry](https://github.com/damstack-dev/damstack-registry), at
+most once an hour.
 
 ## Setting up a platform
 

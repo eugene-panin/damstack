@@ -246,3 +246,40 @@ func TestAVaultPasswordIsMadeOnceAndWhole(t *testing.T) {
 		t.Fatalf("no temporary file must stay: %v", entries)
 	}
 }
+
+func TestAStackRefKeepsItsPathAndAnOldOneHasNone(t *testing.T) {
+	hashi := StackRef{Name: "hashi", URL: "https://github.com/damstack-dev/damstack-registry", Path: "platforms/hashi", Tag: "hashi/v0.23.0", Commit: "abc"}
+	mail := StackRef{Name: "mail", URL: "https://github.com/damstack-dev/damstack-registry", Path: "apps/mail", Tag: "mail/v0.4.1", Commit: "def"}
+	p, err := Create(t.TempDir(), Meta{Name: "demo", Stack: hashi, Apps: []StackRef{mail}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(p.Dir, MetaFile))
+	if err != nil || !strings.Contains(string(data), "path: platforms/hashi\n") || !strings.Contains(string(data), "tag: hashi/v0.23.0\n") {
+		t.Fatalf("project.yaml: %s, %v", data, err)
+	}
+	again, err := Open(p.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Meta.Stack != hashi || len(again.Meta.Apps) != 1 || again.Meta.Apps[0] != mail {
+		t.Errorf("read back %+v", again.Meta)
+	}
+
+	old := "name: demo\nstack:\n  name: hashi\n  url: https://github.com/eugene-panin/damstack-hashi\n  tag: v0.22.0\n  commit: abc\n"
+	if err := os.WriteFile(filepath.Join(p.Dir, MetaFile), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again, err = Open(p.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if want := (StackRef{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Tag: "v0.22.0", Commit: "abc"}); again.Meta.Stack != want {
+		t.Errorf("an old project.yaml read as %+v", again.Meta.Stack)
+	}
+	if err := again.SaveMeta(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(p.Dir, MetaFile)); strings.Contains(string(data), "path:") {
+		t.Errorf("an old project.yaml gained a path: %s", data)
+	}
+}

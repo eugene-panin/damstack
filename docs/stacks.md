@@ -56,6 +56,12 @@ A stack lives in a repository named `damstack-<name>`, where `<name>` is the
 `name` in its `damstack.yaml`; `damstack add owner/<name>` finds it on
 GitHub. Releases are tags such as `v0.1.0`.
 
+The stacks of the library live together in
+[damstack-registry](https://github.com/damstack-dev/damstack-registry), each
+in a directory of it, `platforms/<name>` or `apps/<name>`, released by tags
+such as `hashi/v0.23.0`. A project records the directory as `path` beside the
+address, tag and commit; one without a `path` is a whole repository.
+
 `damstack.yaml` declares the questions, the secrets, the template of
 `stack.yaml`, and the steps, each an Ansible playbook, an OpenTofu directory
 with its policies, or a program of the stack.

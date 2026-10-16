@@ -19,6 +19,9 @@ import (
 type Stack struct {
 	Name string `yaml:"name"`
 	URL  string `yaml:"url"`
+	// Path is the directory of the stack in the repository, empty for its
+	// root.
+	Path string `yaml:"path,omitempty"`
 	// Kind is app for an app, empty for a platform.
 	Kind string `yaml:"kind,omitempty"`
 	// Description says what the stack sets up, in a line; Platform is the
@@ -48,26 +51,30 @@ type Config struct {
 	path string
 }
 
+// RegistryURL is the repository of the stacks of the library, each in a
+// directory of it.
+const RegistryURL = "https://github.com/damstack-dev/damstack-registry"
+
 // Builtin is the library built into damstack, for when the library cannot
 // be fetched and was never fetched before.
 var Builtin = []Stack{
-	{Name: "hashi", URL: "https://github.com/eugene-panin/damstack-hashi", Builtin: true,
+	{Name: "hashi", URL: RegistryURL, Path: "platforms/hashi", Builtin: true,
 		Description: "Nomad, Consul and Vault on one server, admin pages behind WireGuard"},
-	{Name: "mail", URL: "https://github.com/eugene-panin/damstack-mail", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "mail", URL: RegistryURL, Path: "apps/mail", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "your own mail server, by Stalwart"},
-	{Name: "odoo", URL: "https://github.com/eugene-panin/damstack-odoo", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "odoo", URL: RegistryURL, Path: "apps/odoo", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "Odoo ERP with its PostgreSQL and your addons"},
-	{Name: "postgres", URL: "https://github.com/eugene-panin/damstack-postgres", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "postgres", URL: RegistryURL, Path: "apps/postgres", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared PostgreSQL other apps use in postgres.mode external"},
-	{Name: "nats", URL: "https://github.com/eugene-panin/damstack-nats", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "nats", URL: RegistryURL, Path: "apps/nats", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared NATS (JetStream) bus other apps publish and subscribe on"},
-	{Name: "seaweedfs", URL: "https://github.com/eugene-panin/damstack-seaweedfs", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "seaweedfs", URL: RegistryURL, Path: "apps/seaweedfs", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared SeaweedFS object lake with an S3 API"},
-	{Name: "loki", URL: "https://github.com/eugene-panin/damstack-loki", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "loki", URL: RegistryURL, Path: "apps/loki", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared Loki log store"},
-	{Name: "mimir", URL: "https://github.com/eugene-panin/damstack-mimir", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "mimir", URL: RegistryURL, Path: "apps/mimir", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "a shared Mimir metric store"},
-	{Name: "grafana", URL: "https://github.com/eugene-panin/damstack-grafana", Kind: "app", Platform: "hashi", Builtin: true,
+	{Name: "grafana", URL: RegistryURL, Path: "apps/grafana", Kind: "app", Platform: "hashi", Builtin: true,
 		Description: "Grafana for the platform, with Mimir and Loki data sources"},
 }
 
@@ -152,7 +159,7 @@ func (c *Config) Stack(name string) (Stack, bool) {
 // another stack is refused.
 func (c *Config) AddStack(s Stack) (bool, error) {
 	if existing, ok := c.Stack(s.Name); ok {
-		if existing.URL == s.URL {
+		if existing.URL == s.URL && existing.Path == s.Path {
 			return false, nil
 		}
 		return false, fmt.Errorf("a stack named %s is already there, from %s; add this one under another name with --name", s.Name, existing.URL)

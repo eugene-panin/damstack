@@ -40,8 +40,12 @@ const (
 
 // StackRef is the stack a project is deployed with, at a release.
 type StackRef struct {
-	Name   string `yaml:"name"`
-	URL    string `yaml:"url"`
+	Name string `yaml:"name"`
+	URL  string `yaml:"url"`
+	// Path is the directory of the stack in its repository, released by tags
+	// such as hashi/v0.23.0; empty for a stack that is the whole repository,
+	// released by tags such as v0.23.0.
+	Path   string `yaml:"path,omitempty"`
 	Tag    string `yaml:"tag"`
 	Commit string `yaml:"commit"`
 }

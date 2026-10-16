@@ -327,44 +327,35 @@ func chooseStack(ctx context.Context, s *cli, cfg *config.Config, o deployOption
 		return m, dir, ref, nil
 	}
 
-	name, url, library := arg, "", false
+	want, library := project.StackRef{Name: arg}, false
 	if st, ok := cfg.Stack(arg); ok {
-		url, library = st.URL, true
+		want.URL, want.Path, library = st.URL, st.Path, true
 	} else {
 		var err error
-		if url, err = stack.NormalizeURL(arg); err != nil {
+		if want.URL, err = stack.NormalizeURL(arg); err != nil {
 			return nil, "", project.StackRef{}, fmt.Errorf("%s is neither a platform of the library, nor an address, nor a directory; damstack stacks lists the library", arg)
 		}
+		want.Name = ""
 		for _, st := range cfg.AllStacks() {
-			if st.URL == url {
-				name, library = st.Name, true
+			if st.URL == want.URL && st.Path == "" {
+				want.Name, library = st.Name, true
 			}
 		}
 	}
-	cache, err := config.CacheDir()
+	url := want.URL
+	fmt.Fprintf(s.out, "Looking at %s\n", where(want))
+	m, dir, ref, err := ops.LatestRef(ctx, want)
 	if err != nil {
 		return nil, "", project.StackRef{}, err
 	}
-	fmt.Fprintf(s.out, "Looking at %s\n", url)
-	r, err := stack.Latest(ctx, url)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	dir, err := stack.Fetch(ctx, cache, url, r)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	m, err := manifest.Load(dir, release.Version)
-	if err != nil {
-		return nil, "", project.StackRef{}, err
-	}
-	if !library {
-		name = m.Name
+	name := ref.Name
+	if library {
+		name = want.Name
 	}
 	if m.IsApp() {
 		return nil, "", project.StackRef{}, fmt.Errorf("%s is an app: set up a project on a platform first, then damstack app add %s in it", name, arg)
 	}
-	ref := project.StackRef{Name: name, URL: url, Tag: r.Tag, Commit: r.Commit}
+	ref.Name = name
 	if !library {
 		fmt.Fprintf(s.out, "\n%s is not in the library of damstack. It runs with your SSH key and the secrets of the project.\n", url)
 		ok, err := s.ui(o.yes).Confirm("Use it only if you trust the people who wrote it. Go on?", false)
@@ -377,6 +368,14 @@ func chooseStack(ctx context.Context, s *cli, cfg *config.Config, o deployOption
 	}
 	intro(s, m, ref)
 	return m, dir, ref, nil
+}
+
+// where is the repository of a stack, and its directory in it when it has one.
+func where(ref project.StackRef) string {
+	if ref.Path == "" {
+		return ref.URL
+	}
+	return ref.Path + " of " + ref.URL
 }
 
 // pickPlatform asks where a project starts from: a platform of the library,

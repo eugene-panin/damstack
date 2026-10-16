@@ -17,9 +17,12 @@ import (
 
 	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"github.com/eugene-panin/damstack/internal/config"
+	"github.com/eugene-panin/damstack/internal/stack"
 )
 
-const URL = "https://raw.githubusercontent.com/eugene-panin/damstack-library/main/library.yaml"
+// URL is the index of the registry, the repository the stacks of the library
+// are kept in, each in a directory of it.
+const URL = "https://raw.githubusercontent.com/damstack-dev/damstack-registry/main/index.yaml"
 
 // Fresh is how long a fetched library is used before it is fetched again.
 const Fresh = time.Hour
@@ -100,11 +103,16 @@ func parse(data []byte) ([]config.Stack, error) {
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, err
 	}
-	if len(f.Stacks) == 0 {
+	var stacks []config.Stack
+	for _, s := range f.Stacks {
+		if stack.CheckPath(s.Path) != nil {
+			continue
+		}
+		s.Builtin = true
+		stacks = append(stacks, s)
+	}
+	if len(stacks) == 0 {
 		return nil, errors.New("the library is empty")
 	}
-	for i := range f.Stacks {
-		f.Stacks[i].Builtin = true
-	}
-	return f.Stacks, nil
+	return stacks, nil
 }

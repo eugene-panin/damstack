@@ -31,7 +31,8 @@ func ProjectStack(ctx context.Context, p *project.Project, from string) (*manife
 }
 
 // RefStack is a stack at a release, fetched when it is not on this machine,
-// or in the directory a dev release names.
+// or in the directory a dev release names; its directory is the one of its
+// path in the checkout.
 func RefStack(ctx context.Context, ref project.StackRef) (*manifest.Manifest, string, error) {
 	dir := strings.TrimPrefix(ref.URL, "file://")
 	if ref.Tag != DevTag {
@@ -43,8 +44,43 @@ func RefStack(ctx context.Context, ref project.StackRef) (*manifest.Manifest, st
 			return nil, "", err
 		}
 	}
+	dir, err := stack.Sub(dir, ref.Path)
+	if err != nil {
+		return nil, "", fmt.Errorf("the path of %s: %w", ref.Name, err)
+	}
 	m, err := manifest.Load(dir, release.Version)
 	return m, dir, err
+}
+
+// LatestRef fetches the newest release of the stack ref names by its
+// address, path and name, and gives it with the ref that records it, named
+// as its manifest names it. The release is among the tags that begin as the
+// tag of ref does when it has one, so a stack of a repository of many keeps
+// to its own.
+func LatestRef(ctx context.Context, ref project.StackRef) (*manifest.Manifest, string, project.StackRef, error) {
+	if err := stack.CheckPath(ref.Path); err != nil {
+		return nil, "", project.StackRef{}, err
+	}
+	r, err := stack.Latest(ctx, ref.URL, TagPrefix(ref))
+	if err != nil {
+		return nil, "", project.StackRef{}, err
+	}
+	ref.Tag, ref.Commit = r.Tag, r.Commit
+	m, dir, err := RefStack(ctx, ref)
+	if err != nil {
+		return nil, "", project.StackRef{}, err
+	}
+	ref.Name = m.Name
+	return m, dir, ref, nil
+}
+
+// TagPrefix begins the release tags of the stack of ref: as its tag begins
+// when it has one, or as its name and path make them.
+func TagPrefix(ref project.StackRef) string {
+	if prefix := stack.TagPrefix(ref.Tag); prefix != "" {
+		return prefix
+	}
+	return stack.Prefix(ref.Name, ref.Path)
 }
 
 // CachedStack is the stack of a project if it is on this machine already.
@@ -61,6 +97,10 @@ func CachedRef(ref project.StackRef) (*manifest.Manifest, string) {
 			return nil, ""
 		}
 		dir = stack.Dir(cache, ref.URL, ref.Tag)
+	}
+	dir, err := stack.Sub(dir, ref.Path)
+	if err != nil {
+		return nil, ""
 	}
 	m, err := manifest.Load(dir, release.Version)
 	if err != nil {

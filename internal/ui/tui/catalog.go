@@ -14,8 +14,8 @@ import (
 type CatalogApp struct {
 	Name, Description string
 	// Source is the repository, such as eugene-panin/damstack-mail; URL its
-	// address.
-	Source, URL string
+	// address, Path the directory of the app in it.
+	Source, URL, Path string
 	// Installed is the release the project has, empty when it has none;
 	// Latest the newest, empty until known.
 	Installed, Latest string
