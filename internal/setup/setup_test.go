@@ -150,6 +150,50 @@ func TestAddApp(t *testing.T) {
 	}
 }
 
+func TestAnAppPreparedIsAddedWithWhatItConnectsTo(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p, password, err := Create(Options{
+		Manifest: stackManifest, Stack: stack(t), Name: "demo", Dir: filepath.Join(t.TempDir(), "demo"),
+		Given: map[string]any{"address": "1.2.3.4", "api_token": "tok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appDir, "app.yaml.tmpl"), []byte("# the host\nhostname: {{ yaml .hostname }}\npostgres: {mode: external}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := &manifest.Manifest{Name: "grafana", Kind: manifest.KindApp, Config: "app.yaml.tmpl",
+		Questions: []manifest.Question{{Name: "hostname", Prompt: "Host"}}}
+	a, err := PrepareApp(AppOptions{Manifest: app, Stack: appDir, Ref: project.StackRef{Name: "grafana", Tag: "v0.1.0"}, Project: p,
+		Password: password, Given: map[string]any{"hostname": "g.example.org"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := a.Settings(); s["hostname"] != "g.example.org" || !(manifest.Need{When: "postgres.mode=external"}).Holds(s) {
+		t.Errorf("settings %v", s)
+	}
+	if _, ok := p.Meta.App("grafana"); ok {
+		t.Error("a prepared app is in the project before Add")
+	}
+	if err := a.SetConnect(map[string][]string{"metrics@1": {"mimir"}, "logs@1": {}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Add(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(p.Dir, project.ConfigFile))
+	if err != nil || !strings.Contains(string(data), "# the host") {
+		t.Errorf("stack.yaml lost the comment of the template: %s", data)
+	}
+	config, _ := p.Config()
+	block := config["apps"].(map[string]any)["grafana"].(map[string]any)
+	connect, _ := block["connect"].(map[string]any)
+	if block["hostname"] != "g.example.org" || len(connect["metrics@1"].([]any)) != 1 || len(connect["logs@1"].([]any)) != 0 {
+		t.Errorf("the block %v", block)
+	}
+}
+
 func TestAnAppThatFailsToGoInLeavesNothingBehind(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	p, password, err := Create(Options{

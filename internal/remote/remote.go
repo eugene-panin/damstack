@@ -49,6 +49,14 @@ var ErrUnreachable = errors.New("the platform's Consul does not answer")
 // Open connects to the Consul a platform names in its app_env: CONSUL_HTTP_ADDR,
 // CONSUL_CACERT and CONSUL_HTTP_TOKEN. It does not check that it answers.
 func Open(project string, env map[string]string) (*Remote, error) {
+	client, err := open(env, RequestTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return New(project, client.KV(), client.Session()), nil
+}
+
+func open(env map[string]string, timeout time.Duration) (*api.Client, error) {
 	addr := env["CONSUL_HTTP_ADDR"]
 	if addr == "" {
 		return nil, errors.New("the platform gives no CONSUL_HTTP_ADDR")
@@ -61,13 +69,13 @@ func Open(project string, env map[string]string) (*Remote, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the platform's Consul at %s: %w", addr, err)
 	}
-	httpClient.Timeout = RequestTimeout
+	httpClient.Timeout = timeout
 	cfg.HttpClient = httpClient
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("the platform's Consul at %s: %w", addr, err)
 	}
-	return New(project, client.KV(), client.Session()), nil
+	return client, nil
 }
 
 // New is a Remote over the given KV store and sessions.

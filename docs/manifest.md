@@ -30,18 +30,66 @@ A platform also has:
 
 | Field | What it is |
 |---|---|
-| `provides` | What it gives its apps, such as `nomad` and `vault-kv`. |
+| `provides` | The [capabilities](#capabilities) it gives its apps, such as `nomad@1` and `vault-kv@1`. |
 | `app_env` | The environment of every step of its apps, templates over its `stack.yaml` and secrets: how they reach what it provides, such as `NOMAD_ADDR` and `NOMAD_TOKEN`. With `CONSUL_HTTP_ADDR` in it, a project can be shared: its lock and OpenTofu state live on the platform's Consul. |
 
 An app also has:
 
 | Field | What it is |
 |---|---|
-| `requires.provides` | What it needs of the platform, all of it. |
-| `targets.<name>` | How it runs on a platform that provides `<name>`: its own `steps` and `commands`. The first target, by name, the platform provides is used. |
+| `requires.provides` | The capabilities it needs of the platform, all of them. They decide whether it goes on a platform at all; no other module is brought for them. |
+| `requires.capabilities` | The capabilities it needs of any module of the project, the platform or another app: `damstack app add` brings a provider of each one missing, or stops. Each is a capability or `{capability, when}`. |
+| `uses` | The capabilities it connects to when the project has a provider, and works without; each as in `requires.capabilities`. |
+| `provides` | The capabilities it gives the other apps of its project, such as `metrics@1`. |
+| `targets.<name>` | How it runs on a platform that provides `<name>`: its own `steps` and `commands`. The first target, by name, the platform provides is used; a name without `@` is the capability at major 1. |
 | `accounts` | Sign-ins of the app damstack can give new passwords: `{what, userpass}`, `userpass` the path of a userpass method of the platform's Vault, a template over `.config` and `.app`. |
 
 An app may not have `server` or `backup`: those are the platform's.
+
+## Capabilities
+
+A capability is what a module gives or needs, as `name@major`: the name in
+lowercase letters, digits and hyphens, and the major version of what it
+promises, such as `metrics@1` or `postgres@16`. A name without `@`, as
+manifests wrote them before, is `@1`: `nomad` is `nomad@1`.
+
+An item of `requires.capabilities` or `uses` holds only under a condition
+when it is written `{capability: postgres@16, when: postgres.mode=external}`.
+`when` is as for a question: the name of a `bool` question answered yes, or
+`name=value`; the name may also be a dotted path of the app's settings, such
+as `postgres.mode`. It is read over the app's own answers and the settings
+they render into its block of `stack.yaml`, and on a deploy over that block.
+
+`damstack app add` works out a plan before it asks anything: for each
+capability the app requires that no module of the project provides, the app
+of the catalog for the project's platform that provides it; one question when
+several do, the one the catalog marks `recommended` first; a stop, naming the
+capability, when none does. The same for what those require, in turn. One
+under a condition is settled after the questions of its app. The modules are
+added in order, each after what it requires, then deployed together.
+
+For what an app uses, damstack shows the providers there are and asks
+whether to connect them, and records the answer under `connect` of the app's
+block, such as `connect: {metrics@1: [mimir]}`; a provider the catalog has but
+the project does not is only named.
+
+A provider is found in the platform's Consul, when its `app_env` has
+`CONSUL_HTTP_ADDR`: its service carries the tag `damstack.provides=metrics@1`
+(or `damstack.provides=metrics` for a major 1), with what else a client needs
+in the service's meta, such as `path`. When Consul does not answer, the
+providers are the modules of `project.yaml`, by name only.
+
+Every step of an app that requires or uses capabilities gets the providers it
+is given, those it requires and those of its `connect`, as JSON in
+`TF_VAR_damstack_providers`, and its templates as `.providers`:
+
+```json
+{"metrics@1": [{"name": "mimir", "address": "10.77.0.1", "port": 9009, "meta": {"path": "/prometheus"}}]}
+```
+
+The registry's `index.yaml` gives each app its `provides`, `requires` (its
+`requires.capabilities`), `uses` and `recommended`, so that a plan finds
+providers without fetching every app.
 
 ## Questions
 

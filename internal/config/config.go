@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/eugene-panin/damstack/internal/atomicfile"
 	"gopkg.in/yaml.v3"
+
+	"github.com/eugene-panin/damstack/internal/atomicfile"
+	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
 // Stack is a stack damstack can deploy, by the address of its repository.
@@ -28,7 +30,15 @@ type Stack struct {
 	// platform an app of the library runs on.
 	Description string `yaml:"description,omitempty"`
 	Platform    string `yaml:"platform,omitempty"`
-	Builtin     bool   `yaml:"-"`
+	// Provides, Requires and Uses are the capabilities of the stack as its
+	// manifest has them (provides, requires.capabilities and uses), so that a
+	// plan finds providers without fetching every stack; Recommended puts it
+	// first where several provide one.
+	Provides    []string        `yaml:"provides,omitempty"`
+	Requires    []manifest.Need `yaml:"requires,omitempty"`
+	Uses        []manifest.Need `yaml:"uses,omitempty"`
+	Recommended bool            `yaml:"recommended,omitempty"`
+	Builtin     bool            `yaml:"-"`
 }
 
 type Project struct {

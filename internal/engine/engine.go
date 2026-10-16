@@ -27,6 +27,7 @@ import (
 	"github.com/eugene-panin/damstack/internal/event"
 	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/nomadwatch"
+	"github.com/eugene-panin/damstack/internal/plan"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/sshkey"
 	"github.com/eugene-panin/damstack/internal/tofujson"
@@ -58,6 +59,11 @@ type Engine struct {
 	// BaseEnv is under the environment of every step, such as the app_env
 	// of the platform for an app.
 	BaseEnv map[string]string
+	// Providers are, for an app, the providers of the capabilities it requires
+	// and uses that it is given: its steps get them as JSON in
+	// TF_VAR_damstack_providers, and its templates as .providers. Nil gives
+	// none.
+	Providers plan.Providers
 	// Brief is whether the output of the tools goes to a log rather than the
 	// terminal: a change is then confirmed by its counts.
 	Brief bool
@@ -129,10 +135,23 @@ func (e *Engine) env(s manifest.Step, config, secrets map[string]any) (map[strin
 	if e.App != "" {
 		apps, _ := config["apps"].(map[string]any)
 		data["app"] = apps[e.App]
+		data["providers"] = map[string]any{}
 	}
 	env := maps.Clone(e.BaseEnv)
 	if env == nil {
 		env = map[string]string{}
+	}
+	if e.App != "" && e.Providers != nil {
+		providers, err := json.Marshal(e.Providers)
+		if err != nil {
+			return nil, err
+		}
+		env["TF_VAR_damstack_providers"] = string(providers)
+		var shaped map[string]any
+		if err := json.Unmarshal(providers, &shaped); err != nil {
+			return nil, err
+		}
+		data["providers"] = shaped
 	}
 	for key, text := range s.Env {
 		var err error

@@ -52,8 +52,13 @@ type Manifest struct {
 	// Kind is platform, the default, or app: an app runs on the platform of
 	// a project, and is added to it with damstack app add.
 	Kind string `yaml:"kind"`
-	// Provides are what a platform gives the apps on it, such as nomad.
+	// Provides are the capabilities the module gives others: a platform the
+	// apps on it, such as nomad@1, an app those of its project, such as
+	// metrics@1.
 	Provides []string `yaml:"provides"`
+	// Uses are capabilities an app connects to when the project has a
+	// provider, and works without.
+	Uses []Need `yaml:"uses"`
 	// AppEnv is the environment of every step of the apps on a platform, as
 	// templates over its stack.yaml and secrets: how they reach what it
 	// provides, such as NOMAD_ADDR and NOMAD_TOKEN.
@@ -93,10 +98,10 @@ const (
 func (m *Manifest) IsApp() bool { return m.Kind == KindApp }
 
 // Target is the target of an app on a platform that provides provides, and
-// its name.
+// its name: a target named nomad runs on a platform that provides nomad@1.
 func (m *Manifest) Target(provides []string) (string, *Target, bool) {
 	for _, name := range slices.Sorted(maps.Keys(m.Targets)) {
-		if slices.Contains(provides, name) {
+		if Has(provides, name) {
 			t := m.Targets[name]
 			return name, &t, true
 		}
@@ -112,8 +117,13 @@ type Requires struct {
 	Damstack string   `yaml:"damstack"`
 	Toolbox  string   `yaml:"toolbox"`
 	Host     []string `yaml:"host"`
-	// Provides are what an app needs of the platform, all of them.
+	// Provides are what an app needs of the platform, all of them: they pick
+	// its target, and are never brought by another module.
 	Provides []string `yaml:"provides"`
+	// Capabilities are what an app needs from any module of the project, the
+	// platform or another app: the plan of damstack app add brings a provider
+	// of each one missing, or stops.
+	Capabilities []Need `yaml:"capabilities"`
 }
 
 // Question is asked on the first deploy; the answers render Config into the
@@ -370,7 +380,6 @@ var (
 	nameRe     = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 	questionRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}$`)
 	apiRe      = regexp.MustCompile(`^damstack/v([0-9]+)$`)
-	capRe      = regexp.MustCompile(`^[a-z][a-z0-9-]{1,40}$`)
 )
 
 // Load reads the manifest of the stack in dir and checks it, including that
@@ -583,11 +592,8 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		}
 	}
 
-	for i, p := range m.Provides {
-		if !capRe.MatchString(p) {
-			c.add(fmt.Sprintf("provides[%d]", i), "must be lowercase letters, digits and hyphens")
-		}
-	}
+	c.checkCapabilities("provides", m.Provides)
+	c.checkCapabilities("requires.provides", m.Requires.Provides)
 	switch m.Kind {
 	case "", KindPlatform:
 		if len(m.Steps) == 0 {
@@ -601,6 +607,12 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		if len(m.Requires.Provides) > 0 {
 			c.add("requires.provides", "is for an app, what it needs of the platform")
 		}
+		if len(m.Requires.Capabilities) > 0 {
+			c.add("requires.capabilities", "is for an app, what it needs of the modules of its project")
+		}
+		if len(m.Uses) > 0 {
+			c.add("uses", "is for an app, what it connects to when the project has it")
+		}
 		for _, key := range slices.Sorted(maps.Keys(m.AppEnv)) {
 			c.checkTemplate("app_env."+key, m.AppEnv[key])
 		}
@@ -608,9 +620,11 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		if len(m.Steps) > 0 || len(m.Commands) > 0 {
 			c.add("steps", "an app has its steps and commands under targets, one per kind of platform")
 		}
-		if len(m.Provides) > 0 || len(m.AppEnv) > 0 {
-			c.add("provides", "provides and app_env are for a platform")
+		if len(m.AppEnv) > 0 {
+			c.add("app_env", "is for a platform")
 		}
+		c.checkNeeds("requires.capabilities", m.Requires.Capabilities, m.Questions)
+		c.checkNeeds("uses", m.Uses, m.Questions)
 		if m.Server != nil {
 			c.add("server", "is the platform's; an app reaches the server through it")
 		}
@@ -625,7 +639,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		}
 		for _, name := range slices.Sorted(maps.Keys(m.Targets)) {
 			path := "targets." + name
-			if !capRe.MatchString(name) {
+			if _, err := ParseCapability(name); err != nil {
 				c.add(path, "the name must be lowercase letters, digits and hyphens, what a platform provides")
 			}
 			t := m.Targets[name]

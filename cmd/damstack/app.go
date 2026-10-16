@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -16,7 +14,6 @@ import (
 	"github.com/eugene-panin/damstack/internal/ops"
 	"github.com/eugene-panin/damstack/internal/project"
 	"github.com/eugene-panin/damstack/internal/release"
-	"github.com/eugene-panin/damstack/internal/setup"
 	"github.com/eugene-panin/damstack/internal/stack"
 )
 
@@ -89,16 +86,11 @@ func addApp(ctx context.Context, s *cli, arg, from, answers string, yes, appsOnl
 	if err != nil {
 		return err
 	}
-	if !am.IsApp() {
-		return fmt.Errorf("%s is a platform, not an app; damstack deploy sets up a project on it", am.Name)
+	if err := fits(pm, am); err != nil {
+		return err
 	}
-	for _, need := range am.Requires.Provides {
-		if !slices.Contains(pm.Provides, need) {
-			return fmt.Errorf("%s needs %s, which the platform %s of this project does not provide", am.Name, need, pm.Name)
-		}
-	}
-	if _, _, ok := am.Target(pm.Provides); !ok {
-		return fmt.Errorf("%s has no way to run on %s, which provides %s", am.Name, pm.Name, strings.Join(pm.Provides, ", "))
+	if _, ok := p.Meta.App(am.Name); ok {
+		return fmt.Errorf("%s is already an app of %s; damstack deploy deploys it", am.Name, p.Meta.Name)
 	}
 	password, err := p.Password()
 	if err != nil {
@@ -114,11 +106,17 @@ func addApp(ctx context.Context, s *cli, arg, from, answers string, yes, appsOnl
 			return fmt.Errorf("%s: %w", answers, err)
 		}
 	}
-	err = setup.AddApp(setup.AppOptions{Manifest: am, Stack: adir, Ref: ref, Project: p, Password: password, Given: given, Prompter: s.prompt})
+	order, err := addPlan(ctx, p, pm, pdir, &planned{m: am, dir: adir, ref: ref}, terminalFlow(s, p, password, am.Name, given, yes))
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(s.out, "\nAdded %s to %s: its settings are under apps.%s in stack.yaml.\n\n", am.Name, p.Meta.Name, am.Name)
+	for _, a := range order {
+		if err := a.pending.Add(); err != nil {
+			return err
+		}
+		fmt.Fprintf(s.out, "\nAdded %s to %s: its settings are under apps.%s in stack.yaml.\n", a.m.Name, p.Meta.Name, a.m.Name)
+	}
+	fmt.Fprintln(s.out)
 	// Without a terminal and --yes, adding is all that was asked for.
 	ok := yes
 	if !ok && !s.prompt.NoTerminal {
