@@ -3,6 +3,10 @@
 What damstack is, how a person uses it, what exists and what is next. The
 screens are the target; `Now` says how far the code is from each.
 
+[modules.md](modules.md) is the next step: platforms, domains and apps as
+modules of one format, the capabilities they need of each other, and a
+platform without a domain.
+
 ## Model
 
 - **damstack** is one program, for macOS. It checks the Mac, keeps a library
