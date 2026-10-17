@@ -57,7 +57,7 @@ The capabilities of today's modules:
 
 | Module | Provides |
 |---|---|
-| hashi | `nomad@1`, `vault-kv@1`, `consul@1`, `ingress-traefik@1`, `observability@1` |
+| hashi | `nomad@1`, `vault-kv@1`, `consul@1`, `ingress-traefik@1`, `ingress-public@1`, `observability@1` |
 | loki | `logs@1` |
 | mimir | `metrics@1` |
 | postgres | `postgres@16` |
@@ -259,9 +259,13 @@ written, and tried on a test project, before anyone is asked to do it.
    say what they provide; odoo requires `postgres@16` when external; grafana
    uses `metrics@1` and `logs@1`. Their services carry the
    `damstack.provides` tag, and damstack finds providers in Consul.
-2. Traefik as `apps/traefik`; apps require `ingress-public@1`.
-3. `domains/cloudflare` and `domains/manual`; hashi `v1.0.0` without a
-   domain, `.consul` names and `/etc/resolver/consul`.
+2. Apps require `ingress-public@1`, not Traefik by name; hashi provides it with
+   the Traefik it runs, so nothing changes on a server.
+3. hashi `v1.0.0`: without a domain and without Traefik, `.consul` names and
+   `/etc/resolver/consul`; Traefik as `apps/traefik`, providing
+   `ingress-public@1`; `domains/cloudflare` and `domains/manual`. Traefik
+   leaves hashi in the same release it joins the apps, so that no server
+   runs two.
 4. The first run from what to set up.
 5. The upgrade of a project of today to hashi `v1.0.0`, tried on a test
    project, then written for others.
