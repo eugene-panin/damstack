@@ -17,7 +17,7 @@ They differ by `kind`:
 | Kind | Goes on | Example | Provides | Requires |
 |---|---|---|---|---|
 | `platform` | a host | hashi, later k0s | `nomad@1`, `vault-kv@1`, `consul-dns@1` | a host damstack logs in to |
-| `domain` | a platform | cloudflare, manual | `public-dns@1`, `tls-certificates@1` | the platform's ingress |
+| `domain` | a platform | cloudflare, manual | `public-dns@1` | the platform's ingress |
 | `app` | a platform | traefik, postgres, mail, odoo | what it serves, such as `ingress-public@1` or `postgres@16` | what it runs on and needs |
 
 In the registry, each kind has its directory: `platforms/<name>`,
@@ -103,7 +103,7 @@ domains they connect and the apps they deliver, each at a release. It lives
 where its person keeps it, `~/.damstack/<name>`, and is theirs: damstack
 never keeps it anywhere else.
 
-`project.yaml` records the modules, each pinned:
+`project.yaml` records the modules, each pinned; this is where it goes:
 
 ```yaml
 name: shop
@@ -116,7 +116,9 @@ apps:
 ```
 
 A `project.yaml` of today, with `stack:` and `apps:`, is read as before:
-`stack` is the platform, and nothing is moved.
+`stack` is the platform, and nothing is moved. Until `platform` and
+`domains` come, a domain module is kept under `apps:` like an app, its kind
+read from its manifest.
 
 ## What damstack works out
 
@@ -172,16 +174,18 @@ token.
 
 ## Domains
 
-A domain module connects the person's domain to the project:
+A domain module connects the person's domain to the project: it publishes
+the records the project's apps need, from what they say they need, and
+provides `public-dns@1`. The certificates of public apps are not its: Traefik
+(`apps/traefik`) gets them from Let's Encrypt by HTTP-01, once the records
+point at the server.
 
-- it publishes the records the project's apps need, from what they say they
-  need;
-- it gets public certificates for them from Let's Encrypt, by DNS-01, and
-  keeps them where the apps take them from.
+A domain module goes on a platform like an app, with the same targets,
+questions, secrets and steps, and is added with `damstack app add`.
 
 A provider damstack supports natively is a module with deterministic OpenTofu,
 Cloudflare first. For any other, the `manual` module shows the records to add
-by hand, checks they are there, and gets certificates once they are.
+by hand, and checks they are there.
 
 ## The first run
 
@@ -214,8 +218,9 @@ In the registry:
   Let's Encrypt certificate, the `dns` step. Its admin pages get `.consul`
   names. This is hashi `v1.0.0`;
 - Traefik out of hashi into `apps/traefik`, providing `ingress-public@1`;
-- `domains/cloudflare` out of hashi's `dns` step and its Traefik certificate;
-  `domains/manual` new;
+- `domains/cloudflare` out of hashi's `dns` step, providing `public-dns@1`;
+  `domains/manual` new; the certificates of public apps with Traefik, by
+  HTTP-01;
 - the apps require capabilities with a major version, and list their targets
   in order;
 - `index.yaml` marks the recommended platform and, per capability, the

@@ -385,7 +385,7 @@ func pickPlatform(s *cli, cfg *config.Config) (string, error) {
 	fmt.Fprintln(s.err, "Where your project starts from:")
 	fmt.Fprintln(s.err)
 	for _, st := range cfg.AllStacks() {
-		if st.Kind == manifest.KindApp {
+		if st.OnPlatform() {
 			continue
 		}
 		names = append(names, st.Name)
@@ -503,6 +503,7 @@ func deployed(ctx context.Context, s *cli, yes bool, p *project.Project, m *mani
 		}
 	}
 	trustNotice(ctx, s, yes, p, m)
+	resolverNotice(ctx, s, yes, p, m)
 	if m.Backup == nil {
 		return nil
 	}

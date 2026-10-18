@@ -200,6 +200,23 @@ func loadTunnel(ui UI, yes bool, p *project.Project, m *manifest.Manifest, dir, 
 	return t, nil
 }
 
+// TunnelDNS is the address on the private network of p the server answers
+// DNS at, empty when its stack m says it does not.
+func TunnelDNS(p *project.Project, m *manifest.Manifest) (string, error) {
+	if m.Server == nil || m.Server.WireGuard == nil || !m.Server.WireGuard.DNS {
+		return "", nil
+	}
+	config, err := p.Config()
+	if err != nil {
+		return "", err
+	}
+	network, err := manifest.Render("server.wireguard.network", m.Server.WireGuard.Network, config, nil)
+	if err != nil {
+		return "", fmt.Errorf("server.wireguard.network of the stack: %w", err)
+	}
+	return wg.ServerAddress(strings.TrimSpace(network))
+}
+
 // Names are the devices stack.yaml lists.
 func (t *Tunnel) Names() []string { return t.names }
 
@@ -341,7 +358,14 @@ func (t *Tunnel) Show(ctx context.Context, name string, qr, print bool) error {
 	} else if c.Any() {
 		return fmt.Errorf("the keys of %s changed since the last deploy; damstack deploy %s sets them on the server first", t.p.Meta.Name, t.p.Meta.Name)
 	}
-	conf, err := t.state.Config(name, t.endpoint, t.network)
+	dns := ""
+	if t.w.DNS {
+		var err error
+		if dns, err = wg.ServerAddress(t.network); err != nil {
+			return err
+		}
+	}
+	conf, err := t.state.Config(name, t.endpoint, t.network, dns)
 	if err != nil {
 		return err
 	}

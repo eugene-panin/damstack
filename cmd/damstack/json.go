@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/eugene-panin/damstack/internal/config"
-	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/project"
 )
 
@@ -55,7 +54,7 @@ type runJSON struct {
 // libraryJSON is a stack damstack can deploy, from damstack stacks.
 type libraryJSON struct {
 	Name        string `json:"name"`
-	Kind        string `json:"kind"` // platform or app
+	Kind        string `json:"kind"` // platform, app or domain
 	From        string `json:"from"` // library or added
 	URL         string `json:"url"`
 	Path        string `json:"path,omitempty"`
@@ -68,8 +67,8 @@ func newLibraryJSON(s config.Stack) libraryJSON {
 	if s.Builtin {
 		j.From = "library"
 	}
-	if s.Kind == manifest.KindApp {
-		j.Kind = "app"
+	if s.OnPlatform() {
+		j.Kind = s.Kind
 	}
 	return j
 }

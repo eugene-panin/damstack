@@ -37,7 +37,9 @@ func trustCommand(s *cli) *cobra.Command {
 		Use:   "trust [project]",
 		Short: "Make this Mac trust the CA of a project, so that its servers open in the browser on their own addresses",
 		Long: "Adds the CA of the project to the login keychain, trusted for TLS only. The CA signs for the names\n" +
-			"of the agents on the private network only, so trusting it lets nobody impersonate any other site.",
+			"of the agents on the private network only, so trusting it lets nobody impersonate any other site.\n" +
+			"When the platform answers DNS on its tunnel, also writes /etc/resolver/consul, with sudo, so that\n" +
+			"this Mac finds the names under .consul there.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, err := pickProject(s, firstArg(args))
@@ -53,12 +55,28 @@ func trustCommand(s *cli) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(s.out, "This Mac no longer trusts the CA of %s.\n", p.Meta.Name)
+				removed, err := unresolve(cmd.Context(), s, p)
+				if removed {
+					fmt.Fprintf(s.out, "This Mac no longer asks %s for the names under .consul.\n", p.Meta.Name)
+				}
+				return err
+			}
+			address, err := ops.TunnelDNS(p, m)
+			if err != nil {
+				return err
+			}
+			if caPath(p, m) != "" || address == "" {
+				if err := trust(cmd.Context(), s, p, m); err != nil {
+					return err
+				}
+			}
+			if address == "" {
 				return nil
 			}
-			return trust(cmd.Context(), s, p, m)
+			return resolve(cmd.Context(), s, p, address)
 		},
 	}
-	cmd.Flags().BoolVar(&remove, "remove", false, "take the trust back")
+	cmd.Flags().BoolVar(&remove, "remove", false, "take the trust back, and /etc/resolver/consul when damstack wrote it for this project")
 	return cmd
 }
 

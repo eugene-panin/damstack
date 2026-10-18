@@ -68,7 +68,7 @@ func platforms(w io.Writer, cfg *config.Config) {
 	tw := tabwriter.NewWriter(w, 0, 4, 3, ' ', 0)
 	var start string
 	for _, s := range cfg.AllStacks() {
-		if s.Kind == "app" {
+		if s.OnPlatform() {
 			continue
 		}
 		if start == "" {
@@ -77,7 +77,7 @@ func platforms(w io.Writer, cfg *config.Config) {
 		fmt.Fprintf(tw, "  %s\t%s\n", s.Name, s.Description)
 		var apps []string
 		for _, a := range cfg.AllStacks() {
-			if a.Kind == "app" && a.Platform == s.Name {
+			if a.OnPlatform() && a.Platform == s.Name {
 				apps = append(apps, a.Name)
 			}
 		}
@@ -152,7 +152,7 @@ func projects(w io.Writer, cfg *config.Config) {
 	}
 	start := ""
 	for _, s := range cfg.AllStacks() {
-		if s.Kind != "app" {
+		if !s.OnPlatform() {
 			start = s.Name
 			break
 		}

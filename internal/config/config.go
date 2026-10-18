@@ -24,7 +24,7 @@ type Stack struct {
 	// Path is the directory of the stack in the repository, empty for its
 	// root.
 	Path string `yaml:"path,omitempty"`
-	// Kind is app for an app, empty for a platform.
+	// Kind is app for an app, domain for a domain, empty for a platform.
 	Kind string `yaml:"kind,omitempty"`
 	// Description says what the stack sets up, in a line; Platform is the
 	// platform an app of the library runs on.
@@ -40,6 +40,9 @@ type Stack struct {
 	Recommended bool            `yaml:"recommended,omitempty"`
 	Builtin     bool            `yaml:"-"`
 }
+
+// OnPlatform is whether the stack goes on a platform: an app or a domain.
+func (s Stack) OnPlatform() bool { return manifest.OnPlatform(s.Kind) }
 
 type Project struct {
 	Name  string `yaml:"name"`

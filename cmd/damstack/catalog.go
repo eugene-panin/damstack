@@ -94,7 +94,7 @@ func catalogApps(cfg *config.Config, p *project.Project) []tui.CatalogApp {
 		found = append(found, cache.Apps()...)
 	}
 	for _, st := range found {
-		if st.Kind != "app" || seen[st.Name] || (st.Platform != "" && st.Platform != p.Meta.Stack.Name) {
+		if !st.OnPlatform() || seen[st.Name] || (st.Platform != "" && st.Platform != p.Meta.Stack.Name) {
 			continue
 		}
 		seen[st.Name] = true

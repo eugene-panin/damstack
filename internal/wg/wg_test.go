@@ -75,7 +75,7 @@ func TestRotateAndSecret(t *testing.T) {
 	if back.Server == server {
 		t.Error("the server kept its keys")
 	}
-	conf, err := back.Config("laptop", "203.0.113.5:51820", "10.77.0.0/24")
+	conf, err := back.Config("laptop", "203.0.113.5:51820", "10.77.0.0/24", "")
 	for _, want := range []string{"PrivateKey = " + d.PrivateKey, "Address = 10.77.0.2/32", "PublicKey = " + back.Server.PublicKey,
 		"PresharedKey = " + d.PresharedKey, "AllowedIPs = 10.77.0.0/24", "Endpoint = 203.0.113.5:51820"} {
 		if err != nil || !strings.Contains(conf, want+"\n") {
@@ -84,5 +84,13 @@ func TestRotateAndSecret(t *testing.T) {
 	}
 	if strings.Contains(conf, "DNS") {
 		t.Error("a DNS server in the configuration")
+	}
+	addr, err := ServerAddress("10.77.0.0/24")
+	if err != nil || addr != "10.77.0.1" {
+		t.Fatalf("the server's address: %s, %v", addr, err)
+	}
+	conf, err = back.Config("laptop", "203.0.113.5:51820", "10.77.0.0/24", addr)
+	if err != nil || !strings.Contains(conf, "Address = 10.77.0.2/32\nDNS = 10.77.0.1\n\n[Peer]\n") {
+		t.Errorf("no DNS of the server in the interface:\n%s", conf)
 	}
 }
