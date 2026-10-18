@@ -49,8 +49,10 @@ type Manifest struct {
 	Done []string `yaml:"done"`
 	// Tokens are the secrets damstack token gives, by a short name.
 	Tokens map[string]string `yaml:"tokens"`
-	// Kind is platform, the default, or app: an app runs on the platform of
-	// a project, and is added to it with damstack app add.
+	// Kind is platform, the default, app or domain: an app runs on the
+	// platform of a project, and a domain connects the person's domain to it,
+	// such as with its public DNS records; both are added with damstack app
+	// add.
 	Kind string `yaml:"kind"`
 	// Provides are the capabilities the module gives others: a platform the
 	// apps on it, such as nomad@1, an app those of its project, such as
@@ -93,9 +95,18 @@ type Target struct {
 const (
 	KindPlatform = "platform"
 	KindApp      = "app"
+	KindDomain   = "domain"
 )
 
-func (m *Manifest) IsApp() bool { return m.Kind == KindApp }
+// IsApp is whether the module goes on the platform of a project, as an app
+// or a domain: both are added, kept and deployed the same way.
+func (m *Manifest) IsApp() bool { return OnPlatform(m.Kind) }
+
+// IsDomain is whether the module is a domain.
+func (m *Manifest) IsDomain() bool { return m.Kind == KindDomain }
+
+// OnPlatform is whether a module of kind goes on a platform.
+func OnPlatform(kind string) bool { return kind == KindApp || kind == KindDomain }
 
 // Target is the target of an app on a platform that provides provides, and
 // its name: a target named nomad runs on a platform that provides nomad@1.
@@ -236,6 +247,10 @@ type WireGuard struct {
 	Endpoint  string `yaml:"endpoint"`
 	Apply     string `yaml:"apply"`
 	Interface string `yaml:"interface"`
+	// DNS is whether the server answers DNS at its address on Network, the
+	// first one: the devices then ask it, their configurations with it as
+	// DNS, and a Mac for the names under .consul in /etc/resolver/consul.
+	DNS bool `yaml:"dns"`
 }
 
 // Backup is where the server keeps its restic backups, and where damstack
@@ -419,7 +434,7 @@ func Parse(path string, data []byte, dir, damstackVersion string) (*Manifest, er
 		return nil, &Error{File: path, Problems: []Problem{{Path: "yaml", Msg: err.Error()}}}
 	}
 
-	c := checker{root: &root, server: m.Server, app: m.Kind == KindApp, prefix: m.SecretPrefix()}
+	c := checker{root: &root, server: m.Server, app: m.IsApp(), prefix: m.SecretPrefix()}
 	c.check(&m, dir, damstackVersion)
 	if len(c.problems) > 0 {
 		return nil, &Error{File: path, Problems: c.problems}
@@ -616,7 +631,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 		for _, key := range slices.Sorted(maps.Keys(m.AppEnv)) {
 			c.checkTemplate("app_env."+key, m.AppEnv[key])
 		}
-	case KindApp:
+	case KindApp, KindDomain:
 		if len(m.Steps) > 0 || len(m.Commands) > 0 {
 			c.add("steps", "an app has its steps and commands under targets, one per kind of platform")
 		}
@@ -661,7 +676,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			c.checkFile("check.platform", m.Check.Platform, dir, false)
 		}
 	default:
-		c.add("kind", "%q is not a kind; platform or app", m.Kind)
+		c.add("kind", "%q is not a kind; platform, app or domain", m.Kind)
 	}
 
 	if m.Check.Answers == "" {

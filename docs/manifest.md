@@ -16,11 +16,11 @@ Templates below are Go `text/template` over `.config`, the project's
 | `apiVersion` | `damstack/v2`. A `damstack/v1` stack ran in Docker and is refused. |
 | `name` | The stack's name, 2 to 31 lowercase letters, digits and hyphens; its repository is `damstack-<name>`. |
 | `description` | One line, shown where a stack is picked and in the catalog of apps. |
-| `kind` | `platform`, the default, or `app`: an app runs on the platform of a project. |
+| `kind` | `platform`, the default, `app` or `domain`: an app runs on the platform of a project, and a domain is a module that connects the person's domain to it, such as by its public DNS records. |
 | `needs` | What the person must have before starting, said first by deploy. |
 | `takes` | About how long a first deploy takes. |
 | `summary` | Lines shown before a project is set up: `{label, value}`, the value a template over the answers. |
-| `done` | Lines said when a deploy ends, templates over `.config` (and `.app` for an app): addresses, how to sign in. |
+| `done` | Lines said when a deploy ends, templates over `.config` (and `.app` for an app): addresses, how to sign in. An address under `.service.consul`, or under the `infra_domain` of `stack.yaml`, is an admin page, reached over the tunnel; when its first label is a name of `tokens`, such as `nomad.service.consul`, that token goes with it. |
 | `tokens` | The secrets `damstack token <short name>` gives, by a short name. |
 | `requires.damstack` | A version constraint on damstack, such as `">=0.18.0"`. |
 | `requires.toolbox` | A version constraint on damstack-toolbox. |
@@ -33,7 +33,7 @@ A platform also has:
 | `provides` | The [capabilities](#capabilities) it gives its apps, such as `nomad@1` and `vault-kv@1`. |
 | `app_env` | The environment of every step of its apps, templates over its `stack.yaml` and secrets: how they reach what it provides, such as `NOMAD_ADDR` and `NOMAD_TOKEN`. With `CONSUL_HTTP_ADDR` in it, a project can be shared: its lock and OpenTofu state live on the platform's Consul. |
 
-An app also has:
+An app also has, and so does a domain:
 
 | Field | What it is |
 |---|---|
@@ -45,6 +45,12 @@ An app also has:
 | `accounts` | Sign-ins of the app damstack can give new passwords: `{what, userpass}`, `userpass` the path of a userpass method of the platform's Vault, a template over `.config` and `.app`. |
 
 An app may not have `server` or `backup`: those are the platform's.
+
+A domain is checked as an app, goes on a platform the same way, by its
+`requires.provides` and `targets`, and provides what it gives, such as
+`public-dns@1`; `damstack app add` adds it, the plan brings it for a
+capability it provides like any app, and `project.yaml` keeps it under `apps:`.
+Wherever this page says an app, it means a domain too.
 
 ## Capabilities
 
@@ -146,8 +152,26 @@ meet.
 | `host_key` | The SHA256 fingerprint of the server's host key, as the provider shows it, such as `SHA256:abc…`. Given, the first login checks it and stops on another; without it, damstack shows the key it gets and asks on a terminal, and takes it as it is without one. |
 | `tunnel_help` | How to turn the tunnel on, said when a step needs it and finds it off. |
 | `tunnel_configs` | A pattern of the devices' WireGuard configurations in the project, shown then. |
-| `wireguard` | The keys of the private network damstack keeps: `secret` (where in `vault.yml`), `devices` (a dotted path of the list of devices in `stack.yaml`), `network`, `endpoint` (templates), `apply` (the command that sets the keys on the server), `interface` (`wg0` by default). |
+| `wireguard` | The keys of the private network damstack keeps: `secret` (where in `vault.yml`), `devices` (a dotted path of the list of devices in `stack.yaml`), `network`, `endpoint` (templates), `apply` (the command that sets the keys on the server), `interface` (`wg0` by default), `dns` (see below). |
 | `ssh_key` | An SSH key of the project for when the person has none: `secret`, and `apply`, the command that authorizes it on the server. |
+
+`server.wireguard.dns: true` says the server answers DNS on port 53 at its
+address on `network`, the first one, such as Consul for the names under
+`.consul`. The configurations of the devices then have `DNS = <that address>`
+in `[Interface]`, and `damstack trust` writes `/etc/resolver/consul` on the
+Mac, with sudo, so that the Mac asks the server for those names only:
+
+```
+# damstack shop /Users/me/.damstack/shop
+nameserver 10.77.0.1
+port 53
+```
+
+Only one project's tunnel answers for `.consul` at a time: damstack names the
+project whose resolver is there, and asks before replacing it. `damstack trust
+--remove` takes it back while it is still the project's. After a deploy,
+damstack offers it once, and again when the address moved. Without `dns`, the
+default, the configurations have no DNS and nothing is written.
 
 ## Backups
 

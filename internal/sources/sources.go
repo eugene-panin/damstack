@@ -138,7 +138,7 @@ func Sync(ctx context.Context, source string) Entry {
 			problems = append(problems, fmt.Sprintf("%s: %v", strings.TrimPrefix(u, "https://github.com/"), err))
 			continue
 		}
-		if app.Kind == "app" {
+		if app.OnPlatform() {
 			e.Apps = append(e.Apps, app)
 		}
 	}
@@ -168,7 +168,7 @@ func read(ctx context.Context, u string) (config.Stack, error) {
 	}
 	s := config.Stack{Name: m.Name, URL: u, Description: m.Description, Provides: m.Provides, Requires: m.Requires.Capabilities, Uses: m.Uses}
 	if m.IsApp() {
-		s.Kind = "app"
+		s.Kind = m.Kind
 	}
 	return s, nil
 }

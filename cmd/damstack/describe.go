@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eugene-panin/damstack/internal/config"
-	"github.com/eugene-panin/damstack/internal/manifest"
 	"github.com/eugene-panin/damstack/internal/ops"
 )
 
@@ -115,7 +114,7 @@ func stackNames(c *cobra.Command, apps bool) []string {
 	}
 	var names []string
 	for _, st := range cfg.AllStacks() {
-		if (st.Kind == manifest.KindApp) == apps {
+		if st.OnPlatform() == apps {
 			names = append(names, st.Name)
 		}
 	}

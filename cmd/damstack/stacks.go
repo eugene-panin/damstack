@@ -109,7 +109,7 @@ func addStack(ctx context.Context, s *cli, raw, name string, yes bool) error {
 	}
 	kind := ""
 	if m.IsApp() {
-		kind = manifest.KindApp
+		kind = m.Kind
 	}
 	added, err := cfg.AddStack(config.Stack{Name: name, URL: url, Kind: kind})
 	if err != nil {

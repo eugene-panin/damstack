@@ -201,15 +201,29 @@ func (s *State) RotateServer() error {
 	return nil
 }
 
+// ServerAddress is the address of the server on network: its first.
+func ServerAddress(network string) (string, error) {
+	prefix, err := netip.ParsePrefix(network)
+	if err != nil {
+		return "", fmt.Errorf("the network %q: %w", network, err)
+	}
+	return prefix.Masked().Addr().Next().String(), nil
+}
+
 // Config is the configuration a device imports: its keys, and the server at
-// endpoint, through which it reaches network.
-func (s *State) Config(name, endpoint, network string) (string, error) {
+// endpoint, through which it reaches network; dns, when not empty, is the
+// address the device asks for names.
+func (s *State) Config(name, endpoint, network, dns string) (string, error) {
 	d, ok := s.Devices[name]
 	if !ok {
 		return "", fmt.Errorf("%s is not a device of the project; damstack tunnel list shows them", name)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[Interface]\nPrivateKey = %s\nAddress = %s/32\n\n", d.PrivateKey, d.Address)
+	fmt.Fprintf(&b, "[Interface]\nPrivateKey = %s\nAddress = %s/32\n", d.PrivateKey, d.Address)
+	if dns != "" {
+		fmt.Fprintf(&b, "DNS = %s\n", dns)
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "[Peer]\nPublicKey = %s\nPresharedKey = %s\nAllowedIPs = %s\nEndpoint = %s\nPersistentKeepalive = 25\n",
 		s.Server.PublicKey, d.PresharedKey, network, endpoint)
 	return b.String(), nil

@@ -59,7 +59,7 @@ func CatalogModules(stacks []config.Stack) []plan.Module {
 	var out []plan.Module
 	seen := map[string]bool{}
 	for _, st := range stacks {
-		if st.Kind != manifest.KindApp || seen[st.Name] {
+		if !st.OnPlatform() || seen[st.Name] {
 			continue
 		}
 		seen[st.Name] = true

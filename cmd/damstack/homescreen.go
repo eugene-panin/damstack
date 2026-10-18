@@ -328,11 +328,12 @@ func linksScreen(ctx context.Context, s *cli, p *project.Project) error {
 		return err
 	}
 	config, _ := p.Config()
-	infra, _ := config["infra_domain"].(string)
 	var links []tui.Link
 	for _, l := range ops.RunDone(p, m).Links {
-		u, _ := url.Parse(l.URL)
-		tunnel := infra != "" && u != nil && strings.HasSuffix(u.Hostname(), "."+infra)
+		tunnel := false
+		if u, err := url.Parse(l.URL); err == nil {
+			_, tunnel = ops.AdminHost(config, m, u.Hostname())
+		}
 		links = append(links, tui.Link{URL: l.URL, Admin: l.Admin, Tunnel: tunnel, Token: l.Token})
 	}
 	model := tui.NewLinks(p.Meta.Name, links, tui.LinkActions{

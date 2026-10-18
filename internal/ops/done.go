@@ -37,11 +37,30 @@ func DoneLines(p *project.Project, m *manifest.Manifest, app string) []string {
 	return lines
 }
 
+// ConsulNames ends the names of the services of a platform in Consul's DNS,
+// such as nomad.service.consul, reached over its private network.
+const ConsulNames = ".service.consul"
+
+// AdminHost is whether host is an admin page of a project whose stack.yaml is
+// config: a name under its infra_domain, or under .service.consul, both
+// reached over the private network. token is the token of m the first label
+// of host names, such as nomad, empty when it names none.
+func AdminHost(config map[string]any, m *manifest.Manifest, host string) (token string, ok bool) {
+	infra, _ := config["infra_domain"].(string)
+	if !strings.HasSuffix(host, ConsulNames) && (infra == "" || !strings.HasSuffix(host, "."+infra)) {
+		return "", false
+	}
+	token, _, _ = strings.Cut(host, ".")
+	if _, known := m.Tokens[token]; !known {
+		token = ""
+	}
+	return token, true
+}
+
 // RunDone says what a deploy of p set up: the addresses in the done lines of
 // its platform and of its apps, the admin pages first, and what to run next.
 func RunDone(p *project.Project, m *manifest.Manifest) event.RunDone {
 	config, _ := p.Config()
-	infra, _ := config["infra_domain"].(string)
 	var admin, apps []event.Link
 	seen := map[string]bool{}
 	add := func(lines []string) {
@@ -53,11 +72,7 @@ func RunDone(p *project.Project, m *manifest.Manifest) event.RunDone {
 					continue
 				}
 				seen[link] = true
-				if infra != "" && strings.HasSuffix(u.Hostname(), "."+infra) {
-					token, _, _ := strings.Cut(u.Hostname(), ".")
-					if _, ok := m.Tokens[token]; !ok {
-						token = ""
-					}
+				if token, ok := AdminHost(config, m, u.Hostname()); ok {
 					admin = append(admin, event.Link{URL: link, Admin: true, Token: token})
 				} else {
 					apps = append(apps, event.Link{URL: link})
