@@ -340,17 +340,12 @@ func updateApp(ctx context.Context, s *cli, p *project.Project, name string) err
 	return deployParts(ctx, s, p, pm, pdir, name)
 }
 
-// deployParts deploys the named parts of a project, and the platform's steps
-// that come after the apps, such as its DNS records.
+// deployParts deploys the named parts of a project, and the steps of the
+// platform and the domains that come after the apps, such as the DNS records.
 func deployParts(ctx context.Context, s *cli, p *project.Project, pm *manifest.Manifest, pdir string, parts ...string) error {
 	only := map[string]bool{}
 	for _, part := range parts {
 		only[part] = true
 	}
-	for _, step := range pm.Steps {
-		if step.AfterApps {
-			only[step.Name] = true
-		}
-	}
-	return runSteps(ctx, s, p, pm, pdir, ops.Options{Only: only}, false)
+	return runSteps(ctx, s, p, pm, pdir, ops.Options{Only: only, AfterApps: true}, false)
 }

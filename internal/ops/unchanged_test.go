@@ -102,7 +102,7 @@ func TestADeployFingerprintsThePlatformsAnsibleStepsOrRunsWhatWasPicked(t *testi
 			{Engine: app, Name: "sauron/apply", Step: manifest.Step{Name: "apply", Tofu: &manifest.Tofu{Dir: "infra"}}},
 		}
 	}
-	got, err := chooseJobs(nil, false, p, jobs(), false, "pw")
+	got, err := chooseJobs(nil, false, false, p, jobs(), false, "pw")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,10 +111,10 @@ func TestADeployFingerprintsThePlatformsAnsibleStepsOrRunsWhatWasPicked(t *testi
 			t.Errorf("%s: fingerprinted %v, want %v", j.Name, j.Inputs != "", want)
 		}
 	}
-	if got, _ = chooseJobs(nil, true, p, jobs(), false, "pw"); got[1].Inputs != "" {
+	if got, _ = chooseJobs(nil, false, true, p, jobs(), false, "pw"); got[1].Inputs != "" {
 		t.Error("--all runs every step: none is fingerprinted")
 	}
-	got, _ = chooseJobs(map[string]bool{"provision": true, "sauron": true}, false, p, jobs(), false, "pw")
+	got, _ = chooseJobs(map[string]bool{"provision": true, "sauron": true}, false, false, p, jobs(), false, "pw")
 	var names []string
 	for _, j := range got {
 		names = append(names, j.Name)

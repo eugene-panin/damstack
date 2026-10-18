@@ -165,7 +165,7 @@ func historyCommand(s *cli) *cobra.Command {
 // stepOrder names the steps of a deploy in the order they run, those of an
 // app as app/step.
 func stepOrder(p *project.Project, m *manifest.Manifest) []string {
-	var before, after []string
+	var before, after, domains []string
 	for _, step := range m.Steps {
 		switch {
 		case step.Restore:
@@ -182,13 +182,17 @@ func stepOrder(p *project.Project, m *manifest.Manifest) []string {
 		}
 		if _, t, ok := am.Target(m.Provides); ok {
 			for _, step := range t.Steps {
-				if !step.Restore {
+				switch {
+				case step.Restore:
+				case am.IsDomain() && step.AfterApps:
+					domains = append(domains, ref.Name+"/"+step.Name)
+				default:
 					before = append(before, ref.Name+"/"+step.Name)
 				}
 			}
 		}
 	}
-	return append(before, after...)
+	return append(append(before, after...), domains...)
 }
 
 // stackCommands are the commands of the stacks of a project, and of its apps
