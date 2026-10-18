@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,7 +51,11 @@ func PlatformInputs(p *project.Project, stackDir, playbook, password string) (st
 	if err != nil {
 		return "", err
 	}
+	ports := appPublicPorts(config["apps"])
 	delete(config, "apps")
+	if len(ports) > 0 {
+		config["apps.public_ports"] = ports
+	}
 	secrets, err := p.Secrets(password)
 	if err != nil {
 		return "", err
@@ -126,4 +131,20 @@ func chooseJobs(only map[string]bool, afterApps, all bool, p *project.Project, j
 		}
 	}
 	return jobs, nil
+}
+
+// appPublicPorts are the public ports the apps of a project open, the one
+// setting of theirs a platform's Ansible reads, for its firewall: sorted and
+// once each, so that an app added or removed with ports runs it again.
+func appPublicPorts(apps any) []string {
+	blocks, _ := apps.(map[string]any)
+	seen := map[string]bool{}
+	for _, block := range blocks {
+		b, _ := block.(map[string]any)
+		list, _ := b["public_ports"].([]any)
+		for _, port := range list {
+			seen[fmt.Sprint(port)] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }

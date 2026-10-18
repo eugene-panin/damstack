@@ -57,6 +57,16 @@ func TestAnUnchangedPlatformStepIsSkipped(t *testing.T) {
 	if inputs() != first {
 		t.Error("a change under apps must not change the platform's inputs")
 	}
+	os.WriteFile(filepath.Join(dir, project.ConfigFile), []byte("server: {address: 1.2.3.4}\napps:\n  sauron: {replicas: 3}\n  traefik: {public_ports: [443, 80]}\n"), 0o644)
+	ported := inputs()
+	if ported == first {
+		t.Error("an app's public ports are the platform's firewall: they must change its inputs")
+	}
+	os.WriteFile(filepath.Join(dir, project.ConfigFile), []byte("server: {address: 1.2.3.4}\napps:\n  sauron: {replicas: 1, public_ports: [80]}\n  traefik: {public_ports: [80, 443]}\n"), 0o644)
+	if inputs() != ported {
+		t.Error("the same ports, in any order and by any app, are the same inputs")
+	}
+	os.WriteFile(filepath.Join(dir, project.ConfigFile), []byte("server: {address: 1.2.3.4}\napps:\n  sauron: {replicas: 1}\n"), 0o644)
 	if Unchanged(p, "provision", first, now.Add(8*24*time.Hour)) != "" {
 		t.Error("an unchanged step runs again once its last run is a week old")
 	}
