@@ -89,7 +89,7 @@ sed -i.bak 's/^greeting: hi/greeting: hello/' stack.yaml
 printf 'hostname: hello.example.org\n' >"$work/app-answers.yaml"
 "$damstack" app add --from "$app" --answers "$work/app-answers.yaml" --yes </dev/null >"$work/out" 2>&1 || { cat "$work/out"; fail "app add"; }
 order=$(grep -Eo '^[0-9]+/[0-9]+  (apply|hello/apply|publish)$' "$work/out" | tr '\n' ' ')
-[[ $order == "2/4  apply 3/4  hello/apply 4/4  publish " ]] || { cat "$work/out"; fail "steps ran in the order: $order"; }
+[[ $order == "3/5  apply 4/5  hello/apply 5/5  publish " ]] || { cat "$work/out"; fail "steps ran in the order: $order"; }
 grep -q 'hostname: hello.example.org' stack.yaml || fail "the settings of the app are not in stack.yaml"
 grep -qx 'clients: \[laptop, phone\]' stack.yaml || fail "stack.yaml lost what was there"
 grep -q hello.example.org published.txt || fail "the platform did not publish the records of the app"

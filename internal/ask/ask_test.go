@@ -177,3 +177,22 @@ func TestNoTerminalSecretFromPipe(t *testing.T) {
 		t.Errorf("got %q, %v, printed %q", got, err, out.String())
 	}
 }
+
+// An answers file says false for no and 8080 for "8080", as YAML reads them.
+func TestCheckTakesScalarsAsText(t *testing.T) {
+	yesNo := manifest.Question{Name: "private_registry", Type: "enum", Options: []string{"no", "yes"}}
+	for v, want := range map[any]any{false: "no", true: "yes", "no": "no"} {
+		if got, err := Check(yesNo, v); err != nil || got != want {
+			t.Errorf("Check(%v) = %v, %v; want %v", v, got, err, want)
+		}
+	}
+	if got, err := Check(manifest.Question{Name: "port"}, 8080); err != nil || got != "8080" {
+		t.Errorf("a number: %v, %v", got, err)
+	}
+	if _, err := Check(manifest.Question{Name: "port"}, map[string]any{}); err == nil {
+		t.Error("a map is not text")
+	}
+	if _, err := Check(manifest.Question{Name: "mode", Type: "enum", Options: []string{"a", "b"}}, true); err == nil {
+		t.Error("true is none of a, b")
+	}
+}

@@ -38,3 +38,16 @@ func TestCancelledQuestion(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// An app that opens ports needs the platform's firewall: app add leaves the
+// platform's steps to their fingerprint, not skipped outright.
+func TestAppAddLeavesThePlatformToItsFingerprint(t *testing.T) {
+	s := newCLI(t.Context(), strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	add, _, err := appCommand(s).Find([]string{"add"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := add.Flags().Lookup("apps-only"); f == nil || f.DefValue != "false" {
+		t.Errorf("app add --apps-only defaults to %v, want false", f)
+	}
+}

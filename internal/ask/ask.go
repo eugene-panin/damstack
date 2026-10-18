@@ -290,12 +290,30 @@ func Check(q manifest.Question, v any) (any, error) {
 		}
 		return nil, errors.New("must be a list")
 	default:
-		s, ok := v.(string)
+		s, ok := scalar(q, v)
 		if !ok {
 			return nil, errors.New("must be text")
 		}
 		return checkString(q, s)
 	}
+}
+
+// scalar is a YAML scalar as the text of an answer: a number as written, and
+// true or false as yes or no where those are the options, as YAML reads an
+// unquoted yes or no in some files.
+func scalar(q manifest.Question, v any) (string, bool) {
+	switch v := v.(type) {
+	case string:
+		return v, true
+	case bool:
+		if slices.Contains(q.Options, "yes") && slices.Contains(q.Options, "no") {
+			return map[bool]string{true: "yes", false: "no"}[v], true
+		}
+		return fmt.Sprint(v), true
+	case int, int64, uint64, float64:
+		return fmt.Sprint(v), true
+	}
+	return "", false
 }
 
 func checkString(q manifest.Question, s string) (string, error) {
