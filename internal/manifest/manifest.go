@@ -315,8 +315,8 @@ type Step struct {
 	// Tunnel is whether the step reaches the server over the private
 	// network; damstack checks that server.tunnel answers first.
 	Tunnel bool `yaml:"tunnel"`
-	// AfterApps runs a step of a platform after the steps of its apps, such
-	// as the one that publishes the DNS records of all of them.
+	// AfterApps runs a step of a platform or a domain after the steps of the
+	// apps, such as the one that publishes the DNS records of all of them.
 	AfterApps bool `yaml:"after_apps"`
 	// Restore is a step only damstack restore runs, such as the one that puts
 	// the data of the apps back from the backup.
@@ -662,7 +662,7 @@ func (c *checker) check(m *Manifest, dir, damstackVersion string) {
 			if len(t.Steps) == 0 {
 				c.add(path+".steps", "at least one step is required")
 			}
-			c.checkSteps(path+".steps", t.Steps, dir, true)
+			c.checkSteps(path+".steps", t.Steps, dir, m.Kind == KindApp)
 			c.checkCommands(path+".commands", t.Commands, dir)
 		}
 		for i, s := range m.Secrets {
@@ -701,7 +701,7 @@ func (c *checker) checkSteps(path string, steps []Step, dir string, app bool) {
 		}
 		seen[s.Name] = true
 		if app && s.AfterApps {
-			c.add(p+".after_apps", "is for a step of a platform")
+			c.add(p+".after_apps", "is for a step of a platform or a domain")
 		}
 		c.checkStep(p, s, dir)
 	}

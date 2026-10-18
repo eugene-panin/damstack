@@ -95,10 +95,10 @@ func Unchanged(p *project.Project, step, inputs string, now time.Time) string {
 	return "unchanged since " + last.Time.Local().Format("Jan 2 15:04") + "; --all runs it"
 }
 
-// chooseJobs keeps the jobs a deploy runs: those picked, when some were, all
-// of them run; otherwise every one, those of the platform's Ansible steps with
+// chooseJobs keeps the jobs a deploy runs: those picked, when some were, with
+// the steps after the apps when afterApps, all of them run; otherwise every one, those of the platform's Ansible steps with
 // the fingerprint of their inputs, to be skipped while it stays the same.
-func chooseJobs(only map[string]bool, all bool, p *project.Project, jobs []Job, restore bool, password string) ([]Job, error) {
+func chooseJobs(only map[string]bool, afterApps, all bool, p *project.Project, jobs []Job, restore bool, password string) ([]Job, error) {
 	if only != nil {
 		var parts []string
 		for _, j := range jobs {
@@ -111,7 +111,7 @@ func chooseJobs(only map[string]bool, all bool, p *project.Project, jobs []Job, 
 				return nil, fmt.Errorf("%s is no part of a deploy of %s; the parts: %s", name, p.Meta.Name, strings.Join(parts, ", "))
 			}
 		}
-		return slices.DeleteFunc(jobs, func(j Job) bool { return !only[j.Part()] }), nil
+		return slices.DeleteFunc(jobs, func(j Job) bool { return !only[j.Part()] && !(afterApps && j.Step.AfterApps) }), nil
 	}
 	if restore || all {
 		return jobs, nil

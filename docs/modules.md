@@ -181,7 +181,11 @@ provides `public-dns@1`. The certificates of public apps are not its: Traefik
 point at the server.
 
 A domain module goes on a platform like an app, with the same targets,
-questions, secrets and steps, and is added with `damstack app add`.
+questions, secrets and steps, and is added with `damstack app add`. It joins
+the plan before the apps that require it, so the step that publishes the
+records is marked `after_apps`: it runs after the steps of every app, and of
+the platform's that come after them, once all of them have left their
+`dns/*.json`.
 
 A provider damstack supports natively is a module with deterministic OpenTofu,
 Cloudflare first. For any other, the `manual` module shows the records to add

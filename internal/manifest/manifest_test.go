@@ -344,6 +344,17 @@ func TestAppProblems(t *testing.T) {
 	}
 }
 
+func TestADomainsStepRunsAfterTheApps(t *testing.T) {
+	doc := strings.Replace(strings.Replace(validApp, "kind: app", "kind: domain", 1), "        confirm: true", "        after_apps: true", 1)
+	m, err := Load(stackDir(t, doc), "0.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, target, _ := m.Target([]string{"consul", "nomad", "vault-kv"}); !m.IsDomain() || !target.Steps[0].AfterApps {
+		t.Errorf("got %+v", m)
+	}
+}
+
 func TestPlatformProblems(t *testing.T) {
 	for _, tc := range []struct{ from, to, want string }{
 		{"steps:\n  - name: provision", "targets:\n  nomad: {steps: []}\nsteps:\n  - name: provision", "are for an app"},

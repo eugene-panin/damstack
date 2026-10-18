@@ -30,7 +30,8 @@ and the password the provider gave.
 - A step marked `once` runs until it succeeds once.
 - A step marked `confirm` asks before it changes anything.
 - A step marked `tunnel` waits until the server answers over WireGuard.
-- A step marked `after_apps`, of a platform, runs after the steps of its apps.
+- A step marked `after_apps`, of a platform or a domain, runs after the steps of
+  the apps; the platform's first, then the domains'.
 - A step marked `restore` runs only in `damstack restore`, which also runs the
   `once` steps again, and gives every step the latest backup as a tar in
   `DAMSTACK_RESTORE`.

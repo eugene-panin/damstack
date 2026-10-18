@@ -81,6 +81,9 @@ type Options struct {
 	// Only, when set, is what a deploy runs: the platform's steps by name and
 	// the apps, all their steps, by theirs; it runs them though unchanged.
 	Only map[string]bool
+	// AfterApps, with Only, runs the steps that come after the apps too, those
+	// of the platform and of the domains, such as the DNS records.
+	AfterApps bool
 	// Restore, the snapshot of a backup, sets up a new server from it.
 	Restore string
 }
@@ -197,7 +200,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 		if err != nil {
 			return err
 		}
-		if jobs, err = chooseJobs(d.Opts.Only, d.Opts.All, p, jobs, restore != "", e.Password); err != nil {
+		if jobs, err = chooseJobs(d.Opts.Only, d.Opts.AfterApps, d.Opts.All, p, jobs, restore != "", e.Password); err != nil {
 			return err
 		}
 		sh.Attach(jobs)
@@ -238,10 +241,11 @@ func (d *Deployer) Deploy(ctx context.Context, p *project.Project, m *manifest.M
 }
 
 // BuildJobs lists the steps of a deploy in their order: the platform's, every
-// app's, then the platform's that come after the apps; those of a restore only
-// with restore. The apps' engines are made now, with ui and yes.
+// app's, then the platform's that come after the apps and last the domains'
+// that do, which publish the records the apps and the platform left; those of
+// a restore only with restore. The apps' engines are made now, with ui and yes.
 func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *manifest.Manifest, e *engine.Engine, restore, appsOnly bool) ([]Job, error) {
-	var jobs, after []Job
+	var jobs, after, domains []Job
 	for _, step := range m.Steps {
 		if step.Restore && !restore {
 			continue
@@ -309,10 +313,15 @@ func BuildJobs(ctx context.Context, ui UI, yes bool, p *project.Project, m *mani
 			if step.Restore && !restore {
 				continue
 			}
-			jobs = append(jobs, Job{Engine: ae, Name: ref.Name + "/" + step.Name, Step: step})
+			j := Job{Engine: ae, Name: ref.Name + "/" + step.Name, Step: step}
+			if am.IsDomain() && step.AfterApps {
+				domains = append(domains, j)
+			} else {
+				jobs = append(jobs, j)
+			}
 		}
 	}
-	return append(jobs, after...), nil
+	return append(append(jobs, after...), domains...), nil
 }
 
 func (d *Deployer) runJob(ctx context.Context, ui UI, p *project.Project, j Job, n, total int, srv *manifest.Server, restore bool) error {

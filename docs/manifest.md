@@ -207,7 +207,7 @@ name of damstack's own.
 | `confirm` | Ask before applying; a plan that replaces Nomad allocations asks anyway. |
 | `once` | Run until it succeeds once; `damstack restore` runs it again. |
 | `tunnel` | Wait until `server.tunnel` answers first. |
-| `after_apps` | For a platform: run after the steps of its apps, such as publishing the DNS records of all of them. |
+| `after_apps` | For a platform or a domain, not an app: run after the steps of every app, such as publishing the DNS records all of them left in `dns/`. The platform's run first, then the domains', which publish what those left too. |
 | `restore` | Run only in `damstack restore`, which gives every step the latest backup as a tar in `DAMSTACK_RESTORE`. |
 | `keep` | Move values a step left in a JSON file of the project into `vault.yml`, then remove the file: `{file, secrets: {secret: field}}`. For an app, each secret begins with the app's name. |
 
