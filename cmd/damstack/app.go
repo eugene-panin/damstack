@@ -23,8 +23,7 @@ func appCommand(s *cli) *cobra.Command {
 		Short: "Add apps to the project you are in, and list them",
 	}
 	var from, answers string
-	var yes, asJSON bool
-	appsOnly := true
+	var yes, asJSON, appsOnly bool
 	add := &cobra.Command{
 		Use:   "add <app>",
 		Short: "Add an app: a name damstack stacks lists, owner/name for github.com/owner/damstack-name, or any address",
@@ -43,7 +42,7 @@ func appCommand(s *cli) *cobra.Command {
 	add.Flags().StringVar(&from, "from", "", "add the app in this directory as it is, instead of a release; for writing an app")
 	add.Flags().StringVar(&answers, "answers", "", "a YAML file with answers to the questions, and the secrets the app asks for")
 	add.Flags().BoolVar(&yes, "yes", false, "deploy the project right after, without asking")
-	add.Flags().BoolVar(&appsOnly, "apps-only", true, "on the deploy right after, skip the platform's Ansible steps (the platform is already up); --apps-only=false re-converges it too")
+	add.Flags().BoolVar(&appsOnly, "apps-only", false, "on the deploy right after, skip the platform's Ansible steps; without it they run only if what they read changed, such as the ports the app opens")
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List the apps of the project you are in",
