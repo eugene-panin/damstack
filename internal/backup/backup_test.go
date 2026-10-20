@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"github.com/eugene-panin/damstack/internal/manifest"
 )
 
@@ -67,12 +69,32 @@ func TestSFTP(t *testing.T) {
 	if s.Repo != "sftp:ops@10.77.0.1:/var/backups/restic" {
 		t.Errorf("repo: %s", s.Repo)
 	}
-	cmd := strings.Join(s.Options, " ")
+	cmd := resticOption(t, s)
 	for _, want := range []string{`'UserKnownHostsFile="/home/me/my projects/known_hosts"'`, "StrictHostKeyChecking=accept-new",
 		"-i /home/me/.ssh/id_ed25519", "ops@10.77.0.1 sudo /usr/lib/openssh/sftp-server"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("no %q in %s", want, cmd)
 		}
+	}
+}
+
+func resticOption(t *testing.T, s Source) string {
+	t.Helper()
+	fs := pflag.NewFlagSet("restic", pflag.ContinueOnError)
+	opts := fs.StringSliceP("option", "o", nil, "")
+	if err := fs.Parse(s.Options); err != nil {
+		t.Fatalf("restic would refuse %q: %v", s.Options, err)
+	}
+	if len(*opts) != 1 || !strings.HasPrefix((*opts)[0], "sftp.command=ssh ") {
+		t.Fatalf("restic would see %q", *opts)
+	}
+	return (*opts)[0]
+}
+
+func TestSFTPOptionParsesAsResticDoes(t *testing.T) {
+	s := SFTP("ops", "10.77.0.1", "/var/backups/restic", "/home/me/my projects, v2/known_hosts", "/home/me/.ssh/id_ed25519")
+	if want := `'UserKnownHostsFile="/home/me/my projects, v2/known_hosts"'`; !strings.Contains(resticOption(t, s), want) {
+		t.Errorf("no %q in %s", want, resticOption(t, s))
 	}
 }
 

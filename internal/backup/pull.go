@@ -143,8 +143,17 @@ func SFTP(user, host, path, knownHosts, key string) Source {
 	ssh = append(ssh, user+"@"+host, "sudo", "/usr/lib/openssh/sftp-server")
 	return Source{
 		Repo:    "sftp:" + user + "@" + host + ":" + path,
-		Options: []string{"-o", "sftp.command=" + strings.Join(ssh, " ")},
+		Options: []string{"-o", csvField("sftp.command=" + strings.Join(ssh, " "))},
 	}
+}
+
+// csvField quotes an option of restic as CSV: its -o splits the value at
+// commas and refuses a bare quote, as the known hosts option has.
+func csvField(s string) string {
+	if !strings.ContainsAny(s, "\",\r\n") {
+		return s
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func quote(s string) string {
