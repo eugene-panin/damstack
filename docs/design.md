@@ -276,7 +276,9 @@ $ damstack backup status
   destroys and restores.
 
 Now: hashi backs up on the server every night; `damstack backup pull`
-copies the snapshots to the laptop over SFTP through the tunnel, and forgets
+copies the snapshots to the laptop over SFTP, through the tunnel or, when
+another tunnel or none is up, to the public address under the host key the
+project knows, and forgets
 what `backup.keep` of the stack does not keep; deploy schedules it with
 launchd or systemd as `backup.every` says; `damstack backup status` and the
 home screen warn when the laptop copy is older than two days or missing.

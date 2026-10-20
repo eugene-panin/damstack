@@ -147,8 +147,6 @@ func SFTP(user, host, path, knownHosts, key string) Source {
 	}
 }
 
-// csvField quotes an option of restic as CSV: its -o splits the value at
-// commas and refuses a bare quote, as the known hosts option has.
 func csvField(s string) string {
 	if !strings.ContainsAny(s, "\",\r\n") {
 		return s

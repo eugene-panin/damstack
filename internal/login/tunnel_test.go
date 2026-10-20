@@ -72,3 +72,32 @@ func TestSameServer(t *testing.T) {
 		t.Errorf("a server not known yet: %v", err)
 	}
 }
+
+func TestReach(t *testing.T) {
+	ours, ourKey := sshServer(t)
+	other, _ := sshServer(t)
+	down := "127.0.0.1:1"
+	kh := knownHostsFile(t, "34.1.2.3", ourKey)
+
+	for _, c := range []struct {
+		name, tunnel, direct, want string
+	}{
+		{"the tunnel of the project", ours, other, ours},
+		{"the tunnel of another project", other, ours, ours},
+		{"no tunnel", down, ours, ours},
+	} {
+		got, err := Reach(t.Context(), kh, "34.1.2.3", c.tunnel, c.direct)
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q, %v", c.name, got, err)
+		}
+	}
+	if _, err := Reach(t.Context(), kh, "34.1.2.3", other, other); !errors.Is(err, ErrOtherServer) {
+		t.Errorf("another server at both: %v", err)
+	}
+	if got, err := Reach(t.Context(), kh, "34.9.9.9", down, ours); err != nil || got != down {
+		t.Errorf("a server whose key is not known yet keeps the tunnel: %q, %v", got, err)
+	}
+	if _, err := Reach(t.Context(), kh, "34.1.2.3", down, down); err == nil {
+		t.Error("nothing answers: no error")
+	}
+}

@@ -350,7 +350,8 @@ func laterThanNow(snaps []backup.Snapshot) string {
 var errNoAnswer = errors.New("the server does not answer")
 
 // serverSource is the repository at path on the server of p, through the
-// tunnel; in a terminal it waits for the tunnel, scheduled it does not.
+// tunnel, or at its public address when another tunnel or none is up; in a
+// terminal it waits for the tunnel when neither answers, scheduled it does not.
 func serverSource(ctx context.Context, ui UI, p *project.Project, srv *manifest.Server, path string, scheduled bool) (backup.Source, error) {
 	cfg, err := p.Config()
 	if err != nil {
@@ -372,19 +373,19 @@ func serverSource(ctx context.Context, ui UI, p *project.Project, srv *manifest.
 		return backup.Source{}, errors.New("the stack names no tunnel address or ops user of the server to pull the backups from")
 	}
 	knownHosts := filepath.Join(p.Dir, project.KnownHosts)
-	if scheduled {
-		if err := login.SameServer(ctx, knownHosts, public, net.JoinHostPort(address, "22")); err != nil {
-			if errors.Is(err, login.ErrOtherServer) {
-				return backup.Source{}, fmt.Errorf("%w at %s: another server answers there, most likely through the tunnel of another project; the next pull tries again", errNoAnswer, address)
-			}
-			on, known := login.WireGuardOn(ctx)
-			if hint := login.TunnelHint(on, public, known); hint != "" {
-				return backup.Source{}, fmt.Errorf("%w at %s; the next pull tries again. %s", errNoAnswer, address, hint)
-			}
-			return backup.Source{}, fmt.Errorf("%w at %s; the next pull tries again", errNoAnswer, address)
+	host, err := login.Reach(ctx, knownHosts, public, net.JoinHostPort(address, "22"), net.JoinHostPort(public, "22"))
+	switch {
+	case err == nil:
+		address, _, _ = net.SplitHostPort(host)
+	case scheduled:
+		if errors.Is(err, login.ErrOtherServer) {
+			return backup.Source{}, fmt.Errorf("%w at %s or %s: another server answers there; the next pull tries again", errNoAnswer, address, public)
 		}
-	} else if err := WaitTunnel(ctx, ui, p, srv); err != nil {
-		return backup.Source{}, err
+		return backup.Source{}, fmt.Errorf("%w at %s or %s; the next pull tries again", errNoAnswer, address, public)
+	default:
+		if err := WaitTunnel(ctx, ui, p, srv); err != nil {
+			return backup.Source{}, err
+		}
 	}
 	m, _ := CachedStack(p)
 	password, err := p.Password()
