@@ -57,3 +57,14 @@ func SameServer(ctx context.Context, knownHosts, public, tunnel string) error {
 	}
 	return err
 }
+
+func Reach(ctx context.Context, knownHosts, public, tunnel, direct string) (string, error) {
+	tunnelErr := SameServer(ctx, knownHosts, public, tunnel)
+	if tunnelErr == nil {
+		return tunnel, nil
+	}
+	if err := SameServer(ctx, knownHosts, public, direct); err != nil {
+		return "", fmt.Errorf("%w; %s: %w", tunnelErr, public, err)
+	}
+	return direct, nil
+}
